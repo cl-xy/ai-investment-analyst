@@ -1,0 +1,47 @@
+name: Scheduled Portfolio Refresh
+
+on:
+  schedule:
+    - cron: "59 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: scheduled-portfolio-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check ET schedule window
+        id: schedule_check
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "run_now=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          current_et=$(TZ=America/New_York date '+%H:%M')
+          if [[ "$current_et" == "23:59" ]]; then
+            echo "run_now=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_now=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Trigger backend scheduled refresh
+        if: steps.schedule_check.outputs.run_now == 'true'
+        env:
+          SCHEDULED_REFRESH_URL: ${{ secrets.SCHEDULED_REFRESH_URL }}
+          SCHEDULER_SECRET_TOKEN: ${{ secrets.SCHEDULER_SECRET_TOKEN }}
+        run: |
+          test -n "$SCHEDULED_REFRESH_URL"
+          test -n "$SCHEDULER_SECRET_TOKEN"
+          curl --fail --show-error --silent \
+            --retry 3 \
+            --retry-all-errors \
+            --connect-timeout 10 \
+            --max-time 120 \
+            -X POST "$SCHEDULED_REFRESH_URL" \
+            -H "x-scheduler-token: $SCHEDULER_SECRET_TOKEN" \
+            -H "content-type: application/json"

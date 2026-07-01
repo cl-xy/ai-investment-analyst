@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     mcp_data_dir: Path = Path.home() / ".mcp_investment"
     mongodb_uri: str = "mongodb://localhost:27017"
     mongodb_db: str = "investment_analyst"
+    scheduler_secret_token: str = ""
+    scheduler_refresh_lock_seconds: int = 900
 
     @property
     def checkpointer_db(self) -> str:
