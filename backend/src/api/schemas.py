@@ -72,3 +72,12 @@ class StockDetail(BaseModel):
     description: str | None
     price_history: list[PricePoint]
     trending_reason: list[NewsItem]
+
+
+class ScheduledRefreshResponse(BaseModel):
+    status: Literal["success", "skipped"]
+    message: str
+    tickers: list[str]
+    analysis_id: str | None = None
+    created_at: datetime
+    duration_ms: int

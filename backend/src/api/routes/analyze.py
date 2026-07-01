@@ -62,23 +62,30 @@ async def _fetch_cached_analyses(tickers: list[str]) -> dict[str, TickerAnalysis
     return cached
 
 
-@router.post("/analyze", response_model=AnalyzeResponse)
-async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
+def _normalise_tickers(raw_tickers: list[str]) -> list[str]:
     # Deduplicate and normalise
     seen: set[str] = set()
     tickers: list[str] = []
-    for t in request.tickers:
+    for t in raw_tickers:
         normalised = t.upper().strip()
         if normalised and normalised not in seen:
             seen.add(normalised)
             tickers.append(normalised)
+    return tickers
 
-    if not tickers:
+
+async def analyze_tickers(tickers: list[str], *, force_refresh: bool = False) -> AnalyzeResponse:
+    normalised_tickers = _normalise_tickers(tickers)
+
+    if not normalised_tickers:
         raise HTTPException(status_code=400, detail="At least one ticker is required")
 
-    # Separate already-cached tickers from ones that need fresh analysis
-    cached_analyses = await _fetch_cached_analyses(tickers)
-    new_tickers = [t for t in tickers if t not in cached_analyses]
+    cached_analyses: dict[str, TickerAnalysis] = {}
+    new_tickers = normalised_tickers
+    if not force_refresh:
+        # Separate already-cached tickers from ones that need fresh analysis
+        cached_analyses = await _fetch_cached_analyses(normalised_tickers)
+        new_tickers = [t for t in normalised_tickers if t not in cached_analyses]
 
     analyses: dict[str, TickerAnalysis] = dict(cached_analyses)
     report_markdown = ""
@@ -106,7 +113,7 @@ async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
 
     created_at = datetime.now(timezone.utc)
     doc = {
-        "tickers": tickers,
+        "tickers": normalised_tickers,
         "report_markdown": report_markdown,
         "analyses": {k: v.model_dump() for k, v in analyses.items()},
         "created_at": created_at,
@@ -118,8 +125,13 @@ async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
 
     return AnalyzeResponse(
         id=record_id,
-        tickers=tickers,
+        tickers=normalised_tickers,
         report_markdown=report_markdown,
         analyses=analyses,
         created_at=created_at,
     )
+
+
+@router.post("/analyze", response_model=AnalyzeResponse)
+async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
+    return await analyze_tickers(request.tickers, force_refresh=False)
