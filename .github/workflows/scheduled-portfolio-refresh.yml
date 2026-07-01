@@ -5,6 +5,8 @@ on:
     - cron: "59 * * * *"
   workflow_dispatch:
 
+permissions: {}
+
 concurrency:
   group: scheduled-portfolio-refresh
   cancel-in-progress: false
