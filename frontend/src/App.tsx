@@ -3,6 +3,7 @@ import { Route, Routes, useNavigate } from 'react-router-dom'
 import DashboardPage from './components/DashboardPage'
 import EvalPage from './components/EvalPage'
 import ExplorePage from './components/ExplorePage'
+import Footer from './components/Footer'
 import Header from './components/Header'
 import StreamingAnalysisPage from './components/StreamingAnalysisPage'
 import WatchlistPage from './components/WatchlistPage'
@@ -24,27 +25,30 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
+    <div className="min-h-screen bg-[var(--bg)] flex flex-col">
       <Header />
 
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <WatchlistPage
-              tickers={tickers}
-              onAdd={addTicker}
-              onRemove={removeTicker}
-              onAnalyze={handleAnalyze}
-              loading={false}
-            />
-          }
-        />
-        <Route path="/analyze" element={<StreamingAnalysisPage />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/explore" element={<ExplorePage />} />
-        <Route path="/evals" element={<EvalPage />} />
-      </Routes>
+      <main className="flex-1">
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <WatchlistPage
+                tickers={tickers}
+                onAdd={addTicker}
+                onRemove={removeTicker}
+                onAnalyze={handleAnalyze}
+                loading={false}
+              />
+            }
+          />
+          <Route path="/analyze" element={<StreamingAnalysisPage />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/explore" element={<ExplorePage />} />
+          <Route path="/evals" element={<EvalPage />} />
+        </Routes>
+      </main>
+      <Footer />
     </div>
   )
 }
