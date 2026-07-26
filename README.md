@@ -35,10 +35,12 @@ Every step streams to the frontend via SSE — you see tool calls resolve, cache
 │                      LangGraph StateGraph                        │
 └──────┬──────────┬──────────┬──────────┬──────────┬──────────────┘
        │          │          │          │          │
-  ┌────┴───┐ ┌───┴────┐ ┌───┴───┐ ┌───┴───┐ ┌───┴────┐
-  │yfinance│ │NewsAPI │ │  SEC  │ │SQLite │ │MongoDB │
-  │ quotes │ │  + RSS │ │EDGAR  │ │ portfolio│ │  cache │
-  └────────┘ └────────┘ └───────┘ └───────┘ └────────┘
+  ┌────┴───┐ ┌───┴────┐ ┌───┴───┐ ┌───┴───┐ ┌───┴──────┐
+  │yfinance│ │NewsAPI │ │  SEC  │ │SQLite │ │PostgreSQL│
+  │ quotes │ │  + RSS │ │EDGAR  │ │portfolio│ │ analyses │
+  └────────┘ └────────┘ └───────┘ └───────┘ │  cache   │
+                                             │  runs    │
+                                             └──────────┘
 ```
 
 ## Key Design Decisions
