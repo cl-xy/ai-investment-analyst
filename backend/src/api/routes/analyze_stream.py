@@ -193,9 +193,21 @@ async def analyze_stream(
     tool_call, tool_result, llm_token, analysis_complete, run_completed.
     Heartbeats every 15s to prevent proxy timeouts.
     """
-    ticker_list = [t.strip() for t in tickers.split(",") if t.strip()]
+    import re
+
+    ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
     if not ticker_list:
         return {"error": "At least one ticker is required"}
+
+    # Validate ticker format: alphanumeric + dots, max 10 chars each
+    valid_pattern = re.compile(r"^[A-Z0-9.]{1,10}$")
+    invalid = [t for t in ticker_list if not valid_pattern.match(t)]
+    if invalid:
+        return {"error": f"Invalid ticker symbols: {', '.join(invalid)}"}
+
+    # Cap at 5 tickers per request
+    if len(ticker_list) > 5:
+        return {"error": "Maximum 5 tickers per analysis request"}
 
     # Check for reconnection
     last_event_id = 0
