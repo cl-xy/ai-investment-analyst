@@ -1,0 +1,67 @@
+{
+  "ticker": "NVDA",
+  "scenario": "large_cap_strong_buy_ai_boom",
+  "mock_responses": {
+    "get_stock_price": {
+      "ticker": "NVDA",
+      "price": 495.22,
+      "change_percent": 3.47,
+      "volume": 41200000,
+      "market_cap": 1220000000000,
+      "pe_ratio": 65.3,
+      "52w_high": 505.48,
+      "52w_low": 138.84,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "price_nvda_001",
+      "provider": "yfinance"
+    },
+    "get_stock_news": {
+      "ticker": "NVDA",
+      "articles": [
+        {"title": "NVIDIA H100 demand far exceeds supply as hyperscalers ramp orders", "source": "Reuters", "published": "2024-12-14", "sentiment": "positive"},
+        {"title": "Jensen Huang unveils Blackwell GPU architecture at GTC", "source": "Bloomberg", "published": "2024-12-13", "sentiment": "positive"},
+        {"title": "Data center revenue grows 206% YoY in latest quarter", "source": "CNBC", "published": "2024-12-12", "sentiment": "positive"},
+        {"title": "China export restrictions may limit NVIDIA growth in Asia", "source": "WSJ", "published": "2024-12-11", "sentiment": "negative"},
+        {"title": "Microsoft and Google expand NVIDIA GPU clusters for AI training", "source": "The Verge", "published": "2024-12-10", "sentiment": "positive"}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "news_nvda_001",
+      "provider": "newsapi"
+    },
+    "get_stock_fundamentals": {
+      "ticker": "NVDA",
+      "revenue_ttm": 60900000000,
+      "net_income_ttm": 29760000000,
+      "eps": 7.58,
+      "pe_ratio": 65.3,
+      "forward_pe": 38.2,
+      "dividend_yield": 0.0003,
+      "debt_to_equity": 0.41,
+      "roe": 0.91,
+      "profit_margin": 0.489,
+      "revenue_growth": 1.22,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "fund_nvda_001",
+      "provider": "yfinance"
+    },
+    "get_sec_filings": {
+      "ticker": "NVDA",
+      "filings": [
+        {"type": "10-Q", "filed": "2024-11-20", "summary": "Data Center revenue $18.4B (up 206% YoY). Gaming $2.9B. Gross margin 74.0%. Guidance: Q4 revenue $20B +/- 2%. Blackwell production ramp on track for Q1 2025."}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "sec_nvda_001",
+      "provider": "sec_edgar"
+    },
+    "get_portfolio_positions": {
+      "positions": []
+    }
+  },
+  "expected": {
+    "signal": "buy",
+    "confidence": "high",
+    "sentiment_range": [0.5, 0.95],
+    "required_citations_min": 3,
+    "must_mention": ["data center", "Blackwell"]
+  }
+}

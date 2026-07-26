@@ -1,0 +1,47 @@
+{
+  "ticker": "AMZN",
+  "scenario": "error_case_provider_timeout_all",
+  "mock_responses": {
+    "get_stock_price": {
+      "ticker": "AMZN",
+      "error": "TimeoutError: yfinance API did not respond within 30s",
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": null,
+      "provider": "yfinance"
+    },
+    "get_stock_news": {
+      "ticker": "AMZN",
+      "error": "TimeoutError: NewsAPI did not respond within 30s",
+      "articles": [],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": null,
+      "provider": "newsapi"
+    },
+    "get_stock_fundamentals": {
+      "ticker": "AMZN",
+      "error": "TimeoutError: yfinance API did not respond within 30s",
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": null,
+      "provider": "yfinance"
+    },
+    "get_sec_filings": {
+      "ticker": "AMZN",
+      "error": "TimeoutError: SEC EDGAR did not respond within 30s",
+      "filings": [],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": null,
+      "provider": "sec_edgar"
+    },
+    "get_portfolio_positions": {
+      "positions": []
+    }
+  },
+  "expected": {
+    "signal": "insufficient_data",
+    "confidence": "low",
+    "sentiment_range": [0.0, 0.0],
+    "required_citations_min": 0,
+    "must_mention": [],
+    "should_error": false
+  }
+}

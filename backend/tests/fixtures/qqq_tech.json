@@ -1,0 +1,64 @@
+{
+  "ticker": "QQQ",
+  "scenario": "etf_nasdaq100_tech_heavy",
+  "mock_responses": {
+    "get_stock_price": {
+      "ticker": "QQQ",
+      "price": 408.35,
+      "change_percent": 0.95,
+      "volume": 42300000,
+      "market_cap": null,
+      "pe_ratio": 28.7,
+      "52w_high": 415.80,
+      "52w_low": 342.55,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "price_qqq_001",
+      "provider": "yfinance"
+    },
+    "get_stock_news": {
+      "ticker": "QQQ",
+      "articles": [
+        {"title": "Nasdaq 100 rebalancing adds Palantir, removes Sirius XM", "source": "Reuters", "published": "2024-12-14", "sentiment": "neutral"},
+        {"title": "Tech sector leads market rally as AI spending accelerates", "source": "Bloomberg", "published": "2024-12-13", "sentiment": "positive"},
+        {"title": "Magnificent Seven concentration reaches 45% of index weight", "source": "CNBC", "published": "2024-12-12", "sentiment": "negative"},
+        {"title": "Software sector valuations approach 2021 highs", "source": "FT", "published": "2024-12-11", "sentiment": "negative"}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "news_qqq_001",
+      "provider": "newsapi"
+    },
+    "get_stock_fundamentals": {
+      "ticker": "QQQ",
+      "revenue_ttm": null,
+      "net_income_ttm": null,
+      "eps": 14.23,
+      "pe_ratio": 28.7,
+      "forward_pe": 25.1,
+      "dividend_yield": 0.006,
+      "debt_to_equity": null,
+      "roe": null,
+      "profit_margin": null,
+      "revenue_growth": null,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "fund_qqq_001",
+      "provider": "yfinance"
+    },
+    "get_sec_filings": {
+      "ticker": "QQQ",
+      "filings": [],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "sec_qqq_001",
+      "provider": "sec_edgar"
+    },
+    "get_portfolio_positions": {
+      "positions": []
+    }
+  },
+  "expected": {
+    "signal": "hold",
+    "confidence": "medium",
+    "sentiment_range": [0.1, 0.5],
+    "required_citations_min": 1,
+    "must_mention": ["concentration", "tech"]
+  }
+}

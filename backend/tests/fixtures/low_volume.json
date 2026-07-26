@@ -1,0 +1,63 @@
+{
+  "ticker": "SOUN",
+  "scenario": "edge_case_low_volume_thin_data",
+  "mock_responses": {
+    "get_stock_price": {
+      "ticker": "SOUN",
+      "price": 4.82,
+      "change_percent": 8.56,
+      "volume": 32000,
+      "market_cap": 1600000000,
+      "pe_ratio": null,
+      "52w_high": 7.24,
+      "52w_low": 1.38,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "price_soun_001",
+      "provider": "yfinance"
+    },
+    "get_stock_news": {
+      "ticker": "SOUN",
+      "articles": [
+        {"title": "SoundHound AI wins restaurant drive-through contract with major chain", "source": "PR Newswire", "published": "2024-12-14", "sentiment": "positive"}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "news_soun_001",
+      "provider": "newsapi"
+    },
+    "get_stock_fundamentals": {
+      "ticker": "SOUN",
+      "revenue_ttm": 56000000,
+      "net_income_ttm": -88000000,
+      "eps": -0.37,
+      "pe_ratio": null,
+      "forward_pe": null,
+      "dividend_yield": 0.0,
+      "debt_to_equity": 2.41,
+      "roe": -1.82,
+      "profit_margin": -1.571,
+      "revenue_growth": 0.52,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "fund_soun_001",
+      "provider": "yfinance"
+    },
+    "get_sec_filings": {
+      "ticker": "SOUN",
+      "filings": [
+        {"type": "10-Q", "filed": "2024-11-12", "summary": "Revenue $17.1M (+52% YoY). Net loss $21.8M. Cash runway approximately 18 months at current burn rate. Customer count grew to 130 from 98 prior year."}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "sec_soun_001",
+      "provider": "sec_edgar"
+    },
+    "get_portfolio_positions": {
+      "positions": []
+    }
+  },
+  "expected": {
+    "signal": "hold",
+    "confidence": "low",
+    "sentiment_range": [-0.2, 0.3],
+    "required_citations_min": 1,
+    "must_mention": ["volume", "cash"]
+  }
+}

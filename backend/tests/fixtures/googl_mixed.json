@@ -1,0 +1,67 @@
+{
+  "ticker": "GOOGL",
+  "scenario": "large_cap_mixed_antitrust",
+  "mock_responses": {
+    "get_stock_price": {
+      "ticker": "GOOGL",
+      "price": 141.80,
+      "change_percent": -0.87,
+      "volume": 28900000,
+      "market_cap": 1760000000000,
+      "pe_ratio": 24.1,
+      "52w_high": 153.78,
+      "52w_low": 120.21,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "price_googl_001",
+      "provider": "yfinance"
+    },
+    "get_stock_news": {
+      "ticker": "GOOGL",
+      "articles": [
+        {"title": "Google Cloud crosses $10B quarterly revenue milestone", "source": "Reuters", "published": "2024-12-14", "sentiment": "positive"},
+        {"title": "DOJ antitrust ruling could force Chrome divestiture", "source": "Bloomberg", "published": "2024-12-13", "sentiment": "negative"},
+        {"title": "Gemini AI model outperforms GPT-4 on key benchmarks", "source": "The Verge", "published": "2024-12-12", "sentiment": "positive"},
+        {"title": "YouTube ad revenue slows as TikTok gains market share", "source": "WSJ", "published": "2024-12-11", "sentiment": "negative"},
+        {"title": "Waymo autonomous ride-hailing expands to 5 new cities", "source": "CNBC", "published": "2024-12-10", "sentiment": "positive"}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "news_googl_001",
+      "provider": "newsapi"
+    },
+    "get_stock_fundamentals": {
+      "ticker": "GOOGL",
+      "revenue_ttm": 328000000000,
+      "net_income_ttm": 85300000000,
+      "eps": 5.88,
+      "pe_ratio": 24.1,
+      "forward_pe": 21.5,
+      "dividend_yield": 0.005,
+      "debt_to_equity": 0.05,
+      "roe": 0.31,
+      "profit_margin": 0.260,
+      "revenue_growth": 0.11,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "fund_googl_001",
+      "provider": "yfinance"
+    },
+    "get_sec_filings": {
+      "ticker": "GOOGL",
+      "filings": [
+        {"type": "10-Q", "filed": "2024-10-29", "summary": "Revenue $88.3B (+11% YoY). Google Cloud $10.3B (+35%). Search revenue $49.4B. Operating margin expanded to 32%. DOJ antitrust remedy hearing scheduled Q1 2025."}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "sec_googl_001",
+      "provider": "sec_edgar"
+    },
+    "get_portfolio_positions": {
+      "positions": []
+    }
+  },
+  "expected": {
+    "signal": "hold",
+    "confidence": "medium",
+    "sentiment_range": [-0.1, 0.4],
+    "required_citations_min": 2,
+    "must_mention": ["antitrust", "Cloud"]
+  }
+}

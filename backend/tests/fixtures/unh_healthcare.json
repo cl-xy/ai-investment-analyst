@@ -1,0 +1,66 @@
+{
+  "ticker": "UNH",
+  "scenario": "large_cap_healthcare_sector",
+  "mock_responses": {
+    "get_stock_price": {
+      "ticker": "UNH",
+      "price": 527.80,
+      "change_percent": -0.45,
+      "volume": 3200000,
+      "market_cap": 487000000000,
+      "pe_ratio": 22.4,
+      "52w_high": 554.70,
+      "52w_low": 436.38,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "price_unh_001",
+      "provider": "yfinance"
+    },
+    "get_stock_news": {
+      "ticker": "UNH",
+      "articles": [
+        {"title": "UnitedHealth Optum division revenue surpasses $200B annually", "source": "Reuters", "published": "2024-12-14", "sentiment": "positive"},
+        {"title": "Medicare Advantage enrollment growth slows amid regulatory changes", "source": "Bloomberg", "published": "2024-12-13", "sentiment": "negative"},
+        {"title": "Change Healthcare integration completed ahead of schedule", "source": "CNBC", "published": "2024-12-12", "sentiment": "positive"},
+        {"title": "Congressional hearings on PBM practices increase regulatory risk", "source": "WSJ", "published": "2024-12-11", "sentiment": "negative"}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "news_unh_001",
+      "provider": "newsapi"
+    },
+    "get_stock_fundamentals": {
+      "ticker": "UNH",
+      "revenue_ttm": 371000000000,
+      "net_income_ttm": 22400000000,
+      "eps": 23.56,
+      "pe_ratio": 22.4,
+      "forward_pe": 19.8,
+      "dividend_yield": 0.014,
+      "debt_to_equity": 0.73,
+      "roe": 0.27,
+      "profit_margin": 0.060,
+      "revenue_growth": 0.14,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "fund_unh_001",
+      "provider": "yfinance"
+    },
+    "get_sec_filings": {
+      "ticker": "UNH",
+      "filings": [
+        {"type": "10-Q", "filed": "2024-10-15", "summary": "Revenue $92.4B (+14% YoY). Optum Health revenue $23.9B. Medical care ratio 85.2%. Full-year EPS guidance $27.50-28.00. Members served: 52.7M domestic commercial, 28.6M Medicare/Medicaid."}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "sec_unh_001",
+      "provider": "sec_edgar"
+    },
+    "get_portfolio_positions": {
+      "positions": []
+    }
+  },
+  "expected": {
+    "signal": "hold",
+    "confidence": "medium",
+    "sentiment_range": [0.0, 0.4],
+    "required_citations_min": 2,
+    "must_mention": ["Optum", "regulatory"]
+  }
+}

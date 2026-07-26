@@ -1,0 +1,67 @@
+{
+  "ticker": "META",
+  "scenario": "large_cap_ai_investment_growth",
+  "mock_responses": {
+    "get_stock_price": {
+      "ticker": "META",
+      "price": 358.32,
+      "change_percent": 1.89,
+      "volume": 18400000,
+      "market_cap": 920000000000,
+      "pe_ratio": 24.8,
+      "52w_high": 368.82,
+      "52w_low": 274.38,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "price_meta_001",
+      "provider": "yfinance"
+    },
+    "get_stock_news": {
+      "ticker": "META",
+      "articles": [
+        {"title": "Meta AI assistant reaches 500M monthly active users", "source": "Reuters", "published": "2024-12-14", "sentiment": "positive"},
+        {"title": "Llama 3.1 open-source model drives enterprise adoption", "source": "Bloomberg", "published": "2024-12-13", "sentiment": "positive"},
+        {"title": "Reels monetization gap with TikTok narrows significantly", "source": "CNBC", "published": "2024-12-12", "sentiment": "positive"},
+        {"title": "Reality Labs losses exceed $16B annually raising investor concern", "source": "WSJ", "published": "2024-12-11", "sentiment": "negative"},
+        {"title": "Instagram daily active users grow 12% year-over-year", "source": "TechCrunch", "published": "2024-12-10", "sentiment": "positive"}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "news_meta_001",
+      "provider": "newsapi"
+    },
+    "get_stock_fundamentals": {
+      "ticker": "META",
+      "revenue_ttm": 149000000000,
+      "net_income_ttm": 46200000000,
+      "eps": 14.44,
+      "pe_ratio": 24.8,
+      "forward_pe": 21.6,
+      "dividend_yield": 0.004,
+      "debt_to_equity": 0.25,
+      "roe": 0.35,
+      "profit_margin": 0.310,
+      "revenue_growth": 0.22,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "fund_meta_001",
+      "provider": "yfinance"
+    },
+    "get_sec_filings": {
+      "ticker": "META",
+      "filings": [
+        {"type": "10-Q", "filed": "2024-10-30", "summary": "Revenue $40.6B (+22% YoY). Family of Apps operating margin 54%. Reality Labs loss $4.4B. Daily active people 3.29B. AI capex guidance raised to $37-40B for 2025."}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "sec_meta_001",
+      "provider": "sec_edgar"
+    },
+    "get_portfolio_positions": {
+      "positions": []
+    }
+  },
+  "expected": {
+    "signal": "buy",
+    "confidence": "medium",
+    "sentiment_range": [0.3, 0.7],
+    "required_citations_min": 2,
+    "must_mention": ["AI", "Reality Labs"]
+  }
+}

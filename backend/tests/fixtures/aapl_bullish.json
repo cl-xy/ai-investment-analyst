@@ -1,0 +1,66 @@
+{
+  "ticker": "AAPL",
+  "scenario": "large_cap_bullish_momentum",
+  "mock_responses": {
+    "get_stock_price": {
+      "ticker": "AAPL",
+      "price": 195.27,
+      "change_percent": 1.24,
+      "volume": 54321000,
+      "market_cap": 3020000000000,
+      "pe_ratio": 31.2,
+      "52w_high": 199.62,
+      "52w_low": 124.17,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "price_aapl_001",
+      "provider": "yfinance"
+    },
+    "get_stock_news": {
+      "ticker": "AAPL",
+      "articles": [
+        {"title": "Apple Vision Pro sales exceed expectations in Q4", "source": "Reuters", "published": "2024-12-14", "sentiment": "positive"},
+        {"title": "iPhone 16 production ramp on track for holiday demand", "source": "Bloomberg", "published": "2024-12-13", "sentiment": "positive"},
+        {"title": "Apple Services revenue hits record $25B quarterly run rate", "source": "CNBC", "published": "2024-12-12", "sentiment": "positive"},
+        {"title": "EU antitrust concerns over App Store fees persist", "source": "FT", "published": "2024-12-11", "sentiment": "negative"}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "news_aapl_001",
+      "provider": "newsapi"
+    },
+    "get_stock_fundamentals": {
+      "ticker": "AAPL",
+      "revenue_ttm": 383000000000,
+      "net_income_ttm": 97000000000,
+      "eps": 6.26,
+      "pe_ratio": 31.2,
+      "forward_pe": 28.5,
+      "dividend_yield": 0.005,
+      "debt_to_equity": 1.87,
+      "roe": 1.61,
+      "profit_margin": 0.253,
+      "revenue_growth": 0.049,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "fund_aapl_001",
+      "provider": "yfinance"
+    },
+    "get_sec_filings": {
+      "ticker": "AAPL",
+      "filings": [
+        {"type": "10-K", "filed": "2024-11-01", "summary": "Revenue $383B, Services grew 14% YoY. Hardware margin expansion driven by M3 chip efficiency. Shareholder returns via $90B buyback program."}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "sec_aapl_001",
+      "provider": "sec_edgar"
+    },
+    "get_portfolio_positions": {
+      "positions": []
+    }
+  },
+  "expected": {
+    "signal": "buy",
+    "confidence": "medium",
+    "sentiment_range": [0.2, 0.7],
+    "required_citations_min": 2,
+    "must_mention": ["Vision Pro", "Services"]
+  }
+}

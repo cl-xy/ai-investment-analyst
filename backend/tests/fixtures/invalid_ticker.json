@@ -1,0 +1,47 @@
+{
+  "ticker": "XYZZY",
+  "scenario": "error_case_invalid_ticker",
+  "mock_responses": {
+    "get_stock_price": {
+      "ticker": "XYZZY",
+      "error": "Ticker XYZZY not found. No price data available.",
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": null,
+      "provider": "yfinance"
+    },
+    "get_stock_news": {
+      "ticker": "XYZZY",
+      "articles": [],
+      "error": "No news articles found for ticker XYZZY",
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": null,
+      "provider": "newsapi"
+    },
+    "get_stock_fundamentals": {
+      "ticker": "XYZZY",
+      "error": "Unable to retrieve fundamentals for XYZZY. Ticker may be delisted or invalid.",
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": null,
+      "provider": "yfinance"
+    },
+    "get_sec_filings": {
+      "ticker": "XYZZY",
+      "filings": [],
+      "error": "No CIK found for ticker XYZZY in SEC EDGAR",
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": null,
+      "provider": "sec_edgar"
+    },
+    "get_portfolio_positions": {
+      "positions": []
+    }
+  },
+  "expected": {
+    "should_error": true,
+    "signal": "insufficient_data",
+    "confidence": "low",
+    "sentiment_range": [0.0, 0.0],
+    "required_citations_min": 0,
+    "must_mention": []
+  }
+}

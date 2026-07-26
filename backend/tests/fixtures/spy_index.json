@@ -1,0 +1,64 @@
+{
+  "ticker": "SPY",
+  "scenario": "etf_sp500_index",
+  "mock_responses": {
+    "get_stock_price": {
+      "ticker": "SPY",
+      "price": 478.68,
+      "change_percent": 0.42,
+      "volume": 68500000,
+      "market_cap": null,
+      "pe_ratio": 22.1,
+      "52w_high": 482.50,
+      "52w_low": 410.34,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "price_spy_001",
+      "provider": "yfinance"
+    },
+    "get_stock_news": {
+      "ticker": "SPY",
+      "articles": [
+        {"title": "S&P 500 hits new all-time high on soft landing optimism", "source": "Reuters", "published": "2024-12-14", "sentiment": "positive"},
+        {"title": "Fed signals three rate cuts in 2025 dot plot", "source": "Bloomberg", "published": "2024-12-13", "sentiment": "positive"},
+        {"title": "Market breadth improves as small caps rally alongside large caps", "source": "CNBC", "published": "2024-12-12", "sentiment": "positive"},
+        {"title": "Geopolitical tensions in Middle East raise tail risk concerns", "source": "FT", "published": "2024-12-11", "sentiment": "negative"}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "news_spy_001",
+      "provider": "newsapi"
+    },
+    "get_stock_fundamentals": {
+      "ticker": "SPY",
+      "revenue_ttm": null,
+      "net_income_ttm": null,
+      "eps": 21.67,
+      "pe_ratio": 22.1,
+      "forward_pe": 20.3,
+      "dividend_yield": 0.014,
+      "debt_to_equity": null,
+      "roe": null,
+      "profit_margin": null,
+      "revenue_growth": null,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "fund_spy_001",
+      "provider": "yfinance"
+    },
+    "get_sec_filings": {
+      "ticker": "SPY",
+      "filings": [],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "sec_spy_001",
+      "provider": "sec_edgar"
+    },
+    "get_portfolio_positions": {
+      "positions": []
+    }
+  },
+  "expected": {
+    "signal": "buy",
+    "confidence": "low",
+    "sentiment_range": [0.1, 0.5],
+    "required_citations_min": 1,
+    "must_mention": ["S&P 500", "rate"]
+  }
+}

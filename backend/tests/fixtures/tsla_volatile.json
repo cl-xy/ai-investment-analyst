@@ -1,0 +1,67 @@
+{
+  "ticker": "TSLA",
+  "scenario": "large_cap_volatile_mixed_signals",
+  "mock_responses": {
+    "get_stock_price": {
+      "ticker": "TSLA",
+      "price": 252.64,
+      "change_percent": -2.18,
+      "volume": 112500000,
+      "market_cap": 805000000000,
+      "pe_ratio": 78.9,
+      "52w_high": 299.29,
+      "52w_low": 152.37,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "price_tsla_001",
+      "provider": "yfinance"
+    },
+    "get_stock_news": {
+      "ticker": "TSLA",
+      "articles": [
+        {"title": "Tesla Cybertruck deliveries ramp to 2,500 per week", "source": "Reuters", "published": "2024-12-14", "sentiment": "positive"},
+        {"title": "Musk's political activity raises corporate governance concerns", "source": "NYT", "published": "2024-12-13", "sentiment": "negative"},
+        {"title": "Tesla FSD v12.5 shows significant improvement in safety metrics", "source": "Bloomberg", "published": "2024-12-12", "sentiment": "positive"},
+        {"title": "Q3 automotive margins compress to 17.1% from 19.5% prior year", "source": "CNBC", "published": "2024-12-11", "sentiment": "negative"},
+        {"title": "China EV competition intensifies as BYD cuts prices again", "source": "FT", "published": "2024-12-10", "sentiment": "negative"}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "news_tsla_001",
+      "provider": "newsapi"
+    },
+    "get_stock_fundamentals": {
+      "ticker": "TSLA",
+      "revenue_ttm": 96800000000,
+      "net_income_ttm": 10800000000,
+      "eps": 3.20,
+      "pe_ratio": 78.9,
+      "forward_pe": 62.4,
+      "dividend_yield": 0.0,
+      "debt_to_equity": 0.08,
+      "roe": 0.22,
+      "profit_margin": 0.112,
+      "revenue_growth": 0.023,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "fund_tsla_001",
+      "provider": "yfinance"
+    },
+    "get_sec_filings": {
+      "ticker": "TSLA",
+      "filings": [
+        {"type": "10-Q", "filed": "2024-10-23", "summary": "Revenue $25.2B. Automotive margin declined to 17.1%. Energy storage deployments grew 52% YoY. Vehicle deliveries 462K units. Capex guidance $10-11B for FY2024 for new factory capacity."}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "sec_tsla_001",
+      "provider": "sec_edgar"
+    },
+    "get_portfolio_positions": {
+      "positions": []
+    }
+  },
+  "expected": {
+    "signal": "hold",
+    "confidence": "low",
+    "sentiment_range": [-0.2, 0.3],
+    "required_citations_min": 2,
+    "must_mention": ["margin", "FSD"]
+  }
+}

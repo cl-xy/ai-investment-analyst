@@ -1,0 +1,66 @@
+{
+  "ticker": "AMZN",
+  "scenario": "large_cap_recovery_rebound",
+  "mock_responses": {
+    "get_stock_price": {
+      "ticker": "AMZN",
+      "price": 178.25,
+      "change_percent": 2.14,
+      "volume": 48700000,
+      "market_cap": 1860000000000,
+      "pe_ratio": 62.5,
+      "52w_high": 185.10,
+      "52w_low": 118.35,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "price_amzn_001",
+      "provider": "yfinance"
+    },
+    "get_stock_news": {
+      "ticker": "AMZN",
+      "articles": [
+        {"title": "AWS launches custom Trainium2 chips, cutting AI inference costs 40%", "source": "Reuters", "published": "2024-12-14", "sentiment": "positive"},
+        {"title": "Amazon Prime membership reaches 220M globally", "source": "Bloomberg", "published": "2024-12-13", "sentiment": "positive"},
+        {"title": "Holiday season logistics network operates at record efficiency", "source": "CNBC", "published": "2024-12-12", "sentiment": "positive"},
+        {"title": "FTC investigates Amazon marketplace seller practices", "source": "WSJ", "published": "2024-12-11", "sentiment": "negative"}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "news_amzn_001",
+      "provider": "newsapi"
+    },
+    "get_stock_fundamentals": {
+      "ticker": "AMZN",
+      "revenue_ttm": 574000000000,
+      "net_income_ttm": 30400000000,
+      "eps": 2.85,
+      "pe_ratio": 62.5,
+      "forward_pe": 42.3,
+      "dividend_yield": 0.0,
+      "debt_to_equity": 0.59,
+      "roe": 0.22,
+      "profit_margin": 0.053,
+      "revenue_growth": 0.12,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "fund_amzn_001",
+      "provider": "yfinance"
+    },
+    "get_sec_filings": {
+      "ticker": "AMZN",
+      "filings": [
+        {"type": "10-Q", "filed": "2024-10-31", "summary": "Revenue $143.1B (+12% YoY). AWS revenue $23.1B (+19%). Operating income $11.2B, up from $7.0B prior year. Free cash flow $21.4B TTM. North America operating margin expanded to 5.9%."}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "sec_amzn_001",
+      "provider": "sec_edgar"
+    },
+    "get_portfolio_positions": {
+      "positions": []
+    }
+  },
+  "expected": {
+    "signal": "buy",
+    "confidence": "medium",
+    "sentiment_range": [0.2, 0.65],
+    "required_citations_min": 2,
+    "must_mention": ["AWS", "margin"]
+  }
+}

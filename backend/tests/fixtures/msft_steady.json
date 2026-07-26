@@ -1,0 +1,66 @@
+{
+  "ticker": "MSFT",
+  "scenario": "large_cap_steady_growth",
+  "mock_responses": {
+    "get_stock_price": {
+      "ticker": "MSFT",
+      "price": 374.58,
+      "change_percent": 0.62,
+      "volume": 22100000,
+      "market_cap": 2780000000000,
+      "pe_ratio": 35.8,
+      "52w_high": 384.30,
+      "52w_low": 309.45,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "price_msft_001",
+      "provider": "yfinance"
+    },
+    "get_stock_news": {
+      "ticker": "MSFT",
+      "articles": [
+        {"title": "Azure cloud revenue grows 29% as AI services gain traction", "source": "Reuters", "published": "2024-12-14", "sentiment": "positive"},
+        {"title": "Microsoft Copilot adoption accelerates across enterprise customers", "source": "Bloomberg", "published": "2024-12-13", "sentiment": "positive"},
+        {"title": "Gaming division reports record engagement post-Activision integration", "source": "CNBC", "published": "2024-12-12", "sentiment": "positive"},
+        {"title": "FTC scrutiny of Activision deal integration continues", "source": "WSJ", "published": "2024-12-11", "sentiment": "negative"}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "news_msft_001",
+      "provider": "newsapi"
+    },
+    "get_stock_fundamentals": {
+      "ticker": "MSFT",
+      "revenue_ttm": 227600000000,
+      "net_income_ttm": 82500000000,
+      "eps": 10.46,
+      "pe_ratio": 35.8,
+      "forward_pe": 31.2,
+      "dividend_yield": 0.0074,
+      "debt_to_equity": 0.35,
+      "roe": 0.39,
+      "profit_margin": 0.362,
+      "revenue_growth": 0.13,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "fund_msft_001",
+      "provider": "yfinance"
+    },
+    "get_sec_filings": {
+      "ticker": "MSFT",
+      "filings": [
+        {"type": "10-K", "filed": "2024-10-30", "summary": "Revenue $227.6B (+13% YoY). Intelligent Cloud segment $96.8B (+20%). Azure grew 29%. Operating income $100.4B. Capital expenditure $44B driven by AI infrastructure buildout."}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "sec_msft_001",
+      "provider": "sec_edgar"
+    },
+    "get_portfolio_positions": {
+      "positions": []
+    }
+  },
+  "expected": {
+    "signal": "buy",
+    "confidence": "medium",
+    "sentiment_range": [0.3, 0.7],
+    "required_citations_min": 2,
+    "must_mention": ["Azure", "Copilot"]
+  }
+}

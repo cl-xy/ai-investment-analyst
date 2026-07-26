@@ -1,0 +1,66 @@
+{
+  "ticker": "JPM",
+  "scenario": "large_cap_financial_sector",
+  "mock_responses": {
+    "get_stock_price": {
+      "ticker": "JPM",
+      "price": 197.42,
+      "change_percent": 0.38,
+      "volume": 9800000,
+      "market_cap": 572000000000,
+      "pe_ratio": 11.8,
+      "52w_high": 203.15,
+      "52w_low": 143.64,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "price_jpm_001",
+      "provider": "yfinance"
+    },
+    "get_stock_news": {
+      "ticker": "JPM",
+      "articles": [
+        {"title": "JPMorgan net interest income beats estimates on higher rates", "source": "Reuters", "published": "2024-12-14", "sentiment": "positive"},
+        {"title": "Commercial real estate exposure remains manageable says CFO", "source": "Bloomberg", "published": "2024-12-13", "sentiment": "positive"},
+        {"title": "Investment banking fees surge 45% as deal pipeline recovers", "source": "CNBC", "published": "2024-12-12", "sentiment": "positive"},
+        {"title": "Fed rate cuts may compress net interest margins in 2025", "source": "FT", "published": "2024-12-11", "sentiment": "negative"}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "news_jpm_001",
+      "provider": "newsapi"
+    },
+    "get_stock_fundamentals": {
+      "ticker": "JPM",
+      "revenue_ttm": 162000000000,
+      "net_income_ttm": 49600000000,
+      "eps": 16.73,
+      "pe_ratio": 11.8,
+      "forward_pe": 12.4,
+      "dividend_yield": 0.023,
+      "debt_to_equity": 1.52,
+      "roe": 0.17,
+      "profit_margin": 0.306,
+      "revenue_growth": 0.09,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "fund_jpm_001",
+      "provider": "yfinance"
+    },
+    "get_sec_filings": {
+      "ticker": "JPM",
+      "filings": [
+        {"type": "10-Q", "filed": "2024-11-04", "summary": "Revenue $40.7B. Net interest income $23.1B. CET1 ratio 15.3%. Credit costs $2.1B. Maintained full-year NII guidance of $91B. Share buybacks of $9.9B YTD."}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "sec_jpm_001",
+      "provider": "sec_edgar"
+    },
+    "get_portfolio_positions": {
+      "positions": []
+    }
+  },
+  "expected": {
+    "signal": "buy",
+    "confidence": "medium",
+    "sentiment_range": [0.2, 0.6],
+    "required_citations_min": 2,
+    "must_mention": ["net interest income", "investment banking"]
+  }
+}

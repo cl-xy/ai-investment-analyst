@@ -1,0 +1,63 @@
+{
+  "ticker": "VOO",
+  "scenario": "etf_vanguard_sp500_broad",
+  "mock_responses": {
+    "get_stock_price": {
+      "ticker": "VOO",
+      "price": 439.82,
+      "change_percent": 0.41,
+      "volume": 4200000,
+      "market_cap": null,
+      "pe_ratio": 22.0,
+      "52w_high": 443.50,
+      "52w_low": 376.69,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "price_voo_001",
+      "provider": "yfinance"
+    },
+    "get_stock_news": {
+      "ticker": "VOO",
+      "articles": [
+        {"title": "Vanguard S&P 500 ETF sees record $28B inflows in Q4", "source": "Reuters", "published": "2024-12-14", "sentiment": "positive"},
+        {"title": "Passive investing now accounts for 57% of US equity fund assets", "source": "Bloomberg", "published": "2024-12-13", "sentiment": "neutral"},
+        {"title": "Year-end rebalancing may create volatility in index-heavy names", "source": "CNBC", "published": "2024-12-12", "sentiment": "negative"}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "news_voo_001",
+      "provider": "newsapi"
+    },
+    "get_stock_fundamentals": {
+      "ticker": "VOO",
+      "revenue_ttm": null,
+      "net_income_ttm": null,
+      "eps": 20.00,
+      "pe_ratio": 22.0,
+      "forward_pe": 20.1,
+      "dividend_yield": 0.013,
+      "debt_to_equity": null,
+      "roe": null,
+      "profit_margin": null,
+      "revenue_growth": null,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "fund_voo_001",
+      "provider": "yfinance"
+    },
+    "get_sec_filings": {
+      "ticker": "VOO",
+      "filings": [],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "sec_voo_001",
+      "provider": "sec_edgar"
+    },
+    "get_portfolio_positions": {
+      "positions": []
+    }
+  },
+  "expected": {
+    "signal": "buy",
+    "confidence": "low",
+    "sentiment_range": [0.1, 0.4],
+    "required_citations_min": 1,
+    "must_mention": ["S&P 500", "inflows"]
+  }
+}

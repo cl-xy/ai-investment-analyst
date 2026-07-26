@@ -1,0 +1,62 @@
+{
+  "ticker": "PLTR",
+  "scenario": "edge_case_missing_news_data",
+  "mock_responses": {
+    "get_stock_price": {
+      "ticker": "PLTR",
+      "price": 18.45,
+      "change_percent": 0.22,
+      "volume": 28700000,
+      "market_cap": 40200000000,
+      "pe_ratio": 230.6,
+      "52w_high": 21.85,
+      "52w_low": 13.68,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "price_pltr_001",
+      "provider": "yfinance"
+    },
+    "get_stock_news": {
+      "ticker": "PLTR",
+      "articles": [],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "news_pltr_001",
+      "provider": "newsapi"
+    },
+    "get_stock_fundamentals": {
+      "ticker": "PLTR",
+      "revenue_ttm": 2220000000,
+      "net_income_ttm": 174000000,
+      "eps": 0.08,
+      "pe_ratio": 230.6,
+      "forward_pe": 67.2,
+      "dividend_yield": 0.0,
+      "debt_to_equity": 0.0,
+      "roe": 0.05,
+      "profit_margin": 0.078,
+      "revenue_growth": 0.17,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "fund_pltr_001",
+      "provider": "yfinance"
+    },
+    "get_sec_filings": {
+      "ticker": "PLTR",
+      "filings": [
+        {"type": "10-Q", "filed": "2024-11-06", "summary": "Revenue $558M (+17% YoY). US commercial revenue $116M (+33%). Government revenue $308M (+10%). GAAP profitable for fourth consecutive quarter. Rule of 40 score: 29."}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "sec_pltr_001",
+      "provider": "sec_edgar"
+    },
+    "get_portfolio_positions": {
+      "positions": []
+    }
+  },
+  "expected": {
+    "signal": "hold",
+    "confidence": "low",
+    "sentiment_range": [-0.1, 0.3],
+    "required_citations_min": 1,
+    "must_mention": ["government", "valuation"],
+    "data_gaps": ["news"]
+  }
+}

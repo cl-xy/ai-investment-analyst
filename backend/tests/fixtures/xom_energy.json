@@ -1,0 +1,67 @@
+{
+  "ticker": "XOM",
+  "scenario": "large_cap_energy_sector",
+  "mock_responses": {
+    "get_stock_price": {
+      "ticker": "XOM",
+      "price": 104.52,
+      "change_percent": -1.12,
+      "volume": 15600000,
+      "market_cap": 435000000000,
+      "pe_ratio": 12.3,
+      "52w_high": 120.70,
+      "52w_low": 95.77,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "price_xom_001",
+      "provider": "yfinance"
+    },
+    "get_stock_news": {
+      "ticker": "XOM",
+      "articles": [
+        {"title": "ExxonMobil Guyana production exceeds 400K barrels per day", "source": "Reuters", "published": "2024-12-14", "sentiment": "positive"},
+        {"title": "Pioneer Natural Resources integration adds Permian Basin scale", "source": "Bloomberg", "published": "2024-12-13", "sentiment": "positive"},
+        {"title": "OPEC+ production cuts extension supports oil prices", "source": "CNBC", "published": "2024-12-12", "sentiment": "positive"},
+        {"title": "Crude oil prices fall below $72 on China demand concerns", "source": "FT", "published": "2024-12-11", "sentiment": "negative"},
+        {"title": "Climate litigation risks increase with new state AG filings", "source": "WSJ", "published": "2024-12-10", "sentiment": "negative"}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "news_xom_001",
+      "provider": "newsapi"
+    },
+    "get_stock_fundamentals": {
+      "ticker": "XOM",
+      "revenue_ttm": 344000000000,
+      "net_income_ttm": 36000000000,
+      "eps": 8.50,
+      "pe_ratio": 12.3,
+      "forward_pe": 13.1,
+      "dividend_yield": 0.036,
+      "debt_to_equity": 0.21,
+      "roe": 0.20,
+      "profit_margin": 0.105,
+      "revenue_growth": -0.03,
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "fund_xom_001",
+      "provider": "yfinance"
+    },
+    "get_sec_filings": {
+      "ticker": "XOM",
+      "filings": [
+        {"type": "10-Q", "filed": "2024-11-01", "summary": "Revenue $90.0B. Upstream earnings $6.2B. Downstream $1.4B. Chemical $0.8B. Production 3.7M boe/d including Pioneer assets. Capital spending $6.2B in quarter. Debt-to-capital 13%."}
+      ],
+      "retrieved_at": "2024-12-15T10:30:00Z",
+      "source_id": "sec_xom_001",
+      "provider": "sec_edgar"
+    },
+    "get_portfolio_positions": {
+      "positions": []
+    }
+  },
+  "expected": {
+    "signal": "hold",
+    "confidence": "medium",
+    "sentiment_range": [-0.1, 0.35],
+    "required_citations_min": 2,
+    "must_mention": ["Guyana", "oil price"]
+  }
+}
