@@ -49,12 +49,17 @@ export default function AgentTracePanel() {
           </div>
         )}
 
-        {traceEvents.map((event) => (
-          <TraceEvent
+        {traceEvents.map((event, index) => (
+          <div
             key={event.seq}
-            event={event}
-            isActive={event.type === 'node_started' && event.node === currentNode}
-          />
+            className="trace-event-enter"
+            style={{ animationDelay: `${index * 30}ms` }}
+          >
+            <TraceEvent
+              event={event}
+              isActive={event.type === 'node_started' && event.node === currentNode}
+            />
+          </div>
         ))}
       </div>
 

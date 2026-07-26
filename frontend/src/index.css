@@ -99,6 +99,14 @@ body {
   outline-offset: 2px;
 }
 
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .max-w-7xl {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-shimmer,
   .animate-fade-in,

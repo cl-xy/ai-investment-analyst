@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { StreamEvent, ToolResultPayload } from '../types/stream'
 import {
   CheckCircle2,
@@ -85,34 +86,48 @@ function ToolCallEvent({ event }: { event: StreamEvent }) {
 }
 
 function ToolResultEvent({ event }: { event: StreamEvent }) {
+  const [expanded, setExpanded] = useState(false)
   const payload = event.payload as unknown as ToolResultPayload
-  const success = payload.success
-  const cached = payload.cached
 
   return (
-    <div className="flex items-center gap-2 py-1 pl-6">
-      {success ? (
-        <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-      ) : (
-        <XCircle className="w-3 h-3 text-red-500" />
-      )}
-      <span className="text-xs font-mono text-[var(--text-secondary)]">
-        {payload.tool_name}
-      </span>
-      {cached && (
-        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500">
-          cached
+    <div className="pl-6">
+      <div className="flex items-center gap-2 py-1">
+        {payload.success ? (
+          <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+        ) : (
+          <XCircle className="w-3 h-3 text-red-500" />
+        )}
+        <span className="text-xs font-mono text-[var(--text-secondary)]">
+          {payload.tool_name}
         </span>
-      )}
-      {!cached && success && (
-        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-500">
-          live
-        </span>
-      )}
-      {payload.duration_ms > 0 && (
-        <span className="text-xs font-mono text-[var(--text-muted)] ml-auto">
-          {payload.duration_ms}ms
-        </span>
+        {payload.cached && (
+          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500">
+            cached
+          </span>
+        )}
+        {!payload.cached && payload.success && (
+          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-500">
+            live
+          </span>
+        )}
+        {payload.duration_ms > 0 && (
+          <span className="text-xs font-mono text-[var(--text-muted)] ml-auto">
+            {payload.duration_ms}ms
+          </span>
+        )}
+        <button
+          onClick={() => setExpanded((e) => !e)}
+          className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] px-1 py-0.5 rounded transition-colors focus-ring"
+          aria-label={expanded ? 'Hide raw payload' : 'Show raw payload'}
+          aria-expanded={expanded}
+        >
+          {expanded ? 'hide' : 'json'}
+        </button>
+      </div>
+      {expanded && (
+        <pre className="mt-1 mb-2 p-2 rounded bg-[var(--surface)] text-[10px] font-mono text-[var(--text-muted)] overflow-x-auto max-h-40 overflow-y-auto border border-[var(--border-subtle)]">
+          {JSON.stringify(event.payload, null, 2)}
+        </pre>
       )}
     </div>
   )
