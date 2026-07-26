@@ -145,7 +145,7 @@ backend/
 │   ├── api/
 │   │   ├── main.py               # FastAPI app entry
 │   │   └── routes/               # Endpoints (analyze, stream, admin, health)
-│   ├── cache/                    # MongoDB SWR cache + budget guards
+│   ├── cache/                    # PostgreSQL SWR cache + budget guards
 │   ├── middleware/               # Auth gate + rate limiting + cost tracking
 │   └── mcp_servers/              # 4 FastMCP tool servers
 ├── tests/                        # pytest (events, schemas, cache, nodes)
