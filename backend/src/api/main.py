@@ -33,6 +33,7 @@ from .routes.eval import router as eval_router
 from .routes.dashboard import router as dashboard_router
 from .routes.explore import router as explore_router
 from .routes.health import router as health_router
+from .routes.compare import router as compare_router
 from .routes.scheduled import router as scheduled_router
 
 
@@ -65,6 +66,7 @@ app.include_router(analyze_router, prefix="/api")
 app.include_router(analyze_stream_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(eval_router, prefix="/api")
+app.include_router(compare_router, prefix="/api")
 app.include_router(dashboard_router, prefix="/api")
 app.include_router(explore_router, prefix="/api")
 app.include_router(scheduled_router, prefix="/api")
