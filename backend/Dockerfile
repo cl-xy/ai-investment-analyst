@@ -2,7 +2,7 @@
 # NOTE: Pin base image by SHA256 digest for reproducibility.
 # Update digest periodically via Dependabot or manually from:
 #   docker pull python:3.11-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.11-slim
-FROM python:3.11-slim@sha256:8f64a67710a45efd04ef8a5de41cadd839a9fa68a9cde8093fcfa30f498cd245 AS builder
+FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS builder
 
 WORKDIR /app
 
@@ -21,7 +21,7 @@ COPY src/ ./src/
 RUN pip install --no-cache-dir --prefix=/install .
 
 # Stage 2: Runtime
-FROM python:3.11-slim@sha256:8f64a67710a45efd04ef8a5de41cadd839a9fa68a9cde8093fcfa30f498cd245
+FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6
 
 LABEL org.opencontainers.image.source="https://github.com/cl-xy/ai-investment-analyst"
 LABEL org.opencontainers.image.description="Multi-agent investment analysis API"
