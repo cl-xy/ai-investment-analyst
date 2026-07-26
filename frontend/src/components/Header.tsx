@@ -22,6 +22,7 @@ export default function Header() {
           <NavLink to="/dashboard" label="History" />
           <NavLink to="/explore" label="Explore" />
           <NavLink to="/evals" label="Evals" />
+          <NavLink to="/compare" label="Compare" />
         </nav>
       </div>
     </header>

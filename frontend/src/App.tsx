@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Route, Routes, useNavigate } from 'react-router-dom'
+import ComparePage from './components/ComparePage'
 import DashboardPage from './components/DashboardPage'
 import EvalPage from './components/EvalPage'
 import ExplorePage from './components/ExplorePage'
@@ -46,6 +47,7 @@ export default function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/explore" element={<ExplorePage />} />
           <Route path="/evals" element={<EvalPage />} />
+          <Route path="/compare" element={<ComparePage />} />
         </Routes>
       </main>
       <Footer />
