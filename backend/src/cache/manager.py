@@ -129,5 +129,17 @@ class CacheManager:
         )
 
 
+    async def get_cached_only(self, provider: str, tool: str, ticker: str) -> tuple[Any, str, bool]:
+        """
+        Return cached data without fetching. Used when budget is exhausted.
+        Returns (data, source_id, True) if cached, (None, "", False) if no cache.
+        """
+        key = f"{provider}:{tool}:{ticker}"
+        row = await fetchrow("SELECT data, source_id FROM cache WHERE key = $1", key)
+        if row is not None:
+            return row["data"], row["source_id"], True
+        return None, "", False
+
+
 # Singleton
 cache_manager = CacheManager()
