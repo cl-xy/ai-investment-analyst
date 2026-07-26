@@ -116,7 +116,7 @@ class CacheManager:
         await execute(
             """
             INSERT INTO cache (key, data, source_id, provider, fetched_at, stale_at, expires_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            VALUES ($1, $2::jsonb, $3, $4, $5, $6, $7)
             ON CONFLICT (key) DO UPDATE SET
                 data = EXCLUDED.data,
                 source_id = EXCLUDED.source_id,

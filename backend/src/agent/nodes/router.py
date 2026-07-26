@@ -13,12 +13,15 @@ from ..structured_output import RouterOutput
 
 @cache
 def _get_llm() -> ChatOpenAI:
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY environment variable is not set")
     return ChatOpenAI(
         model="llama-3.1-8b-instant",
         temperature=0,
         max_tokens=256,
         base_url="https://api.groq.com/openai/v1",
-        api_key=os.environ.get("GROQ_API_KEY", ""),
+        api_key=api_key,
         model_kwargs={"response_format": {"type": "json_object"}},
     )
 

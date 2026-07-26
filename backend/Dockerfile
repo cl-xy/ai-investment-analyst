@@ -8,7 +8,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy source needed for hatchling to build the wheel
 COPY pyproject.toml ./
+COPY src/ ./src/
 RUN pip install --no-cache-dir --prefix=/install .
 
 # Stage 2: Runtime

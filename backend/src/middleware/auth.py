@@ -7,6 +7,7 @@ Rate limiting via slowapi (per-IP, 10 req/min on analysis endpoints).
 
 from __future__ import annotations
 
+import hmac
 import os
 from typing import Callable
 
@@ -54,7 +55,7 @@ class DemoAuthMiddleware(BaseHTTPMiddleware):
             or ""
         )
 
-        if provided != demo_password:
+        if not hmac.compare_digest(provided.encode(), demo_password.encode()):
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Demo password required. Add ?password=xxx or X-Demo-Password header."},

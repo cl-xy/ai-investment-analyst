@@ -7,23 +7,28 @@ on first use and shared across the application lifecycle.
 
 from __future__ import annotations
 
+import asyncio
+
 import asyncpg
 from asyncpg import Pool
 
 from src.config import settings
 
 _pool: Pool | None = None
+_pool_lock = asyncio.Lock()
 
 
 async def get_pool() -> Pool:
-    """Get or create the connection pool."""
+    """Get or create the connection pool (double-checked locking)."""
     global _pool
     if _pool is None:
-        _pool = await asyncpg.create_pool(
-            settings.database_url,
-            min_size=2,
-            max_size=10,
-        )
+        async with _pool_lock:
+            if _pool is None:
+                _pool = await asyncpg.create_pool(
+                    settings.database_url,
+                    min_size=2,
+                    max_size=10,
+                )
     return _pool
 
 
