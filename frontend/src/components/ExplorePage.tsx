@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { TrendingUp } from 'lucide-react'
 import {
   Area,
   AreaChart,
@@ -25,13 +26,13 @@ function formatVolume(volume: number | null): string {
 }
 
 function ChangeBadge({ changePct }: { changePct: number | null }) {
-  if (changePct === null) return <span className="text-gray-400 text-sm">—</span>
+  if (changePct === null) return <span className="text-[var(--text-muted)] text-sm">—</span>
   const positive = changePct >= 0
   return (
     <span
       className={[
         'text-sm font-semibold tabular-nums',
-        positive ? 'text-emerald-600' : 'text-red-500',
+        positive ? 'text-[var(--bullish)]' : 'text-[var(--bearish)]',
       ].join(' ')}
     >
       {positive ? '+' : ''}{changePct.toFixed(2)}%
@@ -44,7 +45,7 @@ function PriceChart({ history, changePct }: { history: StockDetail['price_histor
   const color = isPositive ? '#10b981' : '#ef4444'
 
   if (history.length === 0) {
-    return <div className="flex items-center justify-center h-32 text-gray-400 text-sm">No price data available</div>
+    return <div className="flex items-center justify-center h-32 text-[var(--text-muted)] text-sm">No price data available</div>
   }
 
   const minClose = Math.min(...history.map((p) => p.close))
@@ -60,7 +61,7 @@ function PriceChart({ history, changePct }: { history: StockDetail['price_histor
             <stop offset="95%" stopColor={color} stopOpacity={0} />
           </linearGradient>
         </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
         <XAxis
           dataKey="date"
           tick={{ fontSize: 10, fill: '#9ca3af' }}
@@ -81,7 +82,7 @@ function PriceChart({ history, changePct }: { history: StockDetail['price_histor
           width={48}
         />
         <Tooltip
-          contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+          contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid var(--border)', backgroundColor: 'var(--surface-elevated)', color: 'var(--text-primary)' }}
           formatter={(v: unknown) => [`$${(v as number).toFixed(2)}`, 'Close']}
           labelFormatter={(label: unknown) => {
             const d = new Date(String(label) + 'T00:00:00Z')
@@ -124,57 +125,57 @@ function DetailPanel({ ticker, changePct }: { ticker: string; changePct: number 
 
   if (loading) {
     return (
-      <div className="px-5 pb-5 pt-2 animate-pulse space-y-3">
-        <div className="h-3 bg-gray-200 rounded w-24" />
-        <div className="h-3 bg-gray-200 rounded w-full" />
-        <div className="h-3 bg-gray-200 rounded w-5/6" />
-        <div className="h-32 bg-gray-100 rounded-xl mt-3" />
+      <div className="px-5 pb-5 pt-2 space-y-3">
+        <div className="h-3 bg-[var(--surface)] rounded w-24 animate-shimmer" />
+        <div className="h-3 bg-[var(--surface)] rounded w-full animate-shimmer" />
+        <div className="h-3 bg-[var(--surface)] rounded w-5/6 animate-shimmer" />
+        <div className="h-32 bg-[var(--surface)] rounded-xl mt-3 animate-shimmer" />
       </div>
     )
   }
 
   if (error) {
-    return <div className="px-5 pb-4 pt-2 text-sm text-red-500">{error}</div>
+    return <div className="px-5 pb-4 pt-2 text-sm text-[var(--bearish)]">{error}</div>
   }
 
   if (!detail) return null
 
   return (
-    <div className="px-5 pb-5 pt-1 bg-gray-50 border-t border-gray-100 space-y-4">
+    <div className="px-5 pb-5 pt-1 bg-[var(--surface)] border-t border-[var(--border)] space-y-4">
       {/* Industry badge */}
       {detail.industry && (
-        <span className="inline-block text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100 rounded-full px-3 py-0.5">
+        <span className="inline-block text-xs font-medium bg-[var(--accent-bg)] text-[var(--accent)] border border-[var(--accent)]/20 rounded-full px-3 py-0.5">
           {detail.industry}
         </span>
       )}
 
       {/* Description */}
       {detail.description && (
-        <p className="text-sm text-gray-600 leading-relaxed line-clamp-4">
+        <p className="text-sm text-[var(--text-secondary)] leading-relaxed line-clamp-4">
           {detail.description}
         </p>
       )}
 
       {/* Price chart */}
       <div>
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">30-Day Price</p>
+        <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2">30-Day Price</p>
         <PriceChart history={detail.price_history} changePct={changePct} />
       </div>
 
       {/* Trending reason */}
       {detail.trending_reason.length > 0 && (
         <div>
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Why It's Trending</p>
+          <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2">Why It's Trending</p>
           <ul className="space-y-1.5">
             {detail.trending_reason.map((item, i) => (
-              <li key={i} className="flex gap-2 text-sm text-gray-700">
-                <span className="text-blue-400 shrink-0">•</span>
+              <li key={i} className="flex gap-2 text-sm text-[var(--text-secondary)]">
+                <span className="text-[var(--accent)] shrink-0">•</span>
                 {item.url ? (
                   <a
                     href={item.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="hover:text-blue-600 hover:underline transition-colors"
+                    className="hover:text-[var(--accent)] hover:underline transition-colors"
                   >
                     {item.title}
                   </a>
@@ -202,29 +203,29 @@ function StockRow({
   return (
     <div>
       <div
-        className="flex items-center gap-4 py-3.5 px-5 hover:bg-gray-50 transition-colors cursor-pointer select-none"
+        className="flex items-center gap-4 py-3.5 px-5 hover:bg-[var(--surface)] transition-colors cursor-pointer select-none"
         onClick={onToggle}
         role="button"
         aria-expanded={expanded}
       >
-        <span className="w-7 text-right text-sm text-gray-400 font-mono shrink-0">
+        <span className="w-7 text-right text-sm text-[var(--text-muted)] font-mono shrink-0">
           {stock.rank}
         </span>
         <div className="flex-1 min-w-0">
-          <span className="font-mono font-bold text-gray-900 text-sm">{stock.ticker}</span>
-          <span className="ml-2 text-sm text-gray-500 truncate hidden sm:inline">{stock.name}</span>
+          <span className="font-mono font-bold text-[var(--text-primary)] text-sm">{stock.ticker}</span>
+          <span className="ml-2 text-sm text-[var(--text-muted)] truncate hidden sm:inline">{stock.name}</span>
         </div>
         <div className="flex items-center gap-6 shrink-0">
-          <span className="text-sm font-semibold tabular-nums text-gray-800 w-20 text-right">
+          <span className="text-sm font-semibold tabular-nums text-[var(--text-secondary)] w-20 text-right">
             {formatPrice(stock.price)}
           </span>
           <div className="w-20 text-right">
             <ChangeBadge changePct={stock.change_pct} />
           </div>
-          <span className="text-xs text-gray-400 tabular-nums w-16 text-right hidden md:block">
+          <span className="text-xs text-[var(--text-muted)] tabular-nums w-16 text-right hidden md:block">
             {formatVolume(stock.volume)}
           </span>
-          <span className={`text-gray-400 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}>
+          <span className={`text-[var(--text-muted)] transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}>
             ▾
           </span>
         </div>
@@ -236,15 +237,15 @@ function StockRow({
 
 function SkeletonRow({ rank }: { rank: number }) {
   return (
-    <div className="flex items-center gap-4 py-3.5 px-5 animate-pulse">
-      <span className="w-7 text-right text-sm text-gray-300 font-mono shrink-0">{rank}</span>
+    <div className="flex items-center gap-4 py-3.5 px-5">
+      <span className="w-7 text-right text-sm text-[var(--text-muted)] font-mono shrink-0">{rank}</span>
       <div className="flex-1">
-        <div className="h-4 bg-gray-200 rounded w-24" />
+        <div className="h-4 bg-[var(--surface)] rounded w-24 animate-shimmer" />
       </div>
       <div className="flex items-center gap-6 shrink-0">
-        <div className="h-4 bg-gray-200 rounded w-20" />
-        <div className="h-4 bg-gray-200 rounded w-16" />
-        <div className="h-4 bg-gray-200 rounded w-14 hidden md:block" />
+        <div className="h-4 bg-[var(--surface)] rounded w-20 animate-shimmer" />
+        <div className="h-4 bg-[var(--surface)] rounded w-16 animate-shimmer" />
+        <div className="h-4 bg-[var(--surface)] rounded w-14 hidden md:block animate-shimmer" />
       </div>
     </div>
   )
@@ -282,37 +283,38 @@ export default function ExplorePage() {
   return (
     <div className="max-w-3xl mx-auto px-4 py-10">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 tracking-tight">
-          🔥 Trending Stocks
+        <h2 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight flex items-center gap-2">
+          <TrendingUp className="w-6 h-6 text-[var(--accent)]" />
+          Trending Stocks
         </h2>
-        <p className="text-gray-500 text-sm mt-1">
+        <p className="text-[var(--text-muted)] text-sm mt-1">
           Most-watched US stocks on Yahoo Finance right now. Click a row to see details.
-          {updatedAt && <span className="ml-2 text-gray-400">Updated {updatedAt}</span>}
+          {updatedAt && <span className="ml-2 text-[var(--text-muted)]">Updated {updatedAt}</span>}
         </p>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl px-5 py-4 text-red-700 text-sm">
+        <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-5 py-4 text-red-500 text-sm">
           {error}
         </div>
       )}
 
       {!error && (
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-[var(--surface-elevated)] rounded-2xl border border-[var(--border)] shadow-sm overflow-hidden">
           {/* Header row */}
-          <div className="flex items-center gap-4 py-2.5 px-5 bg-gray-50 border-b border-gray-100">
+          <div className="flex items-center gap-4 py-2.5 px-5 bg-[var(--surface)] border-b border-[var(--border)]">
             <span className="w-7" />
-            <span className="flex-1 text-xs font-semibold text-gray-400 uppercase tracking-wide">Ticker</span>
+            <span className="flex-1 text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Ticker</span>
             <div className="flex items-center gap-6 shrink-0">
-              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide w-20 text-right">Price</span>
-              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide w-20 text-right">Change</span>
-              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide w-16 text-right hidden md:block">Volume</span>
+              <span className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide w-20 text-right">Price</span>
+              <span className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide w-20 text-right">Change</span>
+              <span className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide w-16 text-right hidden md:block">Volume</span>
               <span className="w-4" />
             </div>
           </div>
 
           {/* Rows */}
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-[var(--border)]">
             {loading
               ? Array.from({ length: 15 }, (_, i) => <SkeletonRow key={i} rank={i + 1} />)
               : data?.stocks.map((stock) => (

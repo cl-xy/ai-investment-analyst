@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { BarChart3, Trash2, Loader2 } from 'lucide-react'
 import { deleteAnalysis, getDashboardResult, getDashboardResults } from '../api/analyzeService'
 import type { AnalysisListItem, AnalyzeResponse } from '../types/analysis'
 import AnalysisCard from './AnalysisCard'
@@ -89,7 +90,7 @@ export default function DashboardPage() {
   if (error) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-16">
-        <div className="bg-red-50 border border-red-200 text-red-800 rounded-xl px-5 py-4 text-sm">
+        <div className="bg-red-500/10 border border-red-500/20 text-red-500 rounded-xl px-5 py-4 text-sm">
           <strong>Error:</strong> {error}
         </div>
       </div>
@@ -99,13 +100,13 @@ export default function DashboardPage() {
   if (uniqueTickers.length === 0) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-24 flex flex-col items-center gap-4 text-center">
-        <span className="text-5xl">📊</span>
-        <h3 className="text-xl font-semibold text-gray-700">No analyses yet</h3>
-        <p className="text-gray-400 text-sm">
+        <BarChart3 className="w-12 h-12 text-[var(--text-muted)]" />
+        <h3 className="text-xl font-semibold text-[var(--text-secondary)]">No analyses yet</h3>
+        <p className="text-[var(--text-muted)] text-sm">
           Head to the{' '}
           <button
             onClick={() => navigate('/')}
-            className="text-blue-600 hover:underline font-medium"
+            className="text-[var(--accent)] hover:underline font-medium"
           >
             Watchlist
           </button>{' '}
@@ -122,7 +123,7 @@ export default function DashboardPage() {
     <div className="max-w-6xl mx-auto px-4 py-8 flex gap-6">
       {/* Sidebar: one button per stock */}
       <aside className="w-48 shrink-0">
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+        <h2 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-3">
           Stocks
         </h2>
         <ul className="space-y-2">
@@ -133,8 +134,8 @@ export default function DashboardPage() {
                 className={[
                   'w-full text-left rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
                   selectedTicker === ticker
-                    ? 'bg-blue-50 border border-blue-200 text-blue-700'
-                    : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50',
+                    ? 'bg-[var(--accent-bg)] border border-[var(--accent)]/20 text-[var(--accent)]'
+                    : 'bg-[var(--surface-elevated)] border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface)]',
                 ].join(' ')}
               >
                 {ticker}
@@ -151,10 +152,10 @@ export default function DashboardPage() {
         ) : analysis ? (
           <div className="space-y-5">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-800">
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">
                 {selectedTicker}
                 {sessionDate && (
-                  <span className="ml-2 text-sm font-normal text-gray-400">
+                  <span className="ml-2 text-sm font-normal text-[var(--text-muted)]">
                     as of {new Date(sessionDate).toLocaleString()}
                   </span>
                 )}
@@ -163,17 +164,12 @@ export default function DashboardPage() {
                 onClick={handleDelete}
                 disabled={!!deletingId}
                 title="Delete this analysis"
-                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-red-500 disabled:opacity-40 transition-colors"
+                className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-red-500 disabled:opacity-40 transition-colors"
               >
                 {deletingId ? (
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                  </svg>
+                  <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4h6v3M4 7h16" />
-                  </svg>
+                  <Trash2 className="w-4 h-4" />
                 )}
                 Delete
               </button>

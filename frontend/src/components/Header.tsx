@@ -1,5 +1,5 @@
 import { TrendingUp } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 
 export default function Header() {
   return (
@@ -21,6 +21,7 @@ export default function Header() {
           <NavLink to="/" label="Analyze" />
           <NavLink to="/dashboard" label="History" />
           <NavLink to="/explore" label="Explore" />
+          <NavLink to="/evals" label="Evals" />
         </nav>
       </div>
     </header>
@@ -28,7 +29,7 @@ export default function Header() {
 }
 
 function NavLink({ to, label }: { to: string; label: string }) {
-  const { pathname } = window.location
+  const { pathname } = useLocation()
   const isActive = pathname === to
 
   return (
