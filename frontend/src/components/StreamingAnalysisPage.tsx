@@ -1,11 +1,12 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useAnalysisStore } from '../stores/analysisStore'
 import { useAnalysisStream } from '../hooks/useAnalysisStream'
 import AgentTracePanel from './AgentTracePanel'
 import DataFreshness from './DataFreshness'
+import EvidenceDrawer from './EvidenceDrawer'
 import { ArrowLeft, AlertCircle } from 'lucide-react'
-import type { AnalysisOutput } from '../types/stream'
+import type { AnalysisOutput, Citation } from '../types/stream'
 
 /**
  * Streaming analysis page. The centerpiece demo experience.
@@ -15,7 +16,10 @@ export default function StreamingAnalysisPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { connect, disconnect } = useAnalysisStream()
-  const { analyses, isStreaming, error } = useAnalysisStore()
+  const { analyses, isStreaming, error, events } = useAnalysisStore()
+  const [activeCitation, setActiveCitation] = useState<Citation | null>(null)
+
+  const toolResults = events.filter((e) => e.type === 'tool_result')
 
   const tickerParam = searchParams.get('tickers') || ''
   const tickers = tickerParam.split(',').filter(Boolean)
@@ -83,7 +87,11 @@ export default function StreamingAnalysisPage() {
         {/* Analysis cards (progressive) */}
         <div className="space-y-6">
           {Object.entries(analyses).map(([ticker, analysis]) => (
-            <StreamAnalysisCard key={ticker} analysis={analysis} />
+            <StreamAnalysisCard
+              key={ticker}
+              analysis={analysis}
+              onCitationClick={setActiveCitation}
+            />
           ))}
 
           {/* Skeleton cards for pending tickers */}
@@ -113,11 +121,18 @@ export default function StreamingAnalysisPage() {
           )}
         </div>
       </div>
+
+      {/* Evidence drawer */}
+      <EvidenceDrawer
+        citation={activeCitation}
+        toolResults={toolResults}
+        onClose={() => setActiveCitation(null)}
+      />
     </div>
   )
 }
 
-function StreamAnalysisCard({ analysis }: { analysis: AnalysisOutput }) {
+function StreamAnalysisCard({ analysis, onCitationClick }: { analysis: AnalysisOutput; onCitationClick?: (citation: Citation) => void }) {
   const signalColors = {
     buy: { bg: 'bg-emerald-500/10', text: 'text-emerald-500', label: 'Buy' },
     hold: { bg: 'bg-amber-500/10', text: 'text-amber-500', label: 'Hold' },
@@ -240,13 +255,14 @@ function StreamAnalysisCard({ analysis }: { analysis: AnalysisOutput }) {
           </h3>
           <div className="flex flex-wrap gap-1.5">
             {analysis.citations.map((cite, i) => (
-              <span
+              <button
                 key={i}
-                className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--surface)] text-[var(--text-muted)] border border-[var(--border)]"
+                onClick={() => onCitationClick?.(cite)}
+                className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--surface)] text-[var(--text-muted)] border border-[var(--border)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors cursor-pointer focus-ring"
                 title={cite.claim}
               >
                 {cite.provider}
-              </span>
+              </button>
             ))}
           </div>
         </div>

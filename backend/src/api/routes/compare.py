@@ -2,7 +2,7 @@
 Comparison endpoint. Compares 2-3 tickers using existing analyses or running fresh ones.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from .analyze import analyze_tickers
 
@@ -11,6 +11,7 @@ router = APIRouter()
 
 @router.get("/compare")
 async def compare_tickers(
+    request: Request,
     tickers: str = Query(..., description="Comma-separated tickers (2-3)"),
 ):
     """
@@ -25,7 +26,8 @@ async def compare_tickers(
         raise HTTPException(status_code=400, detail="Maximum 3 tickers for comparison")
 
     # Run analysis (will use cache if available)
-    result = await analyze_tickers(ticker_list, force_refresh=False)
+    mcp_tools = request.app.state.mcp_tools
+    result = await analyze_tickers(ticker_list, mcp_tools, force_refresh=False)
 
     return {
         "tickers": ticker_list,

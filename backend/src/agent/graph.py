@@ -21,6 +21,7 @@ from langgraph.graph import END, START, StateGraph
 
 from .nodes.analyze_ticker import analyze_ticker_node
 from .nodes.chat import chat_node
+from .nodes.compare import compare_node
 from .nodes.fetch_data import fetch_data_node
 from .nodes.generate_report import generate_report_node
 from .nodes.portfolio_ops import portfolio_ops_node
@@ -61,6 +62,7 @@ def build_graph(mcp_tools: dict) -> StateGraph:
     graph.add_node("fetch_data", fetch_node)
     graph.add_node("analyze_ticker", analyze_ticker_node)
     graph.add_node("generate_report", generate_report_node)
+    graph.add_node("compare", compare_node)
     graph.add_node("chat", chat_node_bound)
     graph.add_node("portfolio_ops", portfolio_node_bound)
 
@@ -87,7 +89,22 @@ def build_graph(mcp_tools: dict) -> StateGraph:
         },
     )
 
-    graph.add_edge("generate_report", END)
+    def _route_after_report(state: InvestmentAnalystState) -> Literal["compare", "__end__"]:
+        """Run comparison when multiple tickers were analyzed."""
+        analyses = state.get("ticker_analyses", {})
+        if len(analyses) >= 2:
+            return "compare"
+        return "__end__"
+
+    graph.add_conditional_edges(
+        "generate_report",
+        _route_after_report,
+        {
+            "compare": "compare",
+            "__end__": END,
+        },
+    )
+    graph.add_edge("compare", END)
     graph.add_edge("chat", END)
     graph.add_edge("portfolio_ops", END)
 

@@ -52,5 +52,6 @@ class InvestmentAnalystState(TypedDict):
     data_gaps: list[str]
 
     report_markdown: str
+    comparison: dict  # Optional comparative analysis (populated when 2+ tickers)
     current_ticker: str | None
     error: str | None

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from secrets import compare_digest
 from time import perf_counter
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 
 from src.config import settings
 from src.mcp_servers.portfolio_server.db import fetch_all_positions
@@ -32,6 +32,7 @@ def _get_unique_portfolio_tickers(positions: list[dict]) -> list[str]:
 
 @router.post("/scheduled/refresh-portfolio", response_model=ScheduledRefreshResponse)
 async def refresh_portfolio_analyses(
+    request: Request,
     x_scheduler_token: str | None = Header(default=None),
 ) -> ScheduledRefreshResponse:
     now = datetime.now(timezone.utc)
@@ -80,7 +81,8 @@ async def refresh_portfolio_analyses(
             )
 
         logger.info("scheduled_refresh_started tickers=%s", tickers)
-        analysis = await analyze_tickers(tickers, force_refresh=True)
+        mcp_tools = request.app.state.mcp_tools
+        analysis = await analyze_tickers(tickers, mcp_tools, force_refresh=True)
         logger.info(
             "scheduled_refresh_finished tickers=%s analysis_id=%s duration_ms=%s",
             tickers,

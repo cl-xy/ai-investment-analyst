@@ -15,12 +15,11 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from src.agent.graph import build_graph
-from src.agent.mcp_client import create_mcp_client
 
 from ..db import execute, fetchrow
 from ..schemas import AnalyzeRequest, AnalyzeResponse, TickerAnalysis
@@ -30,14 +29,11 @@ router = APIRouter()
 _DEFAULT_THREAD = "api-session"
 
 
-async def _run_analysis(tickers: list[str]) -> dict:
+async def _run_analysis(tickers: list[str], mcp_tools: dict) -> dict:
     Path("data").mkdir(exist_ok=True)
     tickers_upper = [t.upper() for t in tickers]
     message = f"Analyze these stocks: {', '.join(tickers_upper)}"
 
-    client = create_mcp_client()
-    tools_list = await client.get_tools()
-    mcp_tools = {t.name: t for t in tools_list}
     graph = build_graph(mcp_tools)
     async with AsyncSqliteSaver.from_conn_string("data/checkpointer.db") as checkpointer:
         compiled = graph.compile(checkpointer=checkpointer)
@@ -96,7 +92,7 @@ def _normalise_tickers(raw_tickers: list[str]) -> list[str]:
     return tickers
 
 
-async def analyze_tickers(tickers: list[str], *, force_refresh: bool = False) -> AnalyzeResponse:
+async def analyze_tickers(tickers: list[str], mcp_tools: dict, *, force_refresh: bool = False) -> AnalyzeResponse:
     normalised_tickers = _normalise_tickers(tickers)
 
     if not normalised_tickers:
@@ -113,7 +109,7 @@ async def analyze_tickers(tickers: list[str], *, force_refresh: bool = False) ->
 
     if new_tickers:
         try:
-            result = await _run_analysis(new_tickers)
+            result = await _run_analysis(new_tickers, mcp_tools)
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"Analysis failed: {exc}") from exc
 
@@ -177,5 +173,6 @@ async def analyze_tickers(tickers: list[str], *, force_refresh: bool = False) ->
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
-async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
-    return await analyze_tickers(request.tickers, force_refresh=False)
+async def analyze(request: Request, body: AnalyzeRequest) -> AnalyzeResponse:
+    mcp_tools = request.app.state.mcp_tools
+    return await analyze_tickers(body.tickers, mcp_tools, force_refresh=False)

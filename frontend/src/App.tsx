@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { Route, Routes, useNavigate } from 'react-router-dom'
+import BacktestPage from './components/BacktestPage'
+import ChatPage from './components/ChatPage'
 import ComparePage from './components/ComparePage'
 import DashboardPage from './components/DashboardPage'
 import EvalPage from './components/EvalPage'
@@ -48,6 +50,8 @@ export default function App() {
           <Route path="/explore" element={<ExplorePage />} />
           <Route path="/evals" element={<EvalPage />} />
           <Route path="/compare" element={<ComparePage />} />
+          <Route path="/backtest" element={<BacktestPage />} />
+          <Route path="/chat" element={<ChatPage />} />
         </Routes>
       </main>
       <Footer />

@@ -4,7 +4,7 @@
 
 Multi-agent investment analysis system with real-time streaming trace, structured outputs, and source-grounded citations.
 
-[Live Demo](https://ai-investment-analyst.vercel.app)
+[Live Demo](https://ai-investment-analyst.vercel.app) · Demo password: `investor2026`
 
 ---
 
@@ -13,7 +13,7 @@ Multi-agent investment analysis system with real-time streaming trace, structure
 Enter a ticker symbol → watch a multi-agent pipeline execute in real-time:
 
 1. **Router** classifies intent and extracts tickers (GPT-OSS 20B, ~100ms)
-2. **Fetch Data** calls 5 MCP tool servers in parallel (market, fundamentals, indicators, news, SEC filings)
+2. **Fetch Data** calls 5 tools across 4 MCP servers in parallel (market quotes, fundamentals, indicators, news, SEC filings)
 3. **Analyze** synthesizes data into a structured assessment with citations (GPT-OSS 120B, JSON mode)
 4. **Report** generates a cohesive narrative across all analyzed tickers
 
@@ -214,6 +214,7 @@ cd frontend && npm run dev
 - **SEC filings**: Only 10-K summaries. No 8-K, no earnings call transcripts.
 - **Single retry on validation failure**: If the LLM produces invalid JSON twice, falls back to partial extraction.
 - **No auth beyond demo gate**: Production deployment uses a shared password, not user accounts.
+- **Demo mode**: First analysis may take 10-15s if cache is cold. Subsequent requests use warm cache.
 
 ---
 

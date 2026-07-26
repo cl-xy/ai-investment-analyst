@@ -31,3 +31,9 @@ MCP_SERVER_CONFIG = {
 
 def create_mcp_client() -> MultiServerMCPClient:
     return MultiServerMCPClient(MCP_SERVER_CONFIG)
+
+
+async def get_mcp_tools_from_client(client: MultiServerMCPClient) -> dict:
+    """Get tools dict from an already-connected client."""
+    tools_list = await client.get_tools()
+    return {t.name: t for t in tools_list}

@@ -26,6 +26,7 @@ from src.config import settings
 from src.logging_config import get_logger, setup_logging
 from src.middleware.auth import DemoAuthMiddleware
 from src.middleware.request_id import RequestIDMiddleware
+from src.middleware.security_headers import SecurityHeadersMiddleware
 
 from .db import close_pool, init_schema
 from src.metrics import router as metrics_router
@@ -33,6 +34,8 @@ from src.metrics import router as metrics_router
 from .routes.admin import router as admin_router
 from .routes.analyze import router as analyze_router
 from .routes.analyze_stream import router as analyze_stream_router
+from .routes.backtest import router as backtest_router
+from .routes.chat import router as chat_router
 from .routes.compare import router as compare_router
 from .routes.dashboard import router as dashboard_router
 from .routes.eval import router as eval_router
@@ -47,11 +50,22 @@ log = get_logger("app")
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    """Initialize DB schema on startup, close pool on shutdown."""
+    """Initialize DB, MCP servers on startup. Clean up on shutdown."""
+    from src.agent.mcp_client import create_mcp_client, get_mcp_tools_from_client
+
     log.info("starting", version="0.2.0")
     await init_schema()
     log.info("database_ready")
-    yield
+
+    # Start MCP servers once (not per-request)
+    mcp_client = create_mcp_client()
+    async with mcp_client:
+        app.state.mcp_client = mcp_client
+        app.state.mcp_tools = await get_mcp_tools_from_client(mcp_client)
+        log.info("mcp_servers_ready", servers=4)
+
+        yield
+
     await close_pool()
     log.info("shutdown_complete")
 
@@ -70,12 +84,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(DemoAuthMiddleware)
 
 app.include_router(health_router, prefix="/api")
 app.include_router(analyze_router, prefix="/api")
 app.include_router(analyze_stream_router, prefix="/api")
+app.include_router(backtest_router, prefix="/api")
+app.include_router(chat_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(eval_router, prefix="/api")
 app.include_router(compare_router, prefix="/api")

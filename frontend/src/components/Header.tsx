@@ -25,6 +25,8 @@ export default function Header() {
             <NavLink to="/explore" label="Explore" />
             <NavLink to="/evals" label="Evals" />
             <NavLink to="/compare" label="Compare" />
+            <NavLink to="/backtest" label="Signals" />
+            <NavLink to="/chat" label="Chat" />
           </nav>
           <ThemeSwitcher />
         </div>

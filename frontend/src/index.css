@@ -130,6 +130,15 @@ body {
   animation: fade-in 200ms ease-out forwards;
 }
 
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 200ms ease-out;
+}
+
 .trace-event-enter {
   animation: fade-in 150ms ease-out forwards;
   opacity: 0;
@@ -156,6 +165,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .animate-shimmer,
   .animate-fade-in,
+  .animate-slide-in-right,
   .trace-event-enter,
   .animate-pulse,
   .animate-spin {

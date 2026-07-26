@@ -8,6 +8,7 @@ Handles timeouts and real tool latency measurement.
 import asyncio
 import re
 import time
+import time as _time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -22,14 +23,48 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from src.agent.concurrency import acquire_analysis_slot, release_analysis_slot
 from src.agent.events import EventEmitter
 from src.agent.graph import build_graph
-from src.agent.mcp_client import create_mcp_client
 from src.api.shutdown import shutdown_coordinator
+from src.metrics import metrics
 from src.middleware.cost_tracker import CostTracker
 
 router = APIRouter()
 
 HEARTBEAT_INTERVAL = 15  # seconds
 EXECUTION_TIMEOUT = 120  # max seconds for entire analysis run
+
+# Module-level event store for reconnection (last 5 minutes)
+_recent_runs: dict[str, tuple[float, list[str]]] = {}  # run_id -> (timestamp, [sse_strings])
+_MAX_RUN_AGE = 300  # 5 minutes
+
+
+def _store_event(run_id: str, sse_msg: str):
+    """Store SSE message for potential replay."""
+    now = _time.time()
+    if run_id not in _recent_runs:
+        _recent_runs[run_id] = (now, [])
+    _recent_runs[run_id] = (now, _recent_runs[run_id][1])
+    _recent_runs[run_id][1].append(sse_msg)
+    # Evict old runs
+    expired = [k for k, (ts, _) in _recent_runs.items() if now - ts > _MAX_RUN_AGE]
+    for k in expired:
+        del _recent_runs[k]
+
+
+def _replay_events(run_id: str, after_seq: int) -> list[str]:
+    """Get stored events after a given sequence number."""
+    if run_id not in _recent_runs:
+        return []
+    _, events = _recent_runs[run_id]
+    # Each event has "id: N\n" as first line, parse seq
+    result = []
+    for ev in events:
+        lines = ev.split("\n")
+        id_line = next((l for l in lines if l.startswith("id: ")), None)
+        if id_line:
+            seq = int(id_line.removeprefix("id: "))
+            if seq > after_seq:
+                result.append(ev)
+    return result
 
 
 async def _heartbeat(emitter: EventEmitter, queue: asyncio.Queue, stop: asyncio.Event):
@@ -48,11 +83,13 @@ async def _run_agent(
     emitter: EventEmitter,
     queue: asyncio.Queue,
     tracker: CostTracker,
+    mcp_tools: dict,
 ):
     """Execute the LangGraph agent and emit domain events to the queue."""
 
     tickers_upper = [t.upper() for t in tickers]
     tool_start_times: dict[str, float] = {}
+    run_start = time.monotonic()
 
     event = emitter.run_started(tickers_upper)
     await queue.put(event.to_sse())
@@ -61,9 +98,6 @@ async def _run_agent(
         Path("data").mkdir(exist_ok=True)
         message = f"Analyze these stocks: {', '.join(tickers_upper)}"
 
-        client = create_mcp_client()
-        tools_list = await client.get_tools()
-        mcp_tools = {t.name: t for t in tools_list}
         graph = build_graph(mcp_tools)
 
         async with AsyncSqliteSaver.from_conn_string("data/checkpointer.db") as checkpointer:
@@ -93,6 +127,7 @@ async def _run_agent(
                         "fetch_data",
                         "analyze_ticker",
                         "generate_report",
+                        "compare",
                         "chat",
                         "portfolio_ops",
                     ):
@@ -119,13 +154,21 @@ async def _run_agent(
                         output = data.get("output", "")
                         success = "error" not in str(output).lower()[:100]
 
+                        # Heuristic: sub-50ms responses are cache hits
+                        # (real yfinance/newsapi/sec calls take 200ms+)
+                        is_cached = duration_ms < 50
+
                         # Record in cost tracker
-                        tracker.record_tool_call(success=success, cached=False)
+                        tracker.record_tool_call(success=success, cached=is_cached)
+
+                        # Record in metrics
+                        metrics.inc("tool_calls_total", labels={"tool": tool_name, "status": "success" if success else "error"})
+                        metrics.observe("tool_call_duration_seconds", duration_ms / 1000, labels={"tool": tool_name})
 
                         ev = emitter.tool_result(
                             tool_name,
                             success=success,
-                            cached=False,
+                            cached=is_cached,
                             duration_ms=duration_ms,
                             source_id=f"{tool_name}:{int(time.time())}",
                             node=current_node,
@@ -149,6 +192,7 @@ async def _run_agent(
                                     prompt=usage.get("input_tokens", 0),
                                     completion=usage.get("output_tokens", 0),
                                 )
+                        metrics.inc("llm_calls_total")
 
             try:
                 await asyncio.wait_for(_execute(), timeout=EXECUTION_TIMEOUT)
@@ -182,6 +226,7 @@ async def _run_agent(
                 )
 
     except Exception as exc:
+        metrics.inc("analyses_total", labels={"status": "error"})
         ev = emitter.error(str(exc), recoverable=False, context="agent_execution")
         await queue.put(ev.to_sse())
 
@@ -195,6 +240,10 @@ async def _run_agent(
     )
     await queue.put(ev.to_sse())
 
+    # Record success metrics
+    metrics.inc("analyses_total", labels={"status": "success"})
+    metrics.observe("analysis_duration_seconds", summary["total_duration_ms"] / 1000)
+
     # Persist run metrics to PostgreSQL
     try:
         await tracker.persist()
@@ -205,14 +254,30 @@ async def _run_agent(
     await queue.put(None)
 
 
-async def _stream_generator(tickers: list[str], request: Request):
+async def _stream_generator(
+    tickers: list[str],
+    request: Request,
+    last_event_id: int | None = None,
+    resume_run_id: str | None = None,
+):
     """Async generator that yields SSE events."""
+    # If reconnecting, try to replay missed events
+    if last_event_id is not None and resume_run_id:
+        replayed = _replay_events(resume_run_id, last_event_id)
+        for ev in replayed:
+            yield ev
+        if replayed:
+            # Check if run already completed
+            _, stored = _recent_runs.get(resume_run_id, (0, []))
+            if any("run_completed" in ev for ev in stored):
+                return  # Run finished, nothing to stream
+
     emitter = EventEmitter()
     queue: asyncio.Queue = asyncio.Queue()
     stop_heartbeat = asyncio.Event()
     tracker = CostTracker(run_id=emitter.run_id, tickers=tickers)
 
-    agent_task = asyncio.create_task(_run_agent(tickers, emitter, queue, tracker))
+    agent_task = asyncio.create_task(_run_agent(tickers, emitter, queue, tracker, request.app.state.mcp_tools))
     shutdown_coordinator.register(agent_task)
     heartbeat_task = asyncio.create_task(_heartbeat(emitter, queue, stop_heartbeat))
 
@@ -230,6 +295,7 @@ async def _stream_generator(tickers: list[str], request: Request):
                 break
 
             yield msg
+            _store_event(emitter.run_id, msg)
 
     finally:
         stop_heartbeat.set()
@@ -293,8 +359,18 @@ async def analyze_stream(
             headers={"Retry-After": "5"},
         )
 
+    # Check for reconnection
+    last_event_id_header = request.headers.get("Last-Event-ID")
+    last_event_id = int(last_event_id_header) if last_event_id_header else None
+    resume_run_id = request.headers.get("X-Run-ID")  # Client sends this on reconnect
+
     return StreamingResponse(
-        _stream_generator(ticker_list, request),
+        _stream_generator(
+            ticker_list,
+            request,
+            last_event_id=last_event_id,
+            resume_run_id=resume_run_id,
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
