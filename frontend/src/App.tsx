@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Route, Routes, useNavigate } from 'react-router-dom'
 import DashboardPage from './components/DashboardPage'
+import EvalPage from './components/EvalPage'
 import ExplorePage from './components/ExplorePage'
 import Header from './components/Header'
 import StreamingAnalysisPage from './components/StreamingAnalysisPage'
@@ -42,6 +43,7 @@ export default function App() {
         <Route path="/analyze" element={<StreamingAnalysisPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/explore" element={<ExplorePage />} />
+        <Route path="/evals" element={<EvalPage />} />
       </Routes>
     </div>
   )

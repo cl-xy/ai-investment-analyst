@@ -27,6 +27,7 @@ from src.middleware.auth import DemoAuthMiddleware
 from .routes.analyze import router as analyze_router
 from .routes.analyze_stream import router as analyze_stream_router
 from .routes.admin import router as admin_router
+from .routes.eval import router as eval_router
 from .routes.dashboard import router as dashboard_router
 from .routes.explore import router as explore_router
 from .routes.health import router as health_router
@@ -51,6 +52,7 @@ app.include_router(health_router, prefix="/api")
 app.include_router(analyze_router, prefix="/api")
 app.include_router(analyze_stream_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
+app.include_router(eval_router, prefix="/api")
 app.include_router(dashboard_router, prefix="/api")
 app.include_router(explore_router, prefix="/api")
 app.include_router(scheduled_router, prefix="/api")
