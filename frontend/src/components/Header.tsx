@@ -1,5 +1,6 @@
 import { TrendingUp } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
+import ThemeToggle from './ThemeToggle'
 
 export default function Header() {
   return (
@@ -11,19 +12,22 @@ export default function Header() {
             <h1 className="text-base font-semibold text-[var(--text-primary)] leading-tight">
               Investment Analyst
             </h1>
-            <p className="text-xs text-[var(--text-muted)]">
+            <p className="text-xs text-[var(--text-muted)] hidden sm:block">
               Multi-agent analysis with LangGraph + MCP
             </p>
           </div>
         </Link>
 
-        <nav className="flex items-center gap-1">
-          <NavLink to="/" label="Analyze" />
-          <NavLink to="/dashboard" label="History" />
-          <NavLink to="/explore" label="Explore" />
-          <NavLink to="/evals" label="Evals" />
-          <NavLink to="/compare" label="Compare" />
-        </nav>
+        <div className="flex items-center gap-2">
+          <nav className="flex items-center gap-1 overflow-x-auto">
+            <NavLink to="/" label="Analyze" />
+            <NavLink to="/dashboard" label="History" />
+            <NavLink to="/explore" label="Explore" />
+            <NavLink to="/evals" label="Evals" />
+            <NavLink to="/compare" label="Compare" />
+          </nav>
+          <ThemeToggle />
+        </div>
       </div>
     </header>
   )

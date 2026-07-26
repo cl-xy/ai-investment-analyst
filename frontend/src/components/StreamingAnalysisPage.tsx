@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useAnalysisStore } from '../stores/analysisStore'
 import { useAnalysisStream } from '../hooks/useAnalysisStream'
 import AgentTracePanel from './AgentTracePanel'
+import DataFreshness from './DataFreshness'
 import { ArrowLeft, AlertCircle } from 'lucide-react'
 import type { AnalysisOutput } from '../types/stream'
 
@@ -147,6 +148,7 @@ function StreamAnalysisCard({ analysis }: { analysis: AnalysisOutput }) {
           <span className="text-xs font-medium px-2 py-1 rounded-full bg-[var(--surface)] text-[var(--text-muted)]">
             {analysis.confidence}
           </span>
+          <DataFreshness retrievedAt={analysis.price_data?.retrieved_at as string} />
         </div>
       </div>
 
