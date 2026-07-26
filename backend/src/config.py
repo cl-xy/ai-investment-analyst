@@ -17,8 +17,11 @@ class Settings(BaseSettings):
 
     # Data
     mcp_data_dir: Path = Path.home() / ".mcp_investment"
-    mongodb_uri: str = "mongodb://localhost:27017"
-    mongodb_db: str = "investment_analyst"
+    database_url: str = "postgresql://localhost:5432/investment_analyst"
+
+    # Legacy MongoDB (kept for reference, no longer used)
+    mongodb_uri: str = ""
+    mongodb_db: str = ""
 
     # Auth & rate limiting
     demo_password: str = ""

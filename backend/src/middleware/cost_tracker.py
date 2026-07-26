@@ -1,20 +1,20 @@
 """
-Per-run cost and latency tracking.
+Per-run cost and latency tracking — PostgreSQL-backed.
 
-Logs every analysis run to MongoDB for observability:
+Logs every analysis run for observability:
 - Model used, token counts, latency, tool calls, cache hits
-- Displayed in trace UI footer and eval dashboard
 """
 
 from __future__ import annotations
 
+import json
 import time
 from datetime import datetime, timezone
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from src.api.db import get_collection
+from src.api.db import execute
 
 
 class RunMetrics(BaseModel):
@@ -26,31 +26,27 @@ class RunMetrics(BaseModel):
     completed_at: datetime | None = None
     duration_ms: int = 0
 
-    # LLM usage
     router_model: str = "llama-3.1-8b-instant"
     analysis_model: str = "llama-3.3-70b-versatile"
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
 
-    # Tool metrics
     tool_calls: int = 0
     tool_successes: int = 0
     tool_failures: int = 0
     cache_hits: int = 0
     cache_misses: int = 0
 
-    # Cost estimate (Groq free tier = $0, but track for when paid)
     cost_usd: float = 0.0
 
-    # Result quality
     schema_valid: bool = True
     citations_count: int = 0
     data_gaps_count: int = 0
 
 
 class CostTracker:
-    """Tracks metrics during a run and persists to MongoDB."""
+    """Tracks metrics during a run and persists to PostgreSQL."""
 
     def __init__(self, run_id: str, tickers: list[str]):
         self.metrics = RunMetrics(
@@ -75,8 +71,6 @@ class CostTracker:
         self.metrics.prompt_tokens += prompt
         self.metrics.completion_tokens += completion
         self.metrics.total_tokens += prompt + completion
-        # Groq pricing estimate (as of 2024): negligible on free tier
-        # llama-3.3-70b: ~$0.00059/1K input, $0.00079/1K output
         self.metrics.cost_usd += (prompt * 0.00000059) + (completion * 0.00000079)
 
     def record_schema_result(self, valid: bool, citations: int, data_gaps: int):
@@ -85,12 +79,32 @@ class CostTracker:
         self.metrics.data_gaps_count = data_gaps
 
     async def persist(self):
-        """Save run metrics to MongoDB."""
+        """Save run metrics to PostgreSQL."""
         self.metrics.completed_at = datetime.now(timezone.utc)
         self.metrics.duration_ms = int((time.monotonic() - self._start_time) * 1000)
 
-        collection = get_collection("runs")
-        await collection.insert_one(self.metrics.model_dump())
+        m = self.metrics
+        await execute(
+            """
+            INSERT INTO runs (
+                run_id, tickers, started_at, completed_at, duration_ms,
+                router_model, analysis_model,
+                prompt_tokens, completion_tokens, total_tokens,
+                tool_calls, tool_successes, tool_failures,
+                cache_hits, cache_misses, cost_usd,
+                schema_valid, citations_count, data_gaps_count
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                $11, $12, $13, $14, $15, $16, $17, $18, $19
+            )
+            """,
+            m.run_id, m.tickers, m.started_at, m.completed_at, m.duration_ms,
+            m.router_model, m.analysis_model,
+            m.prompt_tokens, m.completion_tokens, m.total_tokens,
+            m.tool_calls, m.tool_successes, m.tool_failures,
+            m.cache_hits, m.cache_misses, m.cost_usd,
+            m.schema_valid, m.citations_count, m.data_gaps_count,
+        )
 
     def summary(self) -> dict[str, Any]:
         """Return summary for SSE run_completed event."""

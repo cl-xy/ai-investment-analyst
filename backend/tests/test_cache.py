@@ -3,8 +3,9 @@ Tests for the cache manager and budget tracking.
 """
 
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -14,13 +15,13 @@ from src.cache.manager import CacheManager, _get_ttl
 class TestTTLConfig:
     def test_known_provider_tool(self):
         ttl = _get_ttl("yfinance", "get_quote")
-        assert ttl["fresh"] == 900  # 15 minutes
-        assert ttl["stale"] == 3600  # 1 hour
-        assert ttl["expire"] == 14400  # 4 hours
+        assert ttl["fresh"] == 900
+        assert ttl["stale"] == 3600
+        assert ttl["expire"] == 14400
 
     def test_sec_edgar_permanent(self):
         ttl = _get_ttl("sec_edgar", "get_latest_filing_summary")
-        assert ttl["expire"] == 0  # permanent (no expiry)
+        assert ttl["expire"] == 0
 
     def test_unknown_provider_uses_default(self):
         ttl = _get_ttl("unknown_provider", "unknown_tool")
@@ -30,18 +31,16 @@ class TestTTLConfig:
 
 
 class TestCacheManager:
-    @pytest.fixture
-    def cache(self):
-        cm = CacheManager()
-        cm._collection = AsyncMock()
-        return cm
-
     @pytest.mark.asyncio
-    async def test_cache_miss_calls_fetch(self, cache):
-        cache._collection.find_one = AsyncMock(return_value=None)
-        cache._collection.update_one = AsyncMock()
+    @patch("src.cache.manager.fetchrow")
+    @patch("src.cache.manager.execute")
+    async def test_cache_miss_calls_fetch(self, mock_execute, mock_fetchrow):
+        mock_fetchrow.return_value = None
+        mock_execute.return_value = "INSERT 0 1"
 
+        cache = CacheManager()
         fetch_fn = AsyncMock(return_value={"price": 875.0})
+
         data, source_id, cached = await cache.get_or_fetch(
             "yfinance", "get_quote", "NVDA", fetch_fn
         )
@@ -50,40 +49,48 @@ class TestCacheManager:
         assert cached is False
         assert "yfinance:NVDA:" in source_id
         fetch_fn.assert_called_once()
+        mock_execute.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_cache_fresh_hit(self, cache):
+    @patch("src.cache.manager.fetchrow")
+    async def test_cache_fresh_hit(self, mock_fetchrow):
         now = datetime.now(timezone.utc)
-        cache._collection.find_one = AsyncMock(return_value={
+        mock_fetchrow.return_value = {
             "key": "yfinance:get_quote:NVDA",
             "data": {"price": 870.0},
             "source_id": "yfinance:NVDA:1706140000",
-            "stale_at": now + timedelta(minutes=10),  # Still fresh
+            "stale_at": now + timedelta(minutes=10),
             "expires_at": now + timedelta(hours=4),
-        })
+        }
 
+        cache = CacheManager()
         fetch_fn = AsyncMock()
+
         data, source_id, cached = await cache.get_or_fetch(
             "yfinance", "get_quote", "NVDA", fetch_fn
         )
 
         assert data == {"price": 870.0}
         assert cached is True
-        fetch_fn.assert_not_called()  # No fetch needed
+        fetch_fn.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_cache_stale_serves_and_refreshes(self, cache):
+    @patch("src.cache.manager.execute")
+    @patch("src.cache.manager.fetchrow")
+    async def test_cache_stale_serves_and_refreshes(self, mock_fetchrow, mock_execute):
         now = datetime.now(timezone.utc)
-        cache._collection.find_one = AsyncMock(return_value={
+        mock_fetchrow.return_value = {
             "key": "yfinance:get_quote:NVDA",
             "data": {"price": 860.0},
             "source_id": "yfinance:NVDA:1706130000",
-            "stale_at": now - timedelta(minutes=5),  # Stale
+            "stale_at": now - timedelta(minutes=5),
             "expires_at": now + timedelta(hours=2),
-        })
-        cache._collection.update_one = AsyncMock()
+        }
+        mock_execute.return_value = "INSERT 0 1"
 
+        cache = CacheManager()
         fetch_fn = AsyncMock(return_value={"price": 880.0})
+
         data, source_id, cached = await cache.get_or_fetch(
             "yfinance", "get_quote", "NVDA", fetch_fn
         )
@@ -94,5 +101,4 @@ class TestCacheManager:
 
         # Give background task a chance to run
         await asyncio.sleep(0.05)
-        # Background refresh should have been triggered
         fetch_fn.assert_called_once()

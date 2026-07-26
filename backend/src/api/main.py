@@ -8,6 +8,7 @@ or via the project script:
 """
 
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -24,6 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.config import settings
 from src.middleware.auth import DemoAuthMiddleware
 
+from .db import close_pool, init_schema
 from .routes.analyze import router as analyze_router
 from .routes.analyze_stream import router as analyze_stream_router
 from .routes.admin import router as admin_router
@@ -33,10 +35,20 @@ from .routes.explore import router as explore_router
 from .routes.health import router as health_router
 from .routes.scheduled import router as scheduled_router
 
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Initialize DB schema on startup, close pool on shutdown."""
+    await init_schema()
+    yield
+    await close_pool()
+
+
 app = FastAPI(
     title="Investment Analyst API",
     description="Multi-agent investment analysis with LangGraph orchestration and MCP tool servers.",
     version="0.2.0",
+    lifespan=_lifespan,
 )
 
 app.add_middleware(
