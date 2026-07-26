@@ -16,21 +16,23 @@ export default function StreamingAnalysisPage() {
   const { connect, disconnect } = useAnalysisStream()
   const { analyses, isStreaming, error } = useAnalysisStore()
 
-  const tickers = searchParams.get('tickers')?.split(',').filter(Boolean) || []
+  const tickerParam = searchParams.get('tickers') || ''
+  const tickers = tickerParam.split(',').filter(Boolean)
 
   useEffect(() => {
-    if (tickers.length > 0) {
-      connect(tickers)
-      // Update browser tab title during streaming
-      document.title = `Analyzing ${tickers.join(', ')}... | AI Investment Analyst`
+    const tickerList = tickerParam.split(',').filter(Boolean)
+    if (tickerList.length > 0) {
+      connect(tickerList)
+      document.title = `Analyzing ${tickerList.join(', ')}... | AI Investment Analyst`
     }
     return () => {
       disconnect()
       document.title = 'AI Investment Analyst'
     }
-    // Only run on mount
+    // Re-run if tickers change (e.g. navigation without remount)
+    // connect/disconnect are stable refs from useCallback
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [tickerParam])
 
   if (tickers.length === 0) {
     return (
