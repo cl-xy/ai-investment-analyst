@@ -1,17 +1,15 @@
 import { useState } from 'react'
 import { Route, Routes, useNavigate } from 'react-router-dom'
-import { analyzeStocks } from './api/analyzeService'
 import DashboardPage from './components/DashboardPage'
 import ExplorePage from './components/ExplorePage'
 import Header from './components/Header'
+import StreamingAnalysisPage from './components/StreamingAnalysisPage'
 import TabNav from './components/TabNav'
 import WatchlistPage from './components/WatchlistPage'
 
 export default function App() {
   const navigate = useNavigate()
   const [tickers, setTickers] = useState<string[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   const addTicker = (ticker: string) =>
     setTickers((prev) => (prev.includes(ticker) ? prev : [...prev, ticker]))
@@ -19,26 +17,17 @@ export default function App() {
   const removeTicker = (ticker: string) =>
     setTickers((prev) => prev.filter((t) => t !== ticker))
 
-  const handleAnalyze = async () => {
+  const handleAnalyze = () => {
     if (tickers.length === 0) return
-    setLoading(true)
-    setError(null)
-    navigate('/dashboard')
-    try {
-      await analyzeStocks({ tickers })
-    } catch (err: unknown) {
-      const msg =
-        err instanceof Error ? err.message : 'An unexpected error occurred'
-      setError(msg)
-    } finally {
-      setLoading(false)
-    }
+    // Navigate to streaming analysis page
+    const tickerParam = tickers.map((t) => t.toUpperCase()).join(',')
+    navigate(`/analyze?tickers=${encodeURIComponent(tickerParam)}`)
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-[var(--bg)]">
       <Header />
-      <TabNav loading={loading} error={error} />
+      <TabNav loading={false} error={null} />
 
       <Routes>
         <Route
@@ -49,10 +38,11 @@ export default function App() {
               onAdd={addTicker}
               onRemove={removeTicker}
               onAnalyze={handleAnalyze}
-              loading={loading}
+              loading={false}
             />
           }
         />
+        <Route path="/analyze" element={<StreamingAnalysisPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/explore" element={<ExplorePage />} />
       </Routes>
