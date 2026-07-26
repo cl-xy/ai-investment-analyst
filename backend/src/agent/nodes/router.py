@@ -3,10 +3,12 @@ from functools import cache
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
+from pydantic import ValidationError
 
 from ..json_utils import extract_json
 from ..prompts.router_prompt import ROUTER_HUMAN, ROUTER_SYSTEM
 from ..state import InvestmentAnalystState
+from ..structured_output import RouterOutput
 
 
 @cache
@@ -14,8 +16,10 @@ def _get_llm() -> ChatOpenAI:
     return ChatOpenAI(
         model="llama-3.1-8b-instant",
         temperature=0,
+        max_tokens=256,
         base_url="https://api.groq.com/openai/v1",
-        api_key=os.environ["GROQ_API_KEY"],
+        api_key=os.environ.get("GROQ_API_KEY", ""),
+        model_kwargs={"response_format": {"type": "json_object"}},
     )
 
 
@@ -32,12 +36,19 @@ async def router_node(state: InvestmentAnalystState) -> dict:
         HumanMessage(content=ROUTER_HUMAN.format(message=user_text)),
     ])
 
+    # Try structured validation first
     try:
-        parsed = extract_json(response.content)
-        intent = parsed.get("intent", "conversational")
-        tickers = [t.upper() for t in parsed.get("tickers", [])]
-    except (ValueError, AttributeError):
-        intent = "conversational"
-        tickers = []
+        output = RouterOutput.model_validate_json(response.content)
+        intent = output.intent
+        tickers = [t.upper() for t in output.tickers]
+    except (ValidationError, ValueError):
+        # Fallback to legacy extraction
+        try:
+            parsed = extract_json(response.content)
+            intent = parsed.get("intent", "conversational")
+            tickers = [t.upper() for t in parsed.get("tickers", [])]
+        except (ValueError, AttributeError):
+            intent = "conversational"
+            tickers = []
 
     return {"intent": intent, "tickers_to_analyze": tickers}
