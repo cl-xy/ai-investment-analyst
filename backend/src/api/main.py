@@ -21,7 +21,12 @@ if str(_PROJECT_ROOT) not in sys.path:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.config import settings
+from src.middleware.auth import DemoAuthMiddleware
+
 from .routes.analyze import router as analyze_router
+from .routes.analyze_stream import router as analyze_stream_router
+from .routes.admin import router as admin_router
 from .routes.dashboard import router as dashboard_router
 from .routes.explore import router as explore_router
 from .routes.health import router as health_router
@@ -29,20 +34,23 @@ from .routes.scheduled import router as scheduled_router
 
 app = FastAPI(
     title="Investment Analyst API",
-    description="REST API wrapping the LangGraph investment analyst agent.",
-    version="0.1.0",
+    description="Multi-agent investment analysis with LangGraph orchestration and MCP tool servers.",
+    version="0.2.0",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(DemoAuthMiddleware)
 
 app.include_router(health_router, prefix="/api")
 app.include_router(analyze_router, prefix="/api")
+app.include_router(analyze_stream_router, prefix="/api")
+app.include_router(admin_router, prefix="/api")
 app.include_router(dashboard_router, prefix="/api")
 app.include_router(explore_router, prefix="/api")
 app.include_router(scheduled_router, prefix="/api")
@@ -52,7 +60,12 @@ def start() -> None:
     """Entry point for `serve` script in pyproject.toml."""
     import uvicorn
 
-    uvicorn.run("src.api.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "src.api.main:app",
+        host="0.0.0.0",
+        port=settings.port,
+        reload=True,
+    )
 
 
 if __name__ == "__main__":
