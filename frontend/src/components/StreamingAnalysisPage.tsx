@@ -21,8 +21,13 @@ export default function StreamingAnalysisPage() {
   useEffect(() => {
     if (tickers.length > 0) {
       connect(tickers)
+      // Update browser tab title during streaming
+      document.title = `Analyzing ${tickers.join(', ')}... | AI Investment Analyst`
     }
-    return () => disconnect()
+    return () => {
+      disconnect()
+      document.title = 'AI Investment Analyst'
+    }
     // Only run on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
