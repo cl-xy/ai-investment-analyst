@@ -38,6 +38,8 @@ dependencies = [
     "uvicorn[standard]>=0.30.0",
     # Rate limiting
     "slowapi>=0.1.9",
+    # Logging
+    "structlog>=24.0.0",
 ]
 
 [project.optional-dependencies]

@@ -23,6 +23,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import settings
+from src.logging_config import setup_logging, get_logger
 from src.middleware.auth import DemoAuthMiddleware
 
 from .db import close_pool, init_schema
@@ -36,13 +37,20 @@ from .routes.health import router as health_router
 from .routes.compare import router as compare_router
 from .routes.scheduled import router as scheduled_router
 
+# Initialize structured logging (JSON in production, console in dev)
+setup_logging(json_output=not settings.port == 8000, level="INFO")
+log = get_logger("app")
+
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     """Initialize DB schema on startup, close pool on shutdown."""
+    log.info("starting", version="0.2.0")
     await init_schema()
+    log.info("database_ready")
     yield
     await close_pool()
+    log.info("shutdown_complete")
 
 
 app = FastAPI(
