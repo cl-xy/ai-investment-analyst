@@ -1,5 +1,7 @@
 # AI Investment Analyst
 
+[![CI](https://github.com/cl-xy/ai-investment-analyst/actions/workflows/ci.yml/badge.svg)](https://github.com/cl-xy/ai-investment-analyst/actions/workflows/ci.yml)
+
 Multi-agent investment analysis system with real-time streaming trace, structured outputs, and source-grounded citations.
 
 [Live Demo](https://ai-investment-analyst.vercel.app) · [Video Walkthrough](#demo-video)
