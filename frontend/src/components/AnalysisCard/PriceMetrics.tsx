@@ -24,12 +24,12 @@ export default function PriceMetrics({ priceData }: Props) {
 
   return (
     <div>
-      <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">📊 Valuation Metrics</h3>
+      <h3 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2">📊 Valuation Metrics</h3>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {metrics.map((m) => (
-          <div key={m.label} className="bg-gray-50 rounded-lg p-3">
-            <p className="text-xs text-gray-400 mb-0.5">{m.label}</p>
-            <p className="text-sm font-semibold text-gray-800 font-mono">{m.value}</p>
+          <div key={m.label} className="bg-[var(--surface)] rounded-lg p-3">
+            <p className="text-xs text-[var(--text-muted)] mb-0.5">{m.label}</p>
+            <p className="text-sm font-semibold text-[var(--text-primary)] font-mono">{m.value}</p>
           </div>
         ))}
       </div>

@@ -7,16 +7,16 @@ interface Props {
 }
 
 const SIGNAL_CONFIG: Record<Signal, { label: string; color: string; bg: string; emoji: string }> = {
-  buy: { label: 'BUY', color: 'text-green-800', bg: 'bg-green-100 border-green-300', emoji: '🟢' },
-  hold: { label: 'HOLD', color: 'text-yellow-800', bg: 'bg-yellow-100 border-yellow-300', emoji: '🟡' },
-  sell: { label: 'SELL', color: 'text-red-800', bg: 'bg-red-100 border-red-300', emoji: '🔴' },
-  insufficient_data: { label: 'INSUFFICIENT DATA', color: 'text-gray-600', bg: 'bg-gray-100 border-gray-300', emoji: '⚪' },
+  buy: { label: 'BUY', color: 'text-[var(--bullish)]', bg: 'bg-emerald-500/10 border-emerald-500/30', emoji: '🟢' },
+  hold: { label: 'HOLD', color: 'text-[var(--neutral)]', bg: 'bg-amber-500/10 border-amber-500/30', emoji: '🟡' },
+  sell: { label: 'SELL', color: 'text-[var(--bearish)]', bg: 'bg-red-500/10 border-red-500/30', emoji: '🔴' },
+  insufficient_data: { label: 'INSUFFICIENT DATA', color: 'text-[var(--text-muted)]', bg: 'bg-[var(--surface)] border-[var(--border)]', emoji: '⚪' },
 }
 
 const CONFIDENCE_COLOR: Record<Confidence, string> = {
-  high: 'text-green-600',
-  medium: 'text-yellow-600',
-  low: 'text-gray-500',
+  high: 'text-[var(--bullish)]',
+  medium: 'text-[var(--neutral)]',
+  low: 'text-[var(--text-muted)]',
 }
 
 export default function SignalBadge({ signal, confidence }: Props) {

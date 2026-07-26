@@ -11,23 +11,23 @@ interface Props {
   analysis: TickerAnalysis
 }
 
-const SECTION_DIVIDER = <hr className="border-gray-100" />
+const SECTION_DIVIDER = <hr className="border-[var(--border)]" />
 
 export default function AnalysisCard({ analysis }: Props) {
   const [expanded, setExpanded] = useState(true)
 
   return (
-    <div className="bg-white rounded-2xl shadow border border-gray-200 overflow-hidden">
+    <div className="bg-[var(--surface-elevated)] rounded-2xl border border-[var(--border)] overflow-hidden">
       {/* Card header */}
       <div
-        className="flex items-center justify-between px-6 py-4 cursor-pointer hover:bg-gray-50 transition-colors"
+        className="flex items-center justify-between px-6 py-4 cursor-pointer hover:bg-[var(--surface)] transition-colors"
         onClick={() => setExpanded((v) => !v)}
       >
         <div className="flex items-center gap-4">
-          <span className="text-2xl font-bold font-mono text-gray-900">{analysis.ticker}</span>
+          <span className="text-2xl font-bold font-mono text-[var(--text-primary)]">{analysis.ticker}</span>
           <SignalBadge signal={analysis.signal} confidence={analysis.confidence} />
         </div>
-        <button className="text-gray-400 hover:text-gray-600 text-xl font-bold">
+        <button className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] text-xl font-bold">
           {expanded ? '▲' : '▼'}
         </button>
       </div>
