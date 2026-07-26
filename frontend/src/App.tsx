@@ -4,7 +4,6 @@ import DashboardPage from './components/DashboardPage'
 import ExplorePage from './components/ExplorePage'
 import Header from './components/Header'
 import StreamingAnalysisPage from './components/StreamingAnalysisPage'
-import TabNav from './components/TabNav'
 import WatchlistPage from './components/WatchlistPage'
 
 export default function App() {
@@ -19,7 +18,6 @@ export default function App() {
 
   const handleAnalyze = () => {
     if (tickers.length === 0) return
-    // Navigate to streaming analysis page
     const tickerParam = tickers.map((t) => t.toUpperCase()).join(',')
     navigate(`/analyze?tickers=${encodeURIComponent(tickerParam)}`)
   }
@@ -27,7 +25,6 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[var(--bg)]">
       <Header />
-      <TabNav loading={false} error={null} />
 
       <Routes>
         <Route

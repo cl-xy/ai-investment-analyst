@@ -1,13 +1,47 @@
+import { TrendingUp } from 'lucide-react'
+import { Link } from 'react-router-dom'
+
 export default function Header() {
   return (
-    <header className="bg-gray-900 text-white px-6 py-5 shadow-lg">
-      <div className="max-w-6xl mx-auto flex items-center gap-3">
-        <span className="text-2xl">📈</span>
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Investment Analyst</h1>
-          <p className="text-gray-400 text-sm">AI-powered stock analysis based on news, fundamentals & SEC filings</p>
-        </div>
+    <header className="border-b border-[var(--border)] bg-[var(--surface)]">
+      <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+        <Link to="/" className="flex items-center gap-2.5 focus-ring rounded">
+          <TrendingUp className="w-5 h-5 text-[var(--accent)]" />
+          <div>
+            <h1 className="text-base font-semibold text-[var(--text-primary)] leading-tight">
+              Investment Analyst
+            </h1>
+            <p className="text-xs text-[var(--text-muted)]">
+              Multi-agent analysis with LangGraph + MCP
+            </p>
+          </div>
+        </Link>
+
+        <nav className="flex items-center gap-1">
+          <NavLink to="/" label="Analyze" />
+          <NavLink to="/dashboard" label="History" />
+          <NavLink to="/explore" label="Explore" />
+        </nav>
       </div>
     </header>
+  )
+}
+
+function NavLink({ to, label }: { to: string; label: string }) {
+  const { pathname } = window.location
+  const isActive = pathname === to
+
+  return (
+    <Link
+      to={to}
+      className={[
+        'px-3 py-1.5 text-sm font-medium rounded-md transition-colors focus-ring',
+        isActive
+          ? 'bg-[var(--accent-bg)] text-[var(--accent)]'
+          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-elevated)]',
+      ].join(' ')}
+    >
+      {label}
+    </Link>
   )
 }
