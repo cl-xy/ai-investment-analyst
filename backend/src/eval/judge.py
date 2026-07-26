@@ -48,7 +48,7 @@ def _get_judge_llm() -> ChatOpenAI:
     if not api_key:
         raise RuntimeError("GROQ_API_KEY required for eval judge")
     return ChatOpenAI(
-        model="llama-3.1-8b-instant",
+        model="openai/gpt-oss-20b",
         temperature=0,
         max_tokens=512,
         base_url="https://api.groq.com/openai/v1",

@@ -61,7 +61,7 @@ Be concise, evidence-based, and acknowledge when differences are marginal."""
 @cache
 def _get_llm() -> ChatOpenAI:
     return ChatOpenAI(
-        model="llama-3.3-70b-versatile",
+        model="openai/gpt-oss-120b",
         temperature=0,
         max_tokens=2048,
         base_url="https://api.groq.com/openai/v1",

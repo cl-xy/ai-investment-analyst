@@ -25,8 +25,8 @@ class RunMetrics(BaseModel):
     completed_at: datetime | None = None
     duration_ms: int = 0
 
-    router_model: str = "llama-3.1-8b-instant"
-    analysis_model: str = "llama-3.3-70b-versatile"
+    router_model: str = "openai/gpt-oss-20b"
+    analysis_model: str = "openai/gpt-oss-120b"
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
@@ -70,7 +70,8 @@ class CostTracker:
         self.metrics.prompt_tokens += prompt
         self.metrics.completion_tokens += completion
         self.metrics.total_tokens += prompt + completion
-        self.metrics.cost_usd += (prompt * 0.00000059) + (completion * 0.00000079)
+        # Blended rate: GPT-OSS 120B ($0.15/$0.60) dominates token usage
+        self.metrics.cost_usd += (prompt * 0.00000015) + (completion * 0.00000060)
 
     def record_schema_result(self, valid: bool, citations: int, data_gaps: int):
         self.metrics.schema_valid = valid

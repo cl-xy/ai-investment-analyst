@@ -12,9 +12,9 @@ Multi-agent investment analysis system with real-time streaming trace, structure
 
 Enter a ticker symbol → watch a multi-agent pipeline execute in real-time:
 
-1. **Router** classifies intent and extracts tickers (Llama 3.1 8B, ~120ms)
+1. **Router** classifies intent and extracts tickers (GPT-OSS 20B, ~100ms)
 2. **Fetch Data** calls 5 MCP tool servers in parallel (market, fundamentals, indicators, news, SEC filings)
-3. **Analyze** synthesizes data into a structured assessment with citations (Llama 3.3 70B, JSON mode)
+3. **Analyze** synthesizes data into a structured assessment with citations (GPT-OSS 120B, JSON mode)
 4. **Report** generates a cohesive narrative across all analyzed tickers
 
 Every step streams to the frontend via SSE — you see tool calls resolve, cache hits light up green, and analysis text stream in token by token.

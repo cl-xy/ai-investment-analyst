@@ -17,7 +17,7 @@ def _get_llm() -> ChatOpenAI:
     if not api_key:
         raise RuntimeError("GROQ_API_KEY environment variable is not set")
     return ChatOpenAI(
-        model="llama-3.1-8b-instant",
+        model="openai/gpt-oss-20b",
         temperature=0,
         max_tokens=256,
         base_url="https://api.groq.com/openai/v1",
