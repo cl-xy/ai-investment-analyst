@@ -1,8 +1,9 @@
 """
 Fetch data node — calls 5 MCP tool servers in parallel with graceful degradation.
 
-Each tool call is independently wrapped. Partial failures produce data_gaps
-rather than crashing the entire analysis.
+Each tool call is independently wrapped with timeout handling.
+Integrates with the PostgreSQL cache layer (stale-while-revalidate).
+Partial failures produce data_gaps rather than crashing the analysis.
 """
 
 import asyncio
@@ -10,6 +11,7 @@ import json
 import time
 
 from ..state import InvestmentAnalystState
+from src.cache.manager import cache_manager
 
 TOOL_TIMEOUT = 30  # seconds per tool call
 
@@ -32,9 +34,9 @@ def _unwrap(result) -> dict | list:
     return result
 
 
-async def _call_tool(tools: dict, name: str, **kwargs) -> tuple[dict | list, bool, int]:
+async def _call_tool_raw(tools: dict, name: str, **kwargs) -> tuple[dict | list, bool, int]:
     """
-    Call a single MCP tool with timeout.
+    Call a single MCP tool directly (no cache) with timeout.
     Returns (result, success, duration_ms).
     """
     tool = tools.get(name)
@@ -54,31 +56,61 @@ async def _call_tool(tools: dict, name: str, **kwargs) -> tuple[dict | list, boo
         return {"error": str(e)}, False, duration_ms
 
 
+async def _call_tool_cached(
+    tools: dict, provider: str, tool_name: str, ticker: str, tool_kwargs: dict
+) -> tuple[dict | list, bool, int, bool]:
+    """
+    Call a tool through the cache layer.
+    Returns (result, success, duration_ms, was_cached).
+    """
+    start = time.monotonic()
+
+    async def _fetch():
+        data, success, _ = await _call_tool_raw(tools, tool_name, **tool_kwargs)
+        if not success:
+            raise RuntimeError(f"Tool {tool_name} failed")
+        return data
+
+    try:
+        data, source_id, was_cached = await cache_manager.get_or_fetch(
+            provider=provider,
+            tool=tool_name,
+            ticker=ticker,
+            fetch_fn=_fetch,
+        )
+        duration_ms = int((time.monotonic() - start) * 1000)
+        return data, True, duration_ms, was_cached
+    except Exception:
+        # Cache miss + fetch failure — fall back to direct call
+        data, success, duration_ms = await _call_tool_raw(tools, tool_name, **tool_kwargs)
+        return data, success, duration_ms, False
+
+
 async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> dict:
     tickers = state.get("tickers_to_analyze", [])
     if not tickers:
         return {}
 
-    async def fetch_one(ticker: str) -> tuple[str, dict, dict, dict, str, dict, list[str]]:
-        """Fetch all data for one ticker. Returns per-ticker results + gaps."""
+    async def fetch_one(ticker: str) -> tuple[str, list, dict, str, list[str]]:
+        """Fetch all data for one ticker with caching. Returns per-ticker results + gaps."""
         gaps: list[str] = []
 
-        # Run all tool calls in parallel
+        # Run all tool calls in parallel through cache
         results = await asyncio.gather(
-            _call_tool(mcp_tools, "get_ticker_news", ticker=ticker, days_back=7, max_articles=10),
-            _call_tool(mcp_tools, "get_quote", ticker=ticker),
-            _call_tool(mcp_tools, "get_fundamentals", ticker=ticker),
-            _call_tool(mcp_tools, "get_latest_filing_summary", ticker=ticker, form_type="10-K"),
-            _call_tool(mcp_tools, "get_technical_indicators", ticker=ticker),
+            _call_tool_cached(mcp_tools, "newsapi", "get_ticker_news", ticker, {"ticker": ticker, "days_back": 7, "max_articles": 10}),
+            _call_tool_cached(mcp_tools, "yfinance", "get_quote", ticker, {"ticker": ticker}),
+            _call_tool_cached(mcp_tools, "yfinance", "get_fundamentals", ticker, {"ticker": ticker}),
+            _call_tool_cached(mcp_tools, "sec_edgar", "get_latest_filing_summary", ticker, {"ticker": ticker, "form_type": "10-K"}),
+            _call_tool_cached(mcp_tools, "yfinance", "get_technical_indicators", ticker, {"ticker": ticker}),
         )
 
-        news_data, news_ok, _ = results[0]
-        quote_data, quote_ok, _ = results[1]
-        fundamentals_data, fundamentals_ok, _ = results[2]
-        filing_data, filing_ok, _ = results[3]
-        indicators_data, indicators_ok, _ = results[4]
+        news_data, news_ok, _, _ = results[0]
+        quote_data, quote_ok, _, _ = results[1]
+        fundamentals_data, fundamentals_ok, _, _ = results[2]
+        filing_data, filing_ok, _, _ = results[3]
+        indicators_data, indicators_ok, _, _ = results[4]
 
-        # Track gaps
+        # Track gaps for failed sources
         if not news_ok:
             gaps.append(f"News data unavailable for {ticker}")
             news_data = []

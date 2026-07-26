@@ -3,7 +3,7 @@
 import json
 import pytest
 from langchain_core.messages import HumanMessage
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 def _text_block(data) -> list[dict]:
@@ -21,6 +21,7 @@ def base_state():
         "raw_news": {},
         "raw_prices": {},
         "raw_filings": {},
+        "data_gaps": [],
         "report_markdown": "",
         "current_ticker": None,
         "error": None,
@@ -34,8 +35,19 @@ def _make_tool(return_value):
     return tool
 
 
+def _mock_cache_passthrough():
+    """Mock cache_manager.get_or_fetch to always call the fetch function directly."""
+    async def _passthrough(provider, tool, ticker, fetch_fn):
+        data = await fetch_fn()
+        return data, f"{provider}:{ticker}:mock", False
+    return _passthrough
+
+
 @pytest.mark.asyncio
-async def test_fetch_data_populates_all_fields(base_state):
+@patch("src.agent.nodes.fetch_data.cache_manager")
+async def test_fetch_data_populates_all_fields(mock_cache, base_state):
+    mock_cache.get_or_fetch = AsyncMock(side_effect=_mock_cache_passthrough())
+
     from src.agent.nodes.fetch_data import fetch_data_node
 
     mock_news = [{"title": "NVDA surges", "source": "Bloomberg", "snippet": "Big gains", "published_at": "2024-01-10", "url": "http://example.com"}]
@@ -66,7 +78,18 @@ async def test_fetch_data_populates_all_fields(base_state):
 
 
 @pytest.mark.asyncio
-async def test_fetch_data_handles_tool_errors_gracefully(base_state):
+@patch("src.agent.nodes.fetch_data.cache_manager")
+async def test_fetch_data_handles_tool_errors_gracefully(mock_cache, base_state):
+    # Make cache passthrough that will hit the failing tools
+    async def _failing_passthrough(provider, tool, ticker, fetch_fn):
+        try:
+            data = await fetch_fn()
+            return data, f"{provider}:{ticker}:mock", False
+        except Exception:
+            raise
+
+    mock_cache.get_or_fetch = AsyncMock(side_effect=_failing_passthrough)
+
     from src.agent.nodes.fetch_data import fetch_data_node
 
     failing_tool = MagicMock()
@@ -81,11 +104,11 @@ async def test_fetch_data_handles_tool_errors_gracefully(base_state):
 
     result = await fetch_data_node(base_state, mcp_tools=mcp_tools)
 
-    # Should not raise — errors are captured as {"error": "..."} or empty lists
+    # Should not raise — errors are captured
     assert result["raw_news"]["NVDA"] == []
-    # quote is a dict (may contain error marker) — the key should exist without crashing
     assert isinstance(result["raw_prices"]["NVDA"]["quote"], dict)
     assert result["raw_filings"]["NVDA"] == ""
+    assert len(result["data_gaps"]) > 0
 
 
 @pytest.mark.asyncio
@@ -98,7 +121,10 @@ async def test_fetch_data_returns_empty_for_no_tickers(base_state):
 
 
 @pytest.mark.asyncio
-async def test_fetch_data_fetches_multiple_tickers_in_parallel(base_state):
+@patch("src.agent.nodes.fetch_data.cache_manager")
+async def test_fetch_data_fetches_multiple_tickers_in_parallel(mock_cache, base_state):
+    mock_cache.get_or_fetch = AsyncMock(side_effect=_mock_cache_passthrough())
+
     from src.agent.nodes.fetch_data import fetch_data_node
 
     base_state["tickers_to_analyze"] = ["NVDA", "AAPL"]
