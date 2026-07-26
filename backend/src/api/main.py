@@ -25,6 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.config import settings
 from src.logging_config import setup_logging, get_logger
 from src.middleware.auth import DemoAuthMiddleware
+from src.middleware.request_id import RequestIDMiddleware
 
 from .db import close_pool, init_schema
 from .routes.analyze import router as analyze_router
@@ -67,6 +68,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestIDMiddleware)
 app.add_middleware(DemoAuthMiddleware)
 
 app.include_router(health_router, prefix="/api")
