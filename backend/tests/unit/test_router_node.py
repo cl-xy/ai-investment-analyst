@@ -28,7 +28,8 @@ async def test_router_skips_llm_when_intent_preset(base_state):
     base_state["intent"] = "list_portfolio"
     from src.agent.nodes.router import router_node
 
-    with patch("src.agent.nodes.router._llm") as mock_llm:
+    mock_llm = AsyncMock()
+    with patch("src.agent.nodes.router._get_llm", return_value=mock_llm):
         result = await router_node(base_state)
 
     mock_llm.ainvoke.assert_not_called()
@@ -38,10 +39,12 @@ async def test_router_skips_llm_when_intent_preset(base_state):
 @pytest.mark.asyncio
 async def test_router_parses_single_ticker_intent(base_state):
     mock_response = MagicMock()
-    mock_response.content = '{"intent": "single_ticker", "tickers": ["NVDA", "AAPL"]}'
+    mock_response.content = '{"intent": "single_ticker", "tickers": ["NVDA", "AAPL"], "reasoning": "User wants analysis"}'
 
-    with patch("src.agent.nodes.router._llm") as mock_llm:
-        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+    mock_llm = AsyncMock()
+    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+
+    with patch("src.agent.nodes.router._get_llm", return_value=mock_llm):
         from src.agent.nodes.router import router_node
         result = await router_node(base_state)
 
@@ -51,12 +54,14 @@ async def test_router_parses_single_ticker_intent(base_state):
 
 @pytest.mark.asyncio
 async def test_router_parses_json_with_code_fences(base_state):
-    """Router should correctly strip ```json ... ``` fences."""
+    """Router should correctly handle JSON via fallback extraction."""
     mock_response = MagicMock()
     mock_response.content = '```json\n{"intent": "full_report", "tickers": []}\n```'
 
-    with patch("src.agent.nodes.router._llm") as mock_llm:
-        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+    mock_llm = AsyncMock()
+    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+
+    with patch("src.agent.nodes.router._get_llm", return_value=mock_llm):
         from src.agent.nodes.router import router_node
         result = await router_node(base_state)
 
@@ -69,8 +74,10 @@ async def test_router_falls_back_to_conversational_on_bad_json(base_state):
     mock_response = MagicMock()
     mock_response.content = "I cannot determine the intent."
 
-    with patch("src.agent.nodes.router._llm") as mock_llm:
-        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+    mock_llm = AsyncMock()
+    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+
+    with patch("src.agent.nodes.router._get_llm", return_value=mock_llm):
         from src.agent.nodes.router import router_node
         result = await router_node(base_state)
 

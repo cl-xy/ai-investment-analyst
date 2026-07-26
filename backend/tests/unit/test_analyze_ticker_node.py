@@ -40,13 +40,20 @@ async def test_analyze_ticker_returns_analysis(state_with_ticker_data):
         "signal": "buy",
         "confidence": "high",
         "sentiment_score": 0.8,
+        "thesis": "Strong earnings beat with positive guidance across all segments.",
+        "bull_case": ["AI demand surge", "Data center growth"],
+        "bear_case": ["High valuation", "Export restrictions"],
         "news_summary": "Strong earnings beat with positive guidance.",
         "risk_flags": ["Supply chain risk"],
+        "citations": [],
+        "data_gaps": [],
         "sec_notes": "Company highlights supply chain as primary risk."
     }"""
 
-    with patch("src.agent.nodes.analyze_ticker._llm") as mock_llm:
-        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+    mock_llm = AsyncMock()
+    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+
+    with patch("src.agent.nodes.analyze_ticker._get_llm", return_value=mock_llm):
         from src.agent.nodes.analyze_ticker import analyze_ticker_node
         result = await analyze_ticker_node(state_with_ticker_data)
 
@@ -61,7 +68,7 @@ async def test_analyze_ticker_returns_analysis(state_with_ticker_data):
 
 @pytest.mark.asyncio
 async def test_analyze_ticker_handles_code_fenced_json(state_with_ticker_data):
-    """Analyst node should parse JSON wrapped in markdown code fences."""
+    """Analyst node should handle JSON that fails Pydantic but succeeds via fallback."""
     mock_response = MagicMock()
     mock_response.content = """```json
 {
@@ -75,8 +82,10 @@ async def test_analyze_ticker_handles_code_fenced_json(state_with_ticker_data):
 }
 ```"""
 
-    with patch("src.agent.nodes.analyze_ticker._llm") as mock_llm:
-        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+    mock_llm = AsyncMock()
+    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+
+    with patch("src.agent.nodes.analyze_ticker._get_llm", return_value=mock_llm):
         from src.agent.nodes.analyze_ticker import analyze_ticker_node
         result = await analyze_ticker_node(state_with_ticker_data)
 
@@ -89,8 +98,10 @@ async def test_analyze_ticker_falls_back_on_invalid_json(state_with_ticker_data)
     mock_response = MagicMock()
     mock_response.content = "I cannot analyze this stock right now."
 
-    with patch("src.agent.nodes.analyze_ticker._llm") as mock_llm:
-        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+    mock_llm = AsyncMock()
+    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+
+    with patch("src.agent.nodes.analyze_ticker._get_llm", return_value=mock_llm):
         from src.agent.nodes.analyze_ticker import analyze_ticker_node
         result = await analyze_ticker_node(state_with_ticker_data)
 
@@ -116,7 +127,9 @@ async def test_analyze_ticker_skips_already_analyzed(state_with_ticker_data):
         }
     }
 
-    with patch("src.agent.nodes.analyze_ticker._llm") as mock_llm:
+    mock_llm = AsyncMock()
+
+    with patch("src.agent.nodes.analyze_ticker._get_llm", return_value=mock_llm):
         from src.agent.nodes.analyze_ticker import analyze_ticker_node
         result = await analyze_ticker_node(state_with_ticker_data)
 
