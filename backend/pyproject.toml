@@ -20,7 +20,7 @@ dependencies = [
     # News
     "newsapi-python>=0.2.7",
     # Persistence
-    "aiosqlite>=0.20.0",
+    "aiosqlite>=0.22.1",
     "langgraph-checkpoint-sqlite>=2.0.1",
     "asyncpg>=0.29.0",
     # CLI
