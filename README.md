@@ -31,7 +31,7 @@ Every step streams to the frontend via SSE. You see tool calls resolve, cache hi
 │                      FastAPI Backend                              │
 │  ┌─────────┐  ┌───────────┐  ┌──────────┐  ┌────────────────┐  │
 │  │ Router  │→ │ Fetch Data│→ │ Analyze  │→ │Generate Report │  │
-│  │(8B LLM) │  │(5 MCP     │  │(70B LLM) │  │  (70B LLM)     │  │
+│  │(20B LLM)│  │(5 MCP     │  │(120B LLM)│  │  (120B LLM)    │  │
 │  │         │  │ tools ∥)  │  │JSON mode │  │                │  │
 │  └─────────┘  └───────────┘  └──────────┘  └────────────────┘  │
 │                      LangGraph StateGraph                        │
@@ -150,7 +150,9 @@ backend/
 │   ├── cache/                    # PostgreSQL SWR cache + budget guards
 │   ├── middleware/               # Auth gate + rate limiting + cost tracking
 │   └── mcp_servers/              # 4 FastMCP tool servers
-├── tests/                        # pytest (events, schemas, cache, nodes)
+├── tests/                        # pytest (events, schemas, cache, golden fixtures)
+│   └── fixtures/                 # 20 golden test scenarios
+├── src/eval/                     # LLM-as-judge scoring module
 └── Dockerfile                    # Multi-stage, non-root, healthcheck
 
 frontend/
@@ -168,7 +170,7 @@ frontend/
 ## Known Limitations
 
 - **Not financial advice.** Outputs are for educational/demonstration purposes only.
-- **Groq free tier**: 30 req/min, 14,400 req/day. Demo uses aggressive caching.
+- **Groq free tier**: 1K RPM, 250K TPM. Demo uses aggressive caching to stay well within limits.
 - **No real-time prices**: yfinance data has 15-min delay during market hours.
 - **SEC filings**: Only 10-K summaries. No 8-K, no earnings call transcripts.
 - **Single retry on validation failure**: If the LLM produces invalid JSON twice, falls back to partial extraction.
