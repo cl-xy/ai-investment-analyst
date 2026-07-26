@@ -2,7 +2,7 @@ import os
 from functools import cache
 
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+from langchain_core.messages import SystemMessage, ToolMessage
 
 from ..state import InvestmentAnalystState
 

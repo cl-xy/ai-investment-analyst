@@ -2,7 +2,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastmcp import FastMCP
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 from .cache import _fundamentals_cache, _history_cache, _quote_cache
 from .indicators import compute_indicators

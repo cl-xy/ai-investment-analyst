@@ -11,7 +11,6 @@ Commands:
 """
 
 import asyncio
-import os
 import sys
 from pathlib import Path
 
@@ -27,7 +26,6 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Prompt
-from rich.table import Table
 
 # Ensure project root is on sys.path when run as `python -m src.cli.main`
 _PROJECT_ROOT = Path(__file__).parent.parent.parent

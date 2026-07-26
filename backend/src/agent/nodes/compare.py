@@ -5,7 +5,6 @@ Takes completed ticker_analyses from state and produces a structured comparison
 including relative valuation, normalized metrics, and a brief AI-generated narrative.
 """
 
-import json
 import os
 from functools import cache
 

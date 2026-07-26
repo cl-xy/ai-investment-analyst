@@ -12,7 +12,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Awaitable
 
-from src.api.db import fetch, fetchrow, execute
+from src.api.db import fetchrow, execute
 
 
 # TTL configuration per provider/tool combination

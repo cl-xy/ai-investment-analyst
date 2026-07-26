@@ -22,7 +22,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from src.agent.graph import build_graph
 from src.agent.mcp_client import create_mcp_client
 
-from ..db import execute, fetch, fetchrow
+from ..db import execute, fetchrow
 from ..schemas import AnalyzeRequest, AnalyzeResponse, TickerAnalysis
 
 router = APIRouter()

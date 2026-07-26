@@ -7,7 +7,6 @@ Uses structlog for consistent structured output across the application.
 
 import logging
 import sys
-import uuid
 from contextvars import ContextVar
 
 import structlog
