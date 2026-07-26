@@ -1,0 +1,17 @@
+name: Warm Cache
+
+on:
+  schedule:
+    - cron: "0 6 * * *"  # Daily at 6 AM UTC
+  workflow_dispatch: {}
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Warm demo ticker cache
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.SCHEDULER_SECRET_TOKEN }}" \
+            "${{ secrets.BACKEND_URL }}/api/admin/warm-cache"
+        timeout-minutes: 5
