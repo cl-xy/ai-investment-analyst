@@ -41,7 +41,7 @@ export default function AgentTracePanel() {
       </div>
 
       {/* Timeline */}
-      <div className="px-5 py-4 space-y-1 max-h-[600px] overflow-y-auto">
+      <div className="px-5 py-4 space-y-1 max-h-[600px] overflow-y-auto" role="log" aria-label="Agent execution trace" aria-live="polite">
         {traceEvents.length === 0 && isStreaming && (
           <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
             <div className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse" />

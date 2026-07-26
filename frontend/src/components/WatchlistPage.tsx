@@ -62,6 +62,7 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Enter ticker symbol, e.g. NVDA"
+              aria-label="Ticker symbol input"
               className="w-full border border-[var(--border)] bg-[var(--surface)] rounded-lg pl-10 pr-4 py-3 text-sm font-mono uppercase text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] focus:border-transparent transition-shadow"
               maxLength={10}
               autoFocus
