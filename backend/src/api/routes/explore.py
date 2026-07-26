@@ -1,5 +1,5 @@
 """
-Explore route — returns trending US stocks from Yahoo Finance.
+Explore route. Returns trending US stocks from Yahoo Finance.
 Results are cached in-memory for 5 minutes to reduce external API calls.
 """
 

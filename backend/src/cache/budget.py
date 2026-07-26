@@ -1,5 +1,5 @@
 """
-Provider daily budget tracking — PostgreSQL-backed.
+Provider daily budget tracking. PostgreSQL-backed.
 
 Prevents exceeding free-tier rate limits on external APIs.
 """

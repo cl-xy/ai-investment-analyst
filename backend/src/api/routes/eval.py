@@ -1,5 +1,5 @@
 """
-Evaluation metrics API — PostgreSQL-backed.
+Evaluation metrics API. PostgreSQL-backed.
 Serves data for the eval dashboard.
 """
 

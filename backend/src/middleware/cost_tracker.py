@@ -1,5 +1,5 @@
 """
-Per-run cost and latency tracking — PostgreSQL-backed.
+Per-run cost and latency tracking. PostgreSQL-backed.
 
 Logs every analysis run for observability:
 - Model used, token counts, latency, tool calls, cache hits

@@ -1,5 +1,5 @@
 """
-Analyze endpoint — runs the LangGraph agent and persists results to PostgreSQL.
+Analyze endpoint. Runs the LangGraph agent and persists results to PostgreSQL.
 """
 
 import json

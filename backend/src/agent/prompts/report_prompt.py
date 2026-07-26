@@ -1,7 +1,7 @@
 REPORT_SYSTEM = """You are a senior portfolio manager writing an investment research report.
 Write a clear, professional markdown report based on the provided ticker analyses.
 Use headers, tables, and bullet points for readability.
-Be direct — give actionable insights, not vague commentary."""
+Be direct. Give actionable insights, not vague commentary."""
 
 REPORT_HUMAN = """Write an investment analyst report for the following portfolio analysis.
 

@@ -1,5 +1,5 @@
 """
-Compare node — generates comparative analysis across multiple tickers.
+Compare node. Generates comparative analysis across multiple tickers.
 
 Takes completed ticker_analyses from state and produces a structured comparison
 including relative valuation, normalized metrics, and a brief AI-generated narrative.
@@ -100,5 +100,5 @@ async def compare_node(state: InvestmentAnalystState) -> dict:
         comparison = ComparisonOutput.model_validate_json(response.content)
         return {"comparison": comparison.model_dump()}
     except (ValidationError, Exception):
-        # Non-critical — comparison is supplementary
+        # Non-critical, comparison is supplementary
         return {}

@@ -38,7 +38,7 @@ class DemoAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         demo_password = os.environ.get("DEMO_PASSWORD", "")
 
-        # No password configured — everything is open
+        # No password configured, auth gate disabled
         if not demo_password:
             return await call_next(request)
 

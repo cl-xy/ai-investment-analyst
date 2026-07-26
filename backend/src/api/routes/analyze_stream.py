@@ -97,7 +97,7 @@ async def _run_agent(
                         ev = emitter.node_started(name)
                         await queue.put(ev.to_sse())
 
-                    # Tool start — record timestamp for duration
+                    # Tool start: record timestamp for duration
                     elif kind == "on_tool_start":
                         tool_name = name
                         tool_start_times[tool_name] = time.monotonic()
@@ -105,7 +105,7 @@ async def _run_agent(
                         ev = emitter.tool_call(tool_name, tool_input, node=current_node)
                         await queue.put(ev.to_sse())
 
-                    # Tool end — compute real duration
+                    # Tool end: compute real duration
                     elif kind == "on_tool_end":
                         tool_name = name
                         tool_start = tool_start_times.pop(tool_name, time.monotonic())
@@ -133,7 +133,7 @@ async def _run_agent(
                             ev = emitter.llm_token(chunk.content, node=current_node)
                             await queue.put(ev.to_sse())
 
-                    # LLM completion — track tokens
+                    # LLM completion: track tokens
                     elif kind == "on_chat_model_end":
                         output = data.get("output")
                         if output and hasattr(output, "usage_metadata"):
@@ -193,7 +193,7 @@ async def _run_agent(
     try:
         await tracker.persist()
     except Exception:
-        pass  # Non-critical — don't break the stream for persistence failure
+        pass  # Non-critical, don't break the stream for persistence failure
 
     # Signal done
     await queue.put(None)

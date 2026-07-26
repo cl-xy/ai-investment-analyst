@@ -3,7 +3,7 @@ interface Props {
 }
 
 function fmtNum(val: unknown, decimals = 2, suffix = ''): string {
-  if (val === undefined || val === null || val === '') return '—'
+  if (val === undefined || val === null || val === '') return '-'
   if (typeof val === 'number') {
     return `${val.toLocaleString(undefined, { maximumFractionDigits: decimals })}${suffix}`
   }
@@ -19,7 +19,7 @@ export default function MarketPositionSection({ fundamentals }: Props) {
     { label: 'Return on Equity', value: fmtNum(fundamentals.roe, 1, '%') },
     { label: 'Debt to Equity', value: fmtNum(fundamentals.debt_to_equity) },
     { label: 'EPS (TTM)', value: fmtNum(fundamentals.eps) },
-    { label: 'Sector', value: String(fundamentals.sector ?? '—') },
+    { label: 'Sector', value: String(fundamentals.sector ?? '-') },
   ]
 
   const description = typeof fundamentals.description === 'string' ? fundamentals.description : ''

@@ -110,7 +110,7 @@ export default function EvalPage() {
       {/* Disclaimer */}
       <div className="mt-8 pt-6 border-t border-[var(--border)]">
         <p className="text-xs text-[var(--text-muted)]">
-          These metrics reflect system reliability and output quality — not prediction accuracy.
+          These metrics reflect system reliability and output quality, not prediction accuracy.
           Schema validation ensures structured outputs conform to the expected format.
           Citation coverage measures how well claims are grounded in retrieved data.
         </p>

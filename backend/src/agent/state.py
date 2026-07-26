@@ -48,7 +48,7 @@ class InvestmentAnalystState(TypedDict):
     raw_prices: dict[str, dict]
     raw_filings: dict[str, str]
 
-    # Graceful degradation — tracks what data was unavailable
+    # Graceful degradation: tracks what data was unavailable
     data_gaps: list[str]
 
     report_markdown: str

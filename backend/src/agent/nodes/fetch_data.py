@@ -1,5 +1,5 @@
 """
-Fetch data node — calls 5 MCP tool servers in parallel with graceful degradation.
+Fetch data node. Calls 5 MCP tool servers in parallel with graceful degradation.
 
 Each tool call is independently wrapped with timeout handling.
 Integrates with the PostgreSQL cache layer (stale-while-revalidate).
@@ -81,7 +81,7 @@ async def _call_tool_cached(
         duration_ms = int((time.monotonic() - start) * 1000)
         return data, True, duration_ms, was_cached
     except Exception:
-        # Cache miss + fetch failure — fall back to direct call
+        # Cache miss + fetch failure: fall back to direct call
         data, success, duration_ms = await _call_tool_raw(tools, tool_name, **tool_kwargs)
         return data, success, duration_ms, False
 
@@ -101,14 +101,14 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
         )
         cache_only = not all(budgets_ok)
     except Exception:
-        pass  # DB unavailable or not initialized — proceed normally
+        pass  # DB unavailable or not initialized, proceed normally
 
     async def fetch_one(ticker: str) -> tuple[str, list, dict, str, list[str]]:
         """Fetch all data for one ticker with caching. Returns per-ticker results + gaps."""
         gaps: list[str] = []
 
         if cache_only:
-            # Budget exhausted — serve only from cache, no live API calls
+            # Budget exhausted: serve only from cache, no live API calls
             from src.cache.manager import cache_manager as cm
             news_data, _, news_hit = await cm.get_cached_only("newsapi", "get_ticker_news", ticker)
             quote_data, _, quote_hit = await cm.get_cached_only("yfinance", "get_quote", ticker)
@@ -141,7 +141,7 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
             filing_text = filing_data.get("text_excerpt", "") if isinstance(filing_data, dict) else ""
             return ticker, news, prices, filing_text, gaps
 
-        # Normal path — fetch through cache layer
+        # Normal path: fetch through cache layer
         results = await asyncio.gather(
             _call_tool_cached(mcp_tools, "newsapi", "get_ticker_news", ticker, {"ticker": ticker, "days_back": 7, "max_articles": 10}),
             _call_tool_cached(mcp_tools, "yfinance", "get_quote", ticker, {"ticker": ticker}),

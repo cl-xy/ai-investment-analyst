@@ -1,32 +1,43 @@
-# React + TypeScript + Vite
+# Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19 + TypeScript + Vite frontend for the AI Investment Analyst.
 
-Currently, two official plugins are available:
+## Development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev       # dev server on :5173 (proxies API to :8000)
+npm run build     # production build
+npm run lint      # oxlint
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Structure
+
+```
+src/
+├── components/          # UI components
+│   ├── StreamingAnalysisPage.tsx   # Main streaming experience
+│   ├── AgentTracePanel.tsx         # Real-time execution trace
+│   ├── TraceEvent.tsx              # Individual trace rows
+│   ├── WatchlistPage.tsx           # Ticker input + demo CTA
+│   ├── ComparePage.tsx             # Side-by-side comparison
+│   ├── EvalPage.tsx                # Eval metrics dashboard
+│   ├── ThemeToggle.tsx             # Dark/light switch
+│   └── DataFreshness.tsx           # "Data as of" badges
+├── hooks/
+│   └── useAnalysisStream.ts        # SSE EventSource with backoff
+├── stores/
+│   └── analysisStore.ts            # Zustand streaming state
+├── types/
+│   └── stream.ts                   # Domain event types
+└── index.css                       # Design tokens + animations
+```
+
+## Design
+
+- Dark-first with light mode toggle (CSS custom properties)
+- Inter for prose, JetBrains Mono for data/tickers
+- Lucide React icons throughout
+- Tailwind 3 with semantic color tokens (bullish, bearish, neutral, accent)
+- CSS transitions (150ms ease-out), shimmer skeleton loaders
+- Accessible: ARIA labels, focus rings, reduced-motion support

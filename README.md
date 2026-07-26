@@ -17,7 +17,7 @@ Enter a ticker symbol → watch a multi-agent pipeline execute in real-time:
 3. **Analyze** synthesizes data into a structured assessment with citations (GPT-OSS 120B, JSON mode)
 4. **Report** generates a cohesive narrative across all analyzed tickers
 
-Every step streams to the frontend via SSE — you see tool calls resolve, cache hits light up green, and analysis text stream in token by token.
+Every step streams to the frontend via SSE. You see tool calls resolve, cache hits light up green, and analysis text stream in token by token.
 
 ## Architecture
 
@@ -56,7 +56,7 @@ Every step streams to the frontend via SSE — you see tool calls resolve, cache
 | Structured output | Groq JSON mode + Pydantic | Schema validation with retry, replaces brittle regex parsing |
 | Caching | PostgreSQL stale-while-revalidate | Serve stale instantly, refresh in background. Single data store. |
 | Frontend state | Zustand | Minimal boilerplate, works naturally with SSE event dispatch |
-| Design | Dark-first, CSS custom properties | Tailwind tokens reference CSS vars — theme switch is instant |
+| Design | Dark-first, CSS custom properties | Tailwind tokens reference CSS vars, theme switch is instant |
 
 ## SSE Event Schema
 
@@ -183,7 +183,7 @@ Automated evaluation on a golden test set (20 scenarios):
 - Latency p50/p95
 - Error recovery rate (partial failures → still produces output)
 
-LLM-as-judge scores output quality on citation support, balanced reasoning, and risk disclosure. Clearly labeled as quality assessment — never claims prediction accuracy.
+LLM-as-judge scores output quality on citation support, balanced reasoning, and risk disclosure. Clearly labeled as quality assessment, not prediction accuracy.
 
 ---
 

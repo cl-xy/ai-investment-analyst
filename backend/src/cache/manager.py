@@ -1,5 +1,5 @@
 """
-Cache manager — PostgreSQL-backed stale-while-revalidate.
+Cache manager. PostgreSQL-backed stale-while-revalidate.
 
 Per-source TTLs, background refresh, and provider budget guards.
 """
@@ -69,7 +69,7 @@ class CacheManager:
         if row is not None:
             expires_at = row["expires_at"]
             if expires_at and expires_at < now:
-                # Hard expired — treat as miss
+                # Hard expired, treat as miss
                 pass
             else:
                 stale_at = row["stale_at"]
@@ -79,7 +79,7 @@ class CacheManager:
                 if now < stale_at:
                     return data, source_id, True
 
-                # Stale — serve immediately, refresh in background
+                # Stale: serve immediately, refresh in background
                 task = asyncio.create_task(
                     self._refresh(key, provider, tool, ticker, fetch_fn, ttl)
                 )
@@ -87,7 +87,7 @@ class CacheManager:
                 task.add_done_callback(self._refresh_tasks.discard)
                 return data, source_id, True
 
-        # Miss — fetch fresh
+        # Cache miss, fetch fresh
         data = await fetch_fn()
         source_id = f"{provider}:{ticker}:{int(time.time())}"
         await self._store(key, data, source_id, provider, ttl, now)

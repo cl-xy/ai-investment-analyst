@@ -1,5 +1,5 @@
 """
-Dashboard routes — list and retrieve persisted analysis results.
+Dashboard routes. List and retrieve persisted analysis results.
 """
 
 import json

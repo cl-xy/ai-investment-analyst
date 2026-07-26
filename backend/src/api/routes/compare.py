@@ -1,5 +1,5 @@
 """
-Comparison endpoint — compares 2-3 tickers using existing analyses or running fresh ones.
+Comparison endpoint. Compares 2-3 tickers using existing analyses or running fresh ones.
 """
 
 from fastapi import APIRouter, Query, HTTPException

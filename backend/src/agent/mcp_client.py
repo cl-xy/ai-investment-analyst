@@ -8,7 +8,7 @@ from pathlib import Path
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-# Project root — MCP subprocesses must run from here so `src.*` imports resolve
+# Project root: MCP subprocesses must run from here so `src.*` imports resolve
 _PROJECT_ROOT = str(Path(__file__).parent.parent.parent)
 
 

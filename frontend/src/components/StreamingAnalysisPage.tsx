@@ -8,7 +8,7 @@ import { ArrowLeft, AlertCircle } from 'lucide-react'
 import type { AnalysisOutput } from '../types/stream'
 
 /**
- * Streaming analysis page — the centerpiece demo experience.
+ * Streaming analysis page. The centerpiece demo experience.
  * Shows the agent trace panel on the left and progressive analysis cards on the right.
  */
 export default function StreamingAnalysisPage() {

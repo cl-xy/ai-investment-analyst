@@ -50,7 +50,7 @@ def compute_macd(
         return None
     fast_emas = _ema(closes, fast)
     slow_emas = _ema(closes, slow)
-    # Align lengths — slow EMA starts later
+    # Align lengths (slow EMA starts later)
     offset = slow - fast
     macd_line = [f - s for f, s in zip(fast_emas[offset:], slow_emas)]
     if len(macd_line) < signal:

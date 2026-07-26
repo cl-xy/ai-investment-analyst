@@ -1,5 +1,5 @@
 """
-Analyze ticker node — uses Groq JSON mode + Pydantic validation.
+Analyze ticker node. Uses Groq JSON mode + Pydantic validation.
 
 Replaces brittle extract_json() with structured output validation.
 Single retry on validation failure.

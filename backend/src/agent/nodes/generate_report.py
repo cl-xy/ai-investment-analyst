@@ -34,7 +34,7 @@ async def generate_report_node(state: InvestmentAnalystState) -> dict:
             lines.append(f"  - {pos['ticker']}: {pos['shares']} shares @ ${pos['cost_basis']:.2f} (sector: {pos.get('sector', 'Unknown')})")
         portfolio_context = "\n".join(lines)
     else:
-        portfolio_context = "No portfolio loaded — analyzing requested tickers only."
+        portfolio_context = "No portfolio loaded. Analyzing requested tickers only."
 
     prompt = REPORT_HUMAN.format(
         analyses_json=json.dumps(list(analyses.values()), indent=2),

@@ -18,7 +18,7 @@ async def health() -> HealthResponse:
 @router.get("/health/ready")
 async def readiness():
     """
-    Readiness probe — verifies database connectivity.
+    Readiness probe. Verifies database connectivity.
     Returns 503 if the database is unreachable.
     """
     try:

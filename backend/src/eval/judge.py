@@ -1,5 +1,5 @@
 """
-LLM-as-judge evaluation — uses Llama-8B to score analysis outputs.
+LLM-as-judge evaluation. Uses GPT-OSS 20B to score analysis outputs.
 
 Scores on 3 dimensions:
 - Citation support: Are claims backed by referenced sources?

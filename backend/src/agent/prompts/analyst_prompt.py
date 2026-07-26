@@ -20,7 +20,7 @@ Rules:
 1. Every factual claim must reference a source_id from the provided data.
 2. If a data source was unavailable or returned errors, list it in data_gaps.
 3. If fewer than 2 data sources are available, signal MUST be "insufficient_data".
-4. Never hallucinate numbers — if a metric is missing from the data, do not invent it.
+4. Never hallucinate numbers. If a metric is missing from the data, do not invent it.
 5. Provide 2-4 items each for bull_case and bear_case.
 6. Be direct and evidence-based. Acknowledge uncertainty where appropriate.
 

@@ -3,7 +3,7 @@ interface Props {
 }
 
 function fmt(val: unknown, prefix = '', suffix = ''): string {
-  if (val === undefined || val === null || val === '') return '—'
+  if (val === undefined || val === null || val === '') return '-'
   if (typeof val === 'number') {
     return `${prefix}${val.toLocaleString(undefined, { maximumFractionDigits: 2 })}${suffix}`
   }

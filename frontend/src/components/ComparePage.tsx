@@ -154,7 +154,7 @@ export default function ComparePage() {
                 <td className="px-5 py-3 text-[var(--text-secondary)]">Signal</td>
                 {result.tickers.map((t) => (
                   <td key={t} className={`text-center px-5 py-3 font-medium capitalize ${signalColor(result.analyses[t]?.signal)}`}>
-                    {result.analyses[t]?.signal || '—'}
+                    {result.analyses[t]?.signal || '-'}
                   </td>
                 ))}
               </tr>
@@ -162,7 +162,7 @@ export default function ComparePage() {
                 <td className="px-5 py-3 text-[var(--text-secondary)]">Confidence</td>
                 {result.tickers.map((t) => (
                   <td key={t} className="text-center px-5 py-3 text-[var(--text-primary)] capitalize">
-                    {result.analyses[t]?.confidence || '—'}
+                    {result.analyses[t]?.confidence || '-'}
                   </td>
                 ))}
               </tr>
