@@ -14,14 +14,14 @@ class AnalyzeRequest(BaseModel):
 
 class TickerAnalysis(BaseModel):
     ticker: str
-    signal: Literal["buy", "hold", "sell", "insufficient_data"]
-    confidence: Literal["high", "medium", "low"]
-    sentiment_score: float
-    news_summary: str
-    risk_flags: list[str]
-    price_data: dict
-    fundamentals: dict
-    sec_notes: str
+    signal: Literal["buy", "hold", "sell", "insufficient_data"] = "insufficient_data"
+    confidence: Literal["high", "medium", "low"] = "low"
+    sentiment_score: float = 0.0
+    news_summary: str = ""
+    risk_flags: list[str] = Field(default_factory=list)
+    price_data: dict = Field(default_factory=dict)
+    fundamentals: dict = Field(default_factory=dict)
+    sec_notes: str = ""
 
 
 class AnalyzeResponse(BaseModel):

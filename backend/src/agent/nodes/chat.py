@@ -16,11 +16,15 @@ Be concise and actionable. When citing data, note the source."""
 
 @cache
 def _get_llm() -> ChatOpenAI:
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY environment variable is not set")
     return ChatOpenAI(
         model="llama-3.3-70b-versatile",
         temperature=0,
+        max_tokens=4096,
         base_url="https://api.groq.com/openai/v1",
-        api_key=os.environ["GROQ_API_KEY"],
+        api_key=api_key,
     )
 
 
