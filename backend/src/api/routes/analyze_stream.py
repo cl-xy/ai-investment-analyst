@@ -15,13 +15,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
+from src.agent.concurrency import acquire_analysis_slot, release_analysis_slot
 from src.agent.events import EventEmitter
 from src.agent.graph import build_graph
 from src.agent.mcp_client import create_mcp_client
+from src.api.shutdown import shutdown_coordinator
 from src.middleware.cost_tracker import CostTracker
 
 router = APIRouter()
@@ -211,6 +213,7 @@ async def _stream_generator(tickers: list[str], request: Request):
     tracker = CostTracker(run_id=emitter.run_id, tickers=tickers)
 
     agent_task = asyncio.create_task(_run_agent(tickers, emitter, queue, tracker))
+    shutdown_coordinator.register(agent_task)
     heartbeat_task = asyncio.create_task(_heartbeat(emitter, queue, stop_heartbeat))
 
     try:
@@ -240,6 +243,7 @@ async def _stream_generator(tickers: list[str], request: Request):
             await heartbeat_task
         except (asyncio.CancelledError, Exception):
             pass
+        release_analysis_slot()
 
 
 @router.get("/analyze/stream")
@@ -257,7 +261,17 @@ async def analyze_stream(
     - 120s execution timeout with graceful error event
     - 15s heartbeat to prevent proxy buffering
     - Input validation (alphanumeric, max 5 tickers)
+    - Graceful shutdown: rejects new requests when draining
+    - Concurrency limiter: max 3 concurrent analysis pipelines
     """
+    # Reject new streams during shutdown drain
+    if shutdown_coordinator.is_draining:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Server is shutting down, try again shortly"},
+            headers={"Retry-After": "10"},
+        )
+
     ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
     if not ticker_list:
         return {"error": "At least one ticker is required"}
@@ -269,6 +283,15 @@ async def analyze_stream(
 
     if len(ticker_list) > 5:
         return {"error": "Maximum 5 tickers per analysis request"}
+
+    # Acquire concurrency slot
+    slot_acquired = await acquire_analysis_slot()
+    if not slot_acquired:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Server at capacity, please retry in a few seconds"},
+            headers={"Retry-After": "5"},
+        )
 
     return StreamingResponse(
         _stream_generator(ticker_list, request),

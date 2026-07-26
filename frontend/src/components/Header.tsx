@@ -1,6 +1,6 @@
 import { TrendingUp } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
-import ThemeToggle from './ThemeToggle'
+import { ThemeSwitcher } from './ThemeSwitcher'
 
 export default function Header() {
   return (
@@ -26,7 +26,7 @@ export default function Header() {
             <NavLink to="/evals" label="Evals" />
             <NavLink to="/compare" label="Compare" />
           </nav>
-          <ThemeToggle />
+          <ThemeSwitcher />
         </div>
       </div>
     </header>

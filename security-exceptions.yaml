@@ -1,0 +1,59 @@
+# Security Exceptions Registry
+# Machine-readable record of acknowledged security findings that are accepted risks.
+# Review quarterly or when an exception expires.
+# Human-readable docs: docs/SECURITY_EXCEPTIONS.md
+
+exceptions:
+  - id: SEC-001
+    tool: detect-secrets
+    finding: "High entropy strings in test fixture JSON"
+    file: backend/tests/fixtures/*.json
+    reason: >
+      Test fixtures contain synthetic market data (source_id fields, large numeric values,
+      ticker strings) that trigger the HighEntropyString detector. These are not secrets.
+    compensating_control: ".secrets.baseline configured with entropy limit 4.5; fixtures are deterministic test data"
+    owner: cl-xy
+    expires: "2027-01-27"
+    status: accepted
+
+  - id: SEC-002
+    tool: hadolint
+    finding: "DL3008: Pin versions in apt-get install"
+    file: backend/Dockerfile
+    reason: >
+      System packages (build-essential, curl) are installed without version pins. The base
+      image is pinned by SHA256 digest, which locks the entire OS layer including apt
+      package versions. Pinning individual apt packages on top of a digest-pinned image
+      adds maintenance cost without meaningful reproducibility gain.
+    compensating_control: "Base image pinned by SHA256 digest. Dependabot monitors for base image updates."
+    owner: cl-xy
+    expires: "2027-01-27"
+    status: accepted
+
+  - id: SEC-003
+    tool: cors-audit
+    finding: "CORS allows localhost origins in all environments"
+    file: backend/src/config.py
+    reason: >
+      The cors_origins property always includes localhost:5173 and 127.0.0.1:5173 in the
+      allow list. In production, the Fly.io deployment is behind a reverse proxy and
+      browsers enforce origin checks. Localhost origins on a public deployment do not
+      create a real attack surface because an attacker cannot make a victim's browser
+      send requests from localhost.
+    compensating_control: "FRONTEND_URL env var adds the real production origin. Credentials mode is not enabled."
+    owner: cl-xy
+    expires: "2027-01-27"
+    status: accepted
+
+  - id: SEC-004
+    tool: npm-audit
+    finding: "@types/react-router-dom is deprecated (superseded by built-in types)"
+    file: frontend/package.json
+    reason: >
+      react-router-dom v7 ships its own TypeScript types. The legacy @types package is
+      deprecated but not a security vulnerability. It only affects type checking at build
+      time and ships no runtime code.
+    compensating_control: "Tracked for removal in next dependency cleanup pass."
+    owner: cl-xy
+    expires: "2027-01-27"
+    status: accepted

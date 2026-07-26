@@ -1,0 +1,270 @@
+rules:
+  # 1. SQL injection via string interpolation
+  - id: sql-string-interpolation
+    patterns:
+      - pattern-either:
+          - pattern: $POOL.execute(f"...", ...)
+          - pattern: $POOL.fetch(f"...", ...)
+          - pattern: $POOL.fetchrow(f"...", ...)
+          - pattern: $POOL.fetchval(f"...", ...)
+          - pattern: await $POOL.execute(f"...", ...)
+          - pattern: await $POOL.fetch(f"...", ...)
+          - pattern: await $POOL.fetchrow(f"...", ...)
+          - pattern: await $POOL.fetchval(f"...", ...)
+          - pattern: $CONN.execute("...".format(...), ...)
+          - pattern: $CONN.fetch("...".format(...), ...)
+    message: >
+      SQL query built with f-string or .format(). Use parameterized queries
+      with asyncpg placeholders ($1, $2) to prevent SQL injection.
+    severity: ERROR
+    languages: [python]
+    paths:
+      include:
+        - backend/
+
+  # 2. Missing await on async DB calls
+  - id: missing-await-async-db
+    patterns:
+      - pattern-either:
+          - pattern: $POOL.execute(...)
+          - pattern: $POOL.fetch(...)
+          - pattern: $POOL.fetchrow(...)
+          - pattern: $POOL.fetchval(...)
+          - pattern: $POOL.acquire(...)
+      - pattern-not: await $POOL.execute(...)
+      - pattern-not: await $POOL.fetch(...)
+      - pattern-not: await $POOL.fetchrow(...)
+      - pattern-not: await $POOL.fetchval(...)
+      - pattern-not: await $POOL.acquire(...)
+      - pattern-not: return $POOL.execute(...)
+      - pattern-not: return $POOL.fetch(...)
+      - pattern-not: return $POOL.fetchrow(...)
+      - pattern-not: return $POOL.fetchval(...)
+    message: >
+      Async DB method called without await. This returns a coroutine object
+      instead of executing the query, causing silent data loss.
+    severity: ERROR
+    languages: [python]
+    paths:
+      include:
+        - backend/
+
+  # 3. Prompt injection via f-string interpolation of user input
+  - id: prompt-injection-fstring
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $PROMPT = f"...{$TICKER}..."
+              ...
+              SystemMessage(content=$PROMPT)
+          - pattern: |
+              SystemMessage(content=f"...{$USER_INPUT}...")
+          - pattern: |
+              $MSG = f"...{$REQUEST.query}..."
+              ...
+              SystemMessage(content=$MSG)
+    message: >
+      User-controlled input interpolated directly into a system prompt template.
+      Use .format() with validated, sanitized inputs and keep system prompts as
+      static constants to prevent prompt injection attacks.
+    severity: WARNING
+    languages: [python]
+    paths:
+      include:
+        - backend/src/agent/
+
+  # 4. Hardcoded API keys
+  - id: hardcoded-api-key
+    patterns:
+      - pattern-either:
+          - pattern: api_key = "sk-..."
+          - pattern: api_key = "gsk_..."
+          - pattern: api_key="sk-..."
+          - pattern: api_key="gsk_..."
+          - pattern: $X = "sk-..."
+          - pattern: $X = "gsk_..."
+      - pattern-not: api_key = "test-key-not-used-in-unit-tests"
+    message: >
+      Hardcoded API key detected. Load secrets from environment variables or
+      pydantic-settings configuration, never embed them in source code.
+    severity: ERROR
+    languages: [python]
+    paths:
+      include:
+        - backend/
+      exclude:
+        - backend/tests/
+
+  # 5. LLM invoke without max_tokens
+  - id: groq-missing-max-tokens
+    patterns:
+      - pattern: |
+          ChatOpenAI(
+            ...,
+            base_url="https://api.groq.com/openai/v1",
+            ...
+          )
+      - pattern-not: |
+          ChatOpenAI(
+            ...,
+            max_tokens=$N,
+            ...
+          )
+    message: >
+      ChatOpenAI targeting Groq instantiated without max_tokens. Without this
+      limit, responses may be silently truncated at the provider default,
+      causing incomplete JSON output and validation failures.
+    severity: WARNING
+    languages: [python]
+    paths:
+      include:
+        - backend/src/agent/
+
+  # 6. Unsafe CORS wildcard in production
+  - id: unsafe-cors-wildcard
+    patterns:
+      - pattern: |
+          app.add_middleware(
+            CORSMiddleware,
+            ...,
+            allow_origins=["*"],
+            ...
+          )
+    message: >
+      CORS configured with wildcard origin ["*"]. This allows any domain to
+      make credentialed requests to the API. Use explicit origin allowlists
+      from settings.cors_origins instead.
+    severity: ERROR
+    languages: [python]
+    paths:
+      include:
+        - backend/src/api/
+
+  # 7. Unvalidated ticker input used directly
+  - id: unvalidated-ticker-input
+    patterns:
+      - pattern-either:
+          - pattern: |
+              @$ROUTER.$METHOD("...<ticker>...")
+              async def $FUNC($TICKER: str, ...):
+                  ...
+          - pattern: |
+              @$ROUTER.$METHOD("...<ticker>...")
+              async def $FUNC(..., $TICKER: str = ..., ...):
+                  ...
+      - pattern-not-inside: |
+          ...
+          re.match(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          re.fullmatch(...)
+          ...
+    message: >
+      Ticker parameter used without regex validation. Tickers should be
+      validated as alphanumeric plus dots, max 10 characters, to prevent
+      injection into downstream API calls and database queries.
+    severity: WARNING
+    languages: [python]
+    paths:
+      include:
+        - backend/src/api/
+
+  # 8. Secrets leaked in log statements
+  - id: secrets-in-log
+    patterns:
+      - pattern-either:
+          - pattern: logger.info(..., api_key=$X, ...)
+          - pattern: logger.debug(..., api_key=$X, ...)
+          - pattern: logger.warning(..., password=$X, ...)
+          - pattern: logger.error(..., token=$X, ...)
+          - pattern: log.info(..., api_key=$X, ...)
+          - pattern: log.debug(..., api_key=$X, ...)
+          - pattern: log.warning(..., secret=$X, ...)
+          - pattern: log.error(..., api_key=$X, ...)
+          - pattern: logging.info(f"...{$API_KEY}...")
+          - pattern: logging.debug(f"...{$SECRET}...")
+    message: >
+      Possible secret value (api_key, password, token, secret) passed to a
+      logging call. Secrets in logs can be exfiltrated via log aggregation
+      services. Log the key name or a masked version instead.
+    severity: ERROR
+    languages: [python]
+    paths:
+      include:
+        - backend/
+
+  # 9. HTTP client calls without explicit timeout
+  - id: missing-timeout-external-call
+    patterns:
+      - pattern-either:
+          - pattern: httpx.AsyncClient(...)
+          - pattern: httpx.Client(...)
+          - pattern: aiohttp.ClientSession(...)
+      - pattern-not: httpx.AsyncClient(..., timeout=$T, ...)
+      - pattern-not: httpx.Client(..., timeout=$T, ...)
+      - pattern-not: aiohttp.ClientSession(..., timeout=$T, ...)
+    message: >
+      HTTP client created without explicit timeout. Without a timeout,
+      external service failures can hang the event loop indefinitely and
+      exhaust connection pools. Set timeout=httpx.Timeout(10.0) or similar.
+    severity: WARNING
+    languages: [python]
+    paths:
+      include:
+        - backend/
+
+  # 10. Raw exception messages returned to clients
+  - id: raw-exception-in-response
+    patterns:
+      - pattern-either:
+          - pattern: |
+              except $E as $ERR:
+                  ...
+                  return {"error": str($ERR)}
+          - pattern: |
+              except $E as $ERR:
+                  ...
+                  return JSONResponse(..., content={"detail": str($ERR)}, ...)
+          - pattern: |
+              except $E as $ERR:
+                  ...
+                  return {"detail": str($ERR), ...}
+    message: >
+      Raw exception message returned directly to the client. Internal error
+      details can leak stack traces, file paths, or credential fragments.
+      Map exceptions to HTTPException with a safe, generic message and log
+      the original error server-side.
+    severity: ERROR
+    languages: [python]
+    paths:
+      include:
+        - backend/src/api/
+
+  # 11. Unbounded asyncio.gather without concurrency control
+  - id: unbounded-async-gather
+    pattern: asyncio.gather(*$TASKS)
+    message: >
+      asyncio.gather called on a dynamic task list without concurrency bounds.
+      If the list grows (e.g., many tickers), this can overwhelm external APIs
+      and exhaust file descriptors. Use asyncio.Semaphore or the project
+      concurrency module to limit parallelism.
+    severity: WARNING
+    languages: [python]
+    paths:
+      include:
+        - backend/
+
+  # 12. dangerouslySetInnerHTML in React components
+  - id: frontend-dangerouslysetinnerhtml
+    pattern: dangerouslySetInnerHTML={...}
+    message: >
+      dangerouslySetInnerHTML renders raw HTML and bypasses React XSS
+      protections. If the content includes user input or external data (news
+      summaries, LLM output), this enables stored XSS attacks. Use a
+      sanitization library like DOMPurify or render as plain text.
+    severity: ERROR
+    languages: [typescript, javascript]
+    paths:
+      include:
+        - frontend/src/

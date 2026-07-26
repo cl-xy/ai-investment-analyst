@@ -1,0 +1,18 @@
+# Hadolint configuration for backend/Dockerfile
+# See: https://github.com/hadolint/hadolint#configure
+
+ignored:
+  # DL3008: Pin versions in apt-get install.
+  # We use --no-install-recommends and the base image is pinned by SHA digest,
+  # so the exact apt versions are determined by the digest. Pinning individual
+  # packages adds maintenance burden with minimal reproducibility gain.
+  - DL3008
+
+  # DL3013: Pin versions in pip install.
+  # The Dockerfile installs from pyproject.toml which has pinned deps in the
+  # lockfile. pip install . resolves versions from the project metadata.
+  - DL3013
+
+trustedRegistries:
+  - docker.io
+  - ghcr.io

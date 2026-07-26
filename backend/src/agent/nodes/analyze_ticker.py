@@ -2,7 +2,8 @@
 Analyze ticker node. Uses Groq JSON mode + Pydantic validation.
 
 Replaces brittle extract_json() with structured output validation.
-Single retry on validation failure.
+Single retry on validation failure. Circuit breaker + exponential backoff
+for transient LLM API errors.
 """
 
 import json
@@ -13,11 +14,36 @@ from functools import cache
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
+from tenacity import (
+    retry,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential,
+)
 
+from ..circuit_breaker import groq_breaker
 from ..json_utils import extract_json
 from ..prompts.analyst_prompt import ANALYST_HUMAN, ANALYST_SYSTEM
 from ..state import InvestmentAnalystState, TickerAnalysis
 from ..structured_output import AnalysisOutput
+
+
+def _is_retryable_error(exc: BaseException) -> bool:
+    """Return True for transient errors that should be retried."""
+    exc_str = str(exc).lower()
+    # Rate limit (429) or server errors (500, 502, 503)
+    if any(code in exc_str for code in ("429", "500", "502", "503", "rate limit")):
+        return True
+    # Don't retry auth errors (401) or bad request (400)
+    if any(code in exc_str for code in ("401", "400", "unauthorized", "bad request")):
+        return False
+    # Retry generic connection/timeout errors
+    if any(
+        term in exc_str
+        for term in ("timeout", "connection", "temporary", "unavailable")
+    ):
+        return True
+    return False
 
 
 @cache
@@ -49,6 +75,17 @@ def _format_news(articles: list[dict]) -> str:
 
 def _make_source_id(provider: str, ticker: str) -> str:
     return f"{provider}:{ticker}:{int(time.time())}"
+
+
+@retry(
+    retry=retry_if_exception(_is_retryable_error),
+    wait=wait_exponential(multiplier=1, min=1, max=4),
+    stop=stop_after_attempt(3),
+    reraise=True,
+)
+async def _invoke_llm_with_retry(messages: list) -> object:
+    """Invoke LLM with retry on transient errors, wrapped in circuit breaker."""
+    return await groq_breaker.call(_get_llm().ainvoke, messages)
 
 
 async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
@@ -90,7 +127,7 @@ async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
         HumanMessage(content=prompt),
     ]
 
-    response = await _get_llm().ainvoke(messages)
+    response = await _invoke_llm_with_retry(messages)
 
     # Try Pydantic validation first (structured output path)
     try:
@@ -103,7 +140,7 @@ async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
                 f"Your JSON was invalid. Errors: {error_msg}\n"
                 f"Fix the JSON and return a valid response matching the schema exactly."
             )
-            retry_response = await _get_llm().ainvoke(
+            retry_response = await _invoke_llm_with_retry(
                 messages + [HumanMessage(content=retry_prompt)]
             )
             output = AnalysisOutput.model_validate_json(retry_response.content)

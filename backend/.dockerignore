@@ -6,11 +6,13 @@ venv/
 .env
 .git/
 .gitignore
+data/
 data/*.db
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 tests/
 *.md
+*.egg-info/
 .ai/
 .claude/

@@ -28,6 +28,8 @@ from src.middleware.auth import DemoAuthMiddleware
 from src.middleware.request_id import RequestIDMiddleware
 
 from .db import close_pool, init_schema
+from src.metrics import router as metrics_router
+
 from .routes.admin import router as admin_router
 from .routes.analyze import router as analyze_router
 from .routes.analyze_stream import router as analyze_stream_router
@@ -80,6 +82,7 @@ app.include_router(compare_router, prefix="/api")
 app.include_router(dashboard_router, prefix="/api")
 app.include_router(explore_router, prefix="/api")
 app.include_router(scheduled_router, prefix="/api")
+app.include_router(metrics_router, prefix="/api")
 
 
 def start() -> None:

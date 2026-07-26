@@ -1,0 +1,298 @@
+# Investment Analyst LLM Evaluation
+# Tests structured output compliance, factual grounding, citation quality, balanced reasoning.
+# Run: npx promptfoo eval --config promptfooconfig.yaml
+
+tests:
+  # --- Structured Output Compliance ---
+
+  - description: "Valid ticker with full data returns valid schema"
+    vars:
+      ticker: NVDA
+      price_source_id: "yfinance:NVDA:1706140800"
+      price_data: '{"price": 875.28, "change_pct": 2.3, "volume": 45000000, "market_cap": 2150000000000, "pe_ratio": 65.2, "52w_high": 974.00, "52w_low": 390.00}'
+      fundamentals_source_id: "yfinance:NVDA:1706140800"
+      fundamentals: '{"revenue_growth": 122.0, "gross_margin": 76.0, "operating_margin": 62.0, "eps": 12.96, "forward_pe": 45.0, "debt_to_equity": 0.41}'
+      indicators_source_id: "yfinance:NVDA:1706140800"
+      indicators: '{"rsi_14": 62.3, "sma_50": 810.5, "sma_200": 625.0, "macd_histogram": 12.4, "bollinger_upper": 920.0, "bollinger_lower": 780.0}'
+      news_source_id: "newsapi:NVDA:1706140800"
+      article_count: "3"
+      news_text: "1. NVIDIA reports record Q4 revenue of $22.1B, up 265% YoY. 2. New Blackwell architecture GPUs announced for H2 2024. 3. China export restrictions could limit TAM by 10-15%."
+      sec_source_id: "sec_edgar:NVDA:1706140800"
+      sec_notes: "10-K highlights: Data center revenue grew 409% to $47.5B. Gaming revenue flat. Risk factors include supply chain concentration and geopolitical restrictions."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).ticker === 'NVDA'"
+      - type: javascript
+        value: "['buy','hold','sell','insufficient_data'].includes(JSON.parse(output).signal)"
+      - type: javascript
+        value: "['high','medium','low'].includes(JSON.parse(output).confidence)"
+      - type: javascript
+        value: "JSON.parse(output).sentiment_score >= -1.0 && JSON.parse(output).sentiment_score <= 1.0"
+      - type: javascript
+        value: "JSON.parse(output).bull_case.length >= 2"
+      - type: javascript
+        value: "JSON.parse(output).bear_case.length >= 2"
+      - type: javascript
+        value: "JSON.parse(output).citations.length >= 2"
+      - type: javascript
+        value: "JSON.parse(output).thesis.length > 20"
+
+  - description: "Missing news data populates data_gaps"
+    vars:
+      ticker: MSFT
+      price_source_id: "yfinance:MSFT:1706140800"
+      price_data: '{"price": 404.72, "change_pct": -0.5, "volume": 22000000, "market_cap": 3010000000000, "pe_ratio": 37.8}'
+      fundamentals_source_id: "yfinance:MSFT:1706140800"
+      fundamentals: '{"revenue_growth": 18.0, "gross_margin": 69.0, "operating_margin": 44.0, "eps": 11.07, "forward_pe": 32.0}'
+      indicators_source_id: "yfinance:MSFT:1706140800"
+      indicators: '{"rsi_14": 55.1, "sma_50": 395.0, "sma_200": 365.0, "macd_histogram": 3.2}'
+      news_source_id: "newsapi:MSFT:1706140800"
+      article_count: "0"
+      news_text: "[NO NEWS DATA AVAILABLE - NewsAPI returned empty results]"
+      sec_source_id: "sec_edgar:MSFT:1706140800"
+      sec_notes: "10-K: Cloud revenue (Azure) grew 29%. AI services revenue tripling. Activision acquisition completed."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).data_gaps.length > 0"
+      - type: javascript
+        value: "JSON.parse(output).data_gaps.some(g => g.toLowerCase().includes('news'))"
+
+  - description: "Dot-separated ticker handled correctly"
+    vars:
+      ticker: BRK.B
+      price_source_id: "yfinance:BRK.B:1706140800"
+      price_data: '{"price": 408.50, "change_pct": 0.8, "volume": 3500000, "market_cap": 885000000000, "pe_ratio": 9.2}'
+      fundamentals_source_id: "yfinance:BRK.B:1706140800"
+      fundamentals: '{"revenue_growth": 12.0, "gross_margin": 38.0, "operating_margin": 22.0, "eps": 44.30, "book_value": 375000}'
+      indicators_source_id: "yfinance:BRK.B:1706140800"
+      indicators: '{"rsi_14": 58.0, "sma_50": 395.0, "sma_200": 370.0, "macd_histogram": 2.1}'
+      news_source_id: "newsapi:BRK.B:1706140800"
+      article_count: "2"
+      news_text: "1. Berkshire cash pile hits record $157B. 2. Apple stake reduced by 25% in Q4."
+      sec_source_id: "sec_edgar:BRK.B:1706140800"
+      sec_notes: "Annual report: Operating earnings up 28%. Insurance float at $168B."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).ticker === 'BRK.B'"
+
+  - description: "Insufficient data with only one source"
+    vars:
+      ticker: PLTR
+      price_source_id: "yfinance:PLTR:1706140800"
+      price_data: '{"price": 22.50, "change_pct": -1.2, "volume": 35000000}'
+      fundamentals_source_id: ""
+      fundamentals: "[UNAVAILABLE - provider timeout]"
+      indicators_source_id: ""
+      indicators: "[UNAVAILABLE - provider timeout]"
+      news_source_id: ""
+      article_count: "0"
+      news_text: "[UNAVAILABLE - NewsAPI budget exhausted]"
+      sec_source_id: ""
+      sec_notes: "[UNAVAILABLE - SEC EDGAR timeout]"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).signal === 'insufficient_data' || JSON.parse(output).confidence === 'low'"
+      - type: javascript
+        value: "JSON.parse(output).data_gaps.length >= 3"
+
+  # --- Factual Grounding ---
+
+  - description: "References actual price numbers, not hallucinated"
+    vars:
+      ticker: AAPL
+      price_source_id: "yfinance:AAPL:1706140800"
+      price_data: '{"price": 192.53, "change_pct": 1.1, "volume": 55000000, "market_cap": 2970000000000, "pe_ratio": 30.5, "52w_high": 199.62, "52w_low": 164.08}'
+      fundamentals_source_id: "yfinance:AAPL:1706140800"
+      fundamentals: '{"revenue_growth": -2.8, "gross_margin": 45.0, "operating_margin": 30.0, "eps": 6.42, "forward_pe": 28.0}'
+      indicators_source_id: "yfinance:AAPL:1706140800"
+      indicators: '{"rsi_14": 71.5, "sma_50": 185.0, "sma_200": 178.0, "macd_histogram": 1.8}'
+      news_source_id: "newsapi:AAPL:1706140800"
+      article_count: "2"
+      news_text: "1. iPhone 16 sales beat expectations in China. 2. EU Digital Markets Act compliance costs estimated at $500M annually."
+      sec_source_id: "sec_edgar:AAPL:1706140800"
+      sec_notes: "10-K: Services revenue hit $85B record. iPhone revenue down 2% YoY."
+    assert:
+      - type: is-json
+      - type: contains
+        value: "192"
+      - type: not-contains
+        value: "250"
+      - type: not-contains
+        value: "300"
+
+  - description: "Acknowledges contradictory signals"
+    vars:
+      ticker: TSLA
+      price_source_id: "yfinance:TSLA:1706140800"
+      price_data: '{"price": 245.00, "change_pct": 4.5, "volume": 120000000, "pe_ratio": 78.0, "52w_high": 299.29, "52w_low": 138.80}'
+      fundamentals_source_id: "yfinance:TSLA:1706140800"
+      fundamentals: '{"revenue_growth": -8.0, "gross_margin": 17.0, "operating_margin": 8.0, "eps": 3.12}'
+      indicators_source_id: "yfinance:TSLA:1706140800"
+      indicators: '{"rsi_14": 73.0, "sma_50": 220.0, "sma_200": 200.0, "macd_histogram": 8.5}'
+      news_source_id: "newsapi:TSLA:1706140800"
+      article_count: "3"
+      news_text: "1. Tesla cuts prices in China by 5% amid competition. 2. Full Self-Driving v13 receives positive reviews. 3. Quarterly deliveries miss analyst estimates by 8%."
+      sec_source_id: "sec_edgar:TSLA:1706140800"
+      sec_notes: "10-K: Automotive gross margin declined from 26% to 17%. Energy storage revenue grew 54%."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).bull_case.length >= 2 && JSON.parse(output).bear_case.length >= 2"
+      - type: llm-rubric
+        value: "The analysis acknowledges that price momentum is bullish while fundamentals (declining margins, missed deliveries) are concerning. It does not present a one-sided view."
+
+  - description: "Does not hallucinate data for stale inputs"
+    vars:
+      ticker: XOM
+      price_source_id: "yfinance:XOM:1706054400"
+      price_data: '{"price": 102.30, "change_pct": -0.3, "volume": 15000000, "note": "Data as of 2 days ago - market closed"}'
+      fundamentals_source_id: "yfinance:XOM:1706054400"
+      fundamentals: '{"revenue_growth": -12.0, "gross_margin": 32.0, "operating_margin": 18.0, "eps": 9.52}'
+      indicators_source_id: "yfinance:XOM:1706054400"
+      indicators: '{"rsi_14": 45.0, "sma_50": 105.0, "sma_200": 108.0, "macd_histogram": -1.2}'
+      news_source_id: "newsapi:XOM:1706054400"
+      article_count: "1"
+      news_text: "1. Oil prices drop to $72/barrel on demand concerns."
+      sec_source_id: ""
+      sec_notes: "[NO SEC DATA]"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).data_gaps.length > 0"
+      - type: not-contains
+        value: "today"
+
+  # --- Citation Quality ---
+
+  - description: "Citations reference provided source_ids"
+    vars:
+      ticker: GOOGL
+      price_source_id: "yfinance:GOOGL:1706140800"
+      price_data: '{"price": 155.72, "change_pct": 0.9, "volume": 28000000, "market_cap": 1950000000000, "pe_ratio": 25.0}'
+      fundamentals_source_id: "yfinance:GOOGL:1706140800"
+      fundamentals: '{"revenue_growth": 13.0, "gross_margin": 57.0, "operating_margin": 30.0, "eps": 5.80}'
+      indicators_source_id: "yfinance:GOOGL:1706140800"
+      indicators: '{"rsi_14": 52.0, "sma_50": 148.0, "sma_200": 138.0, "macd_histogram": 1.5}'
+      news_source_id: "newsapi:GOOGL:1706140800"
+      article_count: "2"
+      news_text: "1. Google Cloud revenue surpasses $10B quarterly run rate. 2. Gemini AI model outperforms GPT-4 on benchmarks."
+      sec_source_id: "sec_edgar:GOOGL:1706140800"
+      sec_notes: "10-K: Search ad revenue grew 12%. YouTube revenue $8.9B quarter."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const validSources = ['yfinance:GOOGL:1706140800', 'newsapi:GOOGL:1706140800', 'sec_edgar:GOOGL:1706140800'];
+          r.citations.every(c => validSources.includes(c.source_id))
+      - type: javascript
+        value: "JSON.parse(output).citations.length >= 3"
+
+  - description: "Price claims cite price source"
+    vars:
+      ticker: AMZN
+      price_source_id: "yfinance:AMZN:1706140800"
+      price_data: '{"price": 178.25, "change_pct": 2.1, "volume": 60000000, "market_cap": 1860000000000, "pe_ratio": 62.0, "52w_high": 189.00, "52w_low": 118.35}'
+      fundamentals_source_id: "yfinance:AMZN:1706140800"
+      fundamentals: '{"revenue_growth": 14.0, "gross_margin": 48.0, "operating_margin": 7.0, "eps": 2.90}'
+      indicators_source_id: "yfinance:AMZN:1706140800"
+      indicators: '{"rsi_14": 64.0, "sma_50": 165.0, "sma_200": 145.0, "macd_histogram": 4.2}'
+      news_source_id: "newsapi:AMZN:1706140800"
+      article_count: "2"
+      news_text: "1. AWS revenue growth accelerates to 13% YoY. 2. Amazon announces $15B AI infrastructure investment."
+      sec_source_id: "sec_edgar:AMZN:1706140800"
+      sec_notes: "10-K: Advertising revenue reached $14.7B quarterly. Fulfillment costs down 8%."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          r.citations.some(c => c.source_id.includes('yfinance'))
+
+  - description: "News claims cite news source"
+    vars:
+      ticker: META
+      price_source_id: "yfinance:META:1706140800"
+      price_data: '{"price": 474.99, "change_pct": 1.8, "volume": 18000000, "market_cap": 1220000000000, "pe_ratio": 32.0}'
+      fundamentals_source_id: "yfinance:META:1706140800"
+      fundamentals: '{"revenue_growth": 25.0, "gross_margin": 81.0, "operating_margin": 41.0, "eps": 14.87}'
+      indicators_source_id: "yfinance:META:1706140800"
+      indicators: '{"rsi_14": 60.0, "sma_50": 440.0, "sma_200": 380.0, "macd_histogram": 6.0}'
+      news_source_id: "newsapi:META:1706140800"
+      article_count: "2"
+      news_text: "1. Meta's Threads reaches 200M monthly active users. 2. Reality Labs losses expected to widen in 2024."
+      sec_source_id: "sec_edgar:META:1706140800"
+      sec_notes: "10-K: Family of Apps operating income up 62%. Reality Labs operating loss $16B."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          r.citations.some(c => c.source_id.includes('newsapi'))
+
+  # --- Balanced Reasoning ---
+
+  - description: "Strongly bullish data still has bear_case"
+    vars:
+      ticker: NVDA
+      price_source_id: "yfinance:NVDA:1706140800"
+      price_data: '{"price": 950.00, "change_pct": 5.0, "volume": 80000000, "pe_ratio": 70.0, "52w_high": 974.00, "52w_low": 390.00}'
+      fundamentals_source_id: "yfinance:NVDA:1706140800"
+      fundamentals: '{"revenue_growth": 265.0, "gross_margin": 76.0, "operating_margin": 62.0, "eps": 12.96}'
+      indicators_source_id: "yfinance:NVDA:1706140800"
+      indicators: '{"rsi_14": 78.0, "sma_50": 810.0, "sma_200": 600.0, "macd_histogram": 25.0}'
+      news_source_id: "newsapi:NVDA:1706140800"
+      article_count: "3"
+      news_text: "1. NVIDIA named most valuable company in the world. 2. Data center demand exceeds supply. 3. New partnerships with all major cloud providers."
+      sec_source_id: "sec_edgar:NVDA:1706140800"
+      sec_notes: "10-K: Record revenue every quarter. Backlog exceeds $50B."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).bear_case.length >= 2"
+      - type: llm-rubric
+        value: "Even though all data is extremely bullish, the analysis still identifies real risks (valuation, concentration, competition, overbought RSI). It does not produce blind optimism."
+
+  - description: "Strongly bearish data still has bull_case"
+    vars:
+      ticker: INTC
+      price_source_id: "yfinance:INTC:1706140800"
+      price_data: '{"price": 25.50, "change_pct": -8.0, "volume": 90000000, "pe_ratio": -15.0, "52w_high": 51.28, "52w_low": 24.59}'
+      fundamentals_source_id: "yfinance:INTC:1706140800"
+      fundamentals: '{"revenue_growth": -20.0, "gross_margin": 38.0, "operating_margin": -5.0, "eps": -0.75}'
+      indicators_source_id: "yfinance:INTC:1706140800"
+      indicators: '{"rsi_14": 22.0, "sma_50": 35.0, "sma_200": 40.0, "macd_histogram": -3.5}'
+      news_source_id: "newsapi:INTC:1706140800"
+      article_count: "3"
+      news_text: "1. Intel announces 15,000 layoffs. 2. Foundry business delays push to 2025. 3. Market share losses to AMD continue."
+      sec_source_id: "sec_edgar:INTC:1706140800"
+      sec_notes: "10-K: Net loss of $1.6B. Restructuring charges of $2.8B."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).bull_case.length >= 2"
+      - type: llm-rubric
+        value: "Even though all data is severely bearish, the analysis identifies at least some potential positives (government subsidies, turnaround potential, oversold bounce). It does not produce unconditional doom."
+
+  - description: "Mixed signals produce medium or low confidence"
+    vars:
+      ticker: DIS
+      price_source_id: "yfinance:DIS:1706140800"
+      price_data: '{"price": 95.00, "change_pct": 0.2, "volume": 12000000, "pe_ratio": 72.0, "52w_high": 123.74, "52w_low": 78.73}'
+      fundamentals_source_id: "yfinance:DIS:1706140800"
+      fundamentals: '{"revenue_growth": 7.0, "gross_margin": 34.0, "operating_margin": 12.0, "eps": 1.29}'
+      indicators_source_id: "yfinance:DIS:1706140800"
+      indicators: '{"rsi_14": 50.0, "sma_50": 93.0, "sma_200": 92.0, "macd_histogram": 0.3}'
+      news_source_id: "newsapi:DIS:1706140800"
+      article_count: "2"
+      news_text: "1. Disney+ subscribers decline for second consecutive quarter. 2. Parks revenue hits all-time high on pricing power."
+      sec_source_id: "sec_edgar:DIS:1706140800"
+      sec_notes: "10-K: Streaming losses narrowing. Linear TV revenue declining. Parks and experiences growing 15%."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "['medium','low'].includes(JSON.parse(output).confidence)"

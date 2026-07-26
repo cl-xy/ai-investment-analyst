@@ -2,52 +2,98 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Design tokens (inlined to avoid @import ordering issues with PostCSS) */
-[data-theme="dark"],
+/* Design tokens: 4-theme system */
+[data-theme="petroleum"],
 :root {
-  --bg: #0a0a0b;
-  --surface: #141416;
-  --surface-elevated: #1c1c1f;
-  --border: #2a2a2e;
-  --border-subtle: #1f1f23;
-  --text-primary: #fafafa;
-  --text-secondary: #a1a1aa;
-  --text-muted: #52525b;
-  --bullish: #10b981;
-  --bullish-bg: rgba(16, 185, 129, 0.1);
-  --bearish: #ef4444;
-  --bearish-bg: rgba(239, 68, 68, 0.1);
-  --neutral: #f59e0b;
-  --neutral-bg: rgba(245, 158, 11, 0.1);
-  --accent: #6366f1;
-  --accent-bg: rgba(99, 102, 241, 0.1);
-  --cached: #10b981;
-  --live: #3b82f6;
-  --ring: #6366f1;
-  --ring-offset: #0a0a0b;
+  --bg: #0d1317;
+  --surface: #131b21;
+  --surface-elevated: #1a242c;
+  --border: #253340;
+  --border-subtle: #1c2830;
+  --text-primary: #e8edef;
+  --text-secondary: #8fa3b0;
+  --text-muted: #4d6472;
+  --bullish: #2dd4a8;
+  --bullish-bg: rgba(45, 212, 168, 0.1);
+  --bearish: #e07060;
+  --bearish-bg: rgba(224, 112, 96, 0.1);
+  --neutral: #d4a853;
+  --neutral-bg: rgba(212, 168, 83, 0.1);
+  --accent: #f0a030;
+  --accent-bg: rgba(240, 160, 48, 0.08);
+  --cached: #2dd4a8;
+  --live: #40b0e0;
+  --ring: #f0a030;
+  --ring-offset: #0d1317;
 }
 
-[data-theme="light"] {
-  --bg: #ffffff;
-  --surface: #f4f4f5;
-  --surface-elevated: #ffffff;
-  --border: #e4e4e7;
-  --border-subtle: #f0f0f2;
-  --text-primary: #09090b;
-  --text-secondary: #52525b;
-  --text-muted: #a1a1aa;
-  --bullish: #059669;
-  --bullish-bg: rgba(5, 150, 105, 0.08);
-  --bearish: #dc2626;
-  --bearish-bg: rgba(220, 38, 38, 0.08);
-  --neutral: #d97706;
-  --neutral-bg: rgba(217, 119, 6, 0.08);
-  --accent: #4f46e5;
-  --accent-bg: rgba(79, 70, 229, 0.06);
-  --cached: #059669;
-  --live: #2563eb;
-  --ring: #4f46e5;
-  --ring-offset: #ffffff;
+[data-theme="plum"] {
+  --bg: #15101e;
+  --surface: #1c1628;
+  --surface-elevated: #251e33;
+  --border: #352d45;
+  --border-subtle: #2a2238;
+  --text-primary: #ede8f2;
+  --text-secondary: #a89bb8;
+  --text-muted: #6b5d7a;
+  --bullish: #5ecfac;
+  --bullish-bg: rgba(94, 207, 172, 0.1);
+  --bearish: #d47080;
+  --bearish-bg: rgba(212, 112, 128, 0.1);
+  --neutral: #c8a850;
+  --neutral-bg: rgba(200, 168, 80, 0.1);
+  --accent: #d4af37;
+  --accent-bg: rgba(212, 175, 55, 0.08);
+  --cached: #5ecfac;
+  --live: #9080e0;
+  --ring: #d4af37;
+  --ring-offset: #15101e;
+}
+
+[data-theme="moss"] {
+  --bg: #101410;
+  --surface: #161c16;
+  --surface-elevated: #1e261e;
+  --border: #2e3a2e;
+  --border-subtle: #232e23;
+  --text-primary: #e4ebe4;
+  --text-secondary: #96aa96;
+  --text-muted: #556b55;
+  --bullish: #6ec870;
+  --bullish-bg: rgba(110, 200, 112, 0.1);
+  --bearish: #d08050;
+  --bearish-bg: rgba(208, 128, 80, 0.1);
+  --neutral: #c8b040;
+  --neutral-bg: rgba(200, 176, 64, 0.1);
+  --accent: #e6b801;
+  --accent-bg: rgba(230, 184, 1, 0.08);
+  --cached: #6ec870;
+  --live: #50b8a0;
+  --ring: #e6b801;
+  --ring-offset: #101410;
+}
+
+[data-theme="graphite"] {
+  --bg: #1a1715;
+  --surface: #222019;
+  --surface-elevated: #2c2920;
+  --border: #3e3a32;
+  --border-subtle: #302c25;
+  --text-primary: #e8e4de;
+  --text-secondary: #a09888;
+  --text-muted: #6a6050;
+  --bullish: #3ab0a0;
+  --bullish-bg: rgba(58, 176, 160, 0.1);
+  --bearish: #c85a3a;
+  --bearish-bg: rgba(200, 90, 58, 0.1);
+  --neutral: #a08860;
+  --neutral-bg: rgba(160, 136, 96, 0.1);
+  --accent: #c2703d;
+  --accent-bg: rgba(194, 112, 61, 0.08);
+  --cached: #3ab0a0;
+  --live: #5090d0;
+  --ring: #c2703d;
+  --ring-offset: #1a1715;
 }
 
 body {

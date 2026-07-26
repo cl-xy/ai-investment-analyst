@@ -1,0 +1,85 @@
+# Layered quality gates. Each layer is independent. Disable individual hooks with SKIP=hook-id.
+
+repos:
+  # ============================================================
+  # Layer 1: Basics (fast, universal)
+  # ============================================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: mixed-line-ending
+
+  # ============================================================
+  # Layer 2: Secrets
+  # ============================================================
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ["--baseline", ".secrets.baseline"]
+
+  # ============================================================
+  # Layer 3: Python (backend)
+  # ============================================================
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.5.0
+    hooks:
+      - id: ruff
+        args: ["--fix", "--config", "backend/pyproject.toml"]
+        files: ^backend/
+      - id: ruff-format
+        args: ["--config", "backend/pyproject.toml"]
+        files: ^backend/
+
+  # ============================================================
+  # Layer 4: Frontend
+  # ============================================================
+  - repo: local
+    hooks:
+      - id: oxlint
+        name: oxlint
+        entry: bash -c 'cd frontend && npx oxlint'
+        language: system
+        files: ^frontend/src/.*\.(ts|tsx)$
+        pass_filenames: false
+
+  # ============================================================
+  # Layer 5: Custom structural lints
+  # ============================================================
+  - repo: local
+    hooks:
+      - id: no-blocking-in-async
+        name: no-blocking-in-async
+        entry: bash -c 'EXIT=0; for f in "$@"; do if grep -q "async def" "$f"; then if grep -nE "(requests\.(get|post)|time\.sleep|[^a]open\()" "$f"; then echo "Blocking call in async code: $f"; EXIT=1; fi; fi; done; exit $EXIT'
+        language: system
+        files: ^backend/src/.*\.py$
+        types: [python]
+
+      - id: no-raw-llm-imports
+        name: no-raw-llm-imports
+        entry: bash -c 'EXIT=0; for f in "$@"; do if grep -nE "^from langchain_(openai|groq) import" "$f"; then echo "Direct LLM import not allowed in agent nodes: $f (use structured_output layer)"; EXIT=1; fi; done; exit $EXIT'
+        language: system
+        files: ^backend/src/agent/nodes/.*\.py$
+        types: [python]
+
+      - id: no-em-dashes
+        name: no-em-dashes
+        entry: bash -c 'EXIT=0; for f in "$@"; do if grep -nP "\x{2014}" "$f"; then echo "Em dash found in: $f"; EXIT=1; fi; done; exit $EXIT'
+        language: system
+        files: \.(md|py|ts|tsx)$
+
+  # ============================================================
+  # Layer 6: Dockerfile lint
+  # ============================================================
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.0
+    hooks:
+      - id: hadolint-docker
+        args: ["--ignore", "DL3008"]

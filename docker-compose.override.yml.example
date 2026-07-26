@@ -1,0 +1,24 @@
+# Copy to docker-compose.override.yml for local development.
+# This file is gitignored.
+#
+# Usage:
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#   docker compose up
+
+services:
+  backend:
+    # Mount source for hot reload during development
+    volumes:
+      - "./backend/src:/app/src"
+    environment:
+      - LOG_LEVEL=debug
+
+  postgres:
+    ports:
+      - "5432:5432"
+    # Persist data across container restarts during development
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+
+volumes:
+  pgdata_dev:
