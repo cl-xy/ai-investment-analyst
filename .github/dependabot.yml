@@ -36,14 +36,29 @@ updates:
     directory: /backend
     schedule:
       interval: weekly
+      day: monday
+      timezone: Asia/Singapore
     labels:
       - dependencies
       - docker
+    ignore:
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      timezone: Asia/Singapore
     labels:
       - dependencies
       - ci
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
