@@ -47,12 +47,16 @@ jobs:
       run:
         working-directory: backend
     services:
-      mongo:
-        image: mongo:7
+      postgres:
+        image: postgres:16-alpine
         ports:
-          - 27017:27017
+          - 5432:5432
+        env:
+          POSTGRES_DB: test_investment_analyst
+          POSTGRES_USER: invest
+          POSTGRES_PASSWORD: invest_test
         options: >-
-          --health-cmd "mongosh --eval 'db.runCommand(\"ping\").ok'"
+          --health-cmd "pg_isready -U invest -d test_investment_analyst"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -65,8 +69,7 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest -q --tb=short
         env:
-          MONGODB_URI: mongodb://localhost:27017
-          MONGODB_DB: test_investment_analyst
+          DATABASE_URL: postgresql://invest:invest_test@localhost:5432/test_investment_analyst
           GROQ_API_KEY: test-key-not-used-in-unit-tests
 
   build-frontend:
