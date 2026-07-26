@@ -10,7 +10,6 @@ from datetime import date, datetime, timezone
 
 from src.api.db import fetchrow
 
-
 # Conservative daily limits (leave headroom for manual use)
 DAILY_LIMITS: dict[str, int] = {
     "alpha_vantage": 20,
@@ -28,7 +27,8 @@ async def check_budget(provider: str) -> bool:
     today = date.today()
     row = await fetchrow(
         "SELECT count FROM budget WHERE provider = $1 AND date = $2",
-        provider, today,
+        provider,
+        today,
     )
     current = row["count"] if row else 0
     return current < limit
@@ -46,7 +46,9 @@ async def increment_budget(provider: str) -> int:
         ON CONFLICT (provider, date) DO UPDATE SET count = budget.count + 1
         RETURNING count
         """,
-        provider, today, now,
+        provider,
+        today,
+        now,
     )
     return row["count"]
 
@@ -59,7 +61,8 @@ async def get_budget_status() -> dict[str, dict]:
     for provider, limit in DAILY_LIMITS.items():
         row = await fetchrow(
             "SELECT count FROM budget WHERE provider = $1 AND date = $2",
-            provider, today,
+            provider,
+            today,
         )
         used = row["count"] if row else 0
         status[provider] = {

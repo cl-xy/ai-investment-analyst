@@ -1,8 +1,8 @@
 import os
 from functools import cache
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, ToolMessage
+from langchain_openai import ChatOpenAI
 
 from ..state import InvestmentAnalystState
 
@@ -50,16 +50,20 @@ async def chat_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> dict:
             if tool:
                 try:
                     result = await tool.ainvoke(tool_call["args"])
-                    messages.append(ToolMessage(
-                        content=str(result),
-                        tool_call_id=tool_call["id"],
-                    ))
+                    messages.append(
+                        ToolMessage(
+                            content=str(result),
+                            tool_call_id=tool_call["id"],
+                        )
+                    )
                 except Exception as e:
-                    messages.append(ToolMessage(
-                        content=f"Error calling {tool_name}: {e}",
-                        tool_call_id=tool_call["id"],
-                    ))
+                    messages.append(
+                        ToolMessage(
+                            content=f"Error calling {tool_name}: {e}",
+                            tool_call_id=tool_call["id"],
+                        )
+                    )
 
     # Return only the new messages (everything after the original state messages)
-    new_messages = messages[1 + len(state["messages"]):]  # skip the SystemMessage offset
+    new_messages = messages[1 + len(state["messages"]) :]  # skip the SystemMessage offset
     return {"messages": new_messages}

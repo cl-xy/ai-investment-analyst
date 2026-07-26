@@ -2,8 +2,8 @@ import json
 import os
 from functools import cache
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 
 from ..prompts.report_prompt import REPORT_HUMAN, REPORT_SYSTEM
 from ..state import InvestmentAnalystState
@@ -31,7 +31,9 @@ async def generate_report_node(state: InvestmentAnalystState) -> dict:
     if portfolio:
         lines = ["Current holdings:"]
         for pos in portfolio:
-            lines.append(f"  - {pos['ticker']}: {pos['shares']} shares @ ${pos['cost_basis']:.2f} (sector: {pos.get('sector', 'Unknown')})")
+            lines.append(
+                f"  - {pos['ticker']}: {pos['shares']} shares @ ${pos['cost_basis']:.2f} (sector: {pos.get('sector', 'Unknown')})"
+            )
         portfolio_context = "\n".join(lines)
     else:
         portfolio_context = "No portfolio loaded. Analyzing requested tickers only."
@@ -41,9 +43,11 @@ async def generate_report_node(state: InvestmentAnalystState) -> dict:
         portfolio_context=portfolio_context,
     )
 
-    response = await _get_llm().ainvoke([
-        SystemMessage(content=REPORT_SYSTEM),
-        HumanMessage(content=prompt),
-    ])
+    response = await _get_llm().ainvoke(
+        [
+            SystemMessage(content=REPORT_SYSTEM),
+            HumanMessage(content=prompt),
+        ]
+    )
 
     return {"report_markdown": response.content}

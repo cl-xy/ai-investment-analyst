@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException
 
-from ..db import fetch, fetchrow, execute
+from ..db import execute, fetch, fetchrow
 from ..schemas import AnalysisListItem, AnalyzeResponse, TickerAnalysis
 
 router = APIRouter()
@@ -15,9 +15,7 @@ router = APIRouter()
 
 @router.get("/dashboard", response_model=list[AnalysisListItem])
 async def list_analyses() -> list[AnalysisListItem]:
-    rows = await fetch(
-        "SELECT id, tickers, created_at FROM analyses ORDER BY created_at DESC"
-    )
+    rows = await fetch("SELECT id, tickers, created_at FROM analyses ORDER BY created_at DESC")
     return [
         AnalysisListItem(
             id=str(row["id"]),
@@ -39,9 +37,7 @@ async def get_analysis(analysis_id: str) -> AnalyzeResponse:
     if row is None:
         raise HTTPException(status_code=404, detail="Analysis not found")
 
-    ticker_rows = await fetch(
-        "SELECT * FROM ticker_analyses WHERE analysis_id = $1", aid
-    )
+    ticker_rows = await fetch("SELECT * FROM ticker_analyses WHERE analysis_id = $1", aid)
 
     analyses = {}
     for tr in ticker_rows:
@@ -51,9 +47,15 @@ async def get_analysis(analysis_id: str) -> AnalyzeResponse:
             confidence=tr["confidence"],
             sentiment_score=tr["sentiment_score"],
             news_summary=tr["news_summary"],
-            risk_flags=json.loads(tr["risk_flags"]) if isinstance(tr["risk_flags"], str) else tr["risk_flags"],
-            price_data=json.loads(tr["price_data"]) if isinstance(tr["price_data"], str) else tr["price_data"],
-            fundamentals=json.loads(tr["fundamentals"]) if isinstance(tr["fundamentals"], str) else tr["fundamentals"],
+            risk_flags=json.loads(tr["risk_flags"])
+            if isinstance(tr["risk_flags"], str)
+            else tr["risk_flags"],
+            price_data=json.loads(tr["price_data"])
+            if isinstance(tr["price_data"], str)
+            else tr["price_data"],
+            fundamentals=json.loads(tr["fundamentals"])
+            if isinstance(tr["fundamentals"], str)
+            else tr["fundamentals"],
             sec_notes=tr["sec_notes"],
         )
 

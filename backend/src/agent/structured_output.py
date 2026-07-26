@@ -15,7 +15,9 @@ from pydantic import BaseModel, Field
 class Citation(BaseModel):
     """Links a claim in the analysis to a specific data source."""
 
-    source_id: str = Field(description="References a tool_result source_id (e.g. 'yfinance:NVDA:1706140800')")
+    source_id: str = Field(
+        description="References a tool_result source_id (e.g. 'yfinance:NVDA:1706140800')"
+    )
     claim: str = Field(description="The specific claim being cited")
     provider: str = Field(description="Data provider: yfinance, newsapi, sec_edgar, rss")
 
@@ -43,8 +45,11 @@ class RouterOutput(BaseModel):
     """Structured output from the router node."""
 
     intent: Literal[
-        "full_report", "single_ticker",
-        "add_position", "remove_position", "list_portfolio",
+        "full_report",
+        "single_ticker",
+        "add_position",
+        "remove_position",
+        "list_portfolio",
         "conversational",
     ]
     tickers: list[str] = Field(default_factory=list)

@@ -2,8 +2,9 @@
 Tests for the compare endpoint.
 """
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
 
@@ -14,6 +15,7 @@ def client():
         mock_pool.return_value = AsyncMock()
         with patch("src.api.db.init_schema", new_callable=AsyncMock):
             from src.api.main import app
+
             with TestClient(app) as c:
                 yield c
 
@@ -36,8 +38,9 @@ class TestCompareEndpoint:
     @patch("src.api.routes.compare.analyze_tickers")
     def test_compare_returns_analyses(self, mock_analyze, client):
         """Compare endpoint should return analyses for valid tickers."""
-        from src.api.schemas import AnalyzeResponse, TickerAnalysis
         from datetime import datetime, timezone
+
+        from src.api.schemas import AnalyzeResponse, TickerAnalysis
 
         mock_analysis = TickerAnalysis(
             ticker="NVDA",

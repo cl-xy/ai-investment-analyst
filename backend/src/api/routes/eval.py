@@ -3,8 +3,10 @@ Evaluation metrics API. PostgreSQL-backed.
 Serves data for the eval dashboard.
 """
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter
+
 from src.api.db import fetch
 
 router = APIRouter(prefix="/eval", tags=["eval"])
@@ -13,9 +15,7 @@ router = APIRouter(prefix="/eval", tags=["eval"])
 @router.get("/summary")
 async def eval_summary():
     """Return latest eval metrics summary for the dashboard."""
-    rows = await fetch(
-        "SELECT * FROM runs ORDER BY started_at DESC LIMIT 100"
-    )
+    rows = await fetch("SELECT * FROM runs ORDER BY started_at DESC LIMIT 100")
 
     if not rows:
         return {

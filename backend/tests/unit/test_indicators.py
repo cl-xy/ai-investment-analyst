@@ -1,6 +1,5 @@
 """Unit tests for technical indicator calculations."""
 
-import pytest
 from src.mcp_servers.market_server.indicators import (
     compute_indicators,
     compute_macd,
@@ -23,6 +22,7 @@ class TestRSI:
 
     def test_rsi_in_valid_range(self):
         import random
+
         random.seed(42)
         closes = [100.0 + random.uniform(-5, 5) for _ in range(50)]
         rsi = compute_rsi(closes, 14)
@@ -75,6 +75,7 @@ class TestComputeIndicators:
 
     def test_full_year_history_returns_all_fields(self):
         import random
+
         random.seed(0)
         closes = [150.0 + random.uniform(-10, 10) for _ in range(252)]
         result = compute_indicators(_prices(closes))

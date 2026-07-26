@@ -13,7 +13,9 @@ def get_quote(ticker: str) -> dict | None:
     key = _key()
     if not key:
         return None
-    r = httpx.get(BASE_URL, params={"function": "GLOBAL_QUOTE", "symbol": ticker, "apikey": key}, timeout=10)
+    r = httpx.get(
+        BASE_URL, params={"function": "GLOBAL_QUOTE", "symbol": ticker, "apikey": key}, timeout=10
+    )
     r.raise_for_status()
     data = r.json().get("Global Quote", {})
     if not data:
@@ -35,16 +37,20 @@ def get_fundamentals(ticker: str) -> dict | None:
     key = _key()
     if not key:
         return None
-    r = httpx.get(BASE_URL, params={"function": "OVERVIEW", "symbol": ticker, "apikey": key}, timeout=10)
+    r = httpx.get(
+        BASE_URL, params={"function": "OVERVIEW", "symbol": ticker, "apikey": key}, timeout=10
+    )
     r.raise_for_status()
     data = r.json()
     if not data or "Symbol" not in data:
         return None
+
     def _float(v: str) -> float | None:
         try:
             return float(v)
         except (TypeError, ValueError):
             return None
+
     return {
         "ticker": ticker.upper(),
         "revenue": _float(data.get("RevenueTTM")),

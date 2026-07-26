@@ -23,9 +23,9 @@ def _server(module: str) -> dict:
 
 MCP_SERVER_CONFIG = {
     "portfolio_server": _server("src.mcp_servers.portfolio_server.server"),
-    "market_server":    _server("src.mcp_servers.market_server.server"),
-    "news_server":      _server("src.mcp_servers.news_server.server"),
-    "sec_server":       _server("src.mcp_servers.sec_server.server"),
+    "market_server": _server("src.mcp_servers.market_server.server"),
+    "news_server": _server("src.mcp_servers.news_server.server"),
+    "sec_server": _server("src.mcp_servers.sec_server.server"),
 }
 
 

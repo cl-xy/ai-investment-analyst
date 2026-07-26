@@ -10,8 +10,8 @@ import os
 import time
 from functools import cache
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 from ..json_utils import extract_json
@@ -53,8 +53,7 @@ def _make_source_id(provider: str, ticker: str) -> str:
 
 async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
     tickers_remaining = [
-        t for t in state.get("tickers_to_analyze", [])
-        if t not in state.get("ticker_analyses", {})
+        t for t in state.get("tickers_to_analyze", []) if t not in state.get("ticker_analyses", {})
     ]
     if not tickers_remaining:
         return {}

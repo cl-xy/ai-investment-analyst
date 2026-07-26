@@ -74,7 +74,9 @@ async def _run_graph(
 def analyze(
     ticker: list[str] = typer.Option([], "--ticker", "-t", help="Ticker symbol(s) to analyze"),
     portfolio: bool = typer.Option(False, "--portfolio", "-p", help="Analyze your full portfolio"),
-    thread_id: str = typer.Option(_DEFAULT_THREAD, "--session", help="Session thread ID for conversation history"),
+    thread_id: str = typer.Option(
+        _DEFAULT_THREAD, "--session", help="Session thread ID for conversation history"
+    ),
 ):
     """Analyze stocks or your full portfolio."""
     if portfolio:
@@ -105,10 +107,17 @@ def analyze(
 
 @app.command()
 def chat(
-    thread_id: str = typer.Option(_DEFAULT_THREAD, "--session", help="Session thread ID for conversation history"),
+    thread_id: str = typer.Option(
+        _DEFAULT_THREAD, "--session", help="Session thread ID for conversation history"
+    ),
 ):
     """Interactive chat with the investment analyst."""
-    console.print(Panel("[bold green]Investment Analyst Chat[/bold green]\nType 'exit' or Ctrl+C to quit.", expand=False))
+    console.print(
+        Panel(
+            "[bold green]Investment Analyst Chat[/bold green]\nType 'exit' or Ctrl+C to quit.",
+            expand=False,
+        )
+    )
 
     while True:
         try:
@@ -129,7 +138,7 @@ def chat(
         messages = result.get("messages", [])
         for msg in reversed(messages):
             if hasattr(msg, "type") and msg.type == "ai":
-                console.print(f"\n[bold green]Analyst:[/bold green]")
+                console.print("\n[bold green]Analyst:[/bold green]")
                 console.print(Markdown(msg.content))
                 break
 
@@ -164,7 +173,9 @@ def portfolio_add(
     """Add or update a position in your portfolio."""
     message = f"Add {shares} shares of {ticker.upper()} at ${cost:.2f} per share to my portfolio (sector: {sector})"
     with console.status(f"[cyan]Adding {ticker.upper()} to portfolio...[/cyan]"):
-        result = asyncio.run(_run_graph(message, thread_id, intent="add_position", tickers=[ticker.upper()]))
+        result = asyncio.run(
+            _run_graph(message, thread_id, intent="add_position", tickers=[ticker.upper()])
+        )
 
     messages = result.get("messages", [])
     for msg in reversed(messages):
@@ -181,7 +192,9 @@ def portfolio_remove(
     """Remove a position from your portfolio."""
     message = f"Remove {ticker.upper()} from my portfolio"
     with console.status(f"[cyan]Removing {ticker.upper()}...[/cyan]"):
-        result = asyncio.run(_run_graph(message, thread_id, intent="remove_position", tickers=[ticker.upper()]))
+        result = asyncio.run(
+            _run_graph(message, thread_id, intent="remove_position", tickers=[ticker.upper()])
+        )
 
     messages = result.get("messages", [])
     for msg in reversed(messages):

@@ -1,8 +1,9 @@
 """Unit tests for the router node."""
 
-import pytest
-from langchain_core.messages import AIMessage, HumanMessage
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from langchain_core.messages import HumanMessage
 
 
 @pytest.fixture
@@ -46,6 +47,7 @@ async def test_router_parses_single_ticker_intent(base_state):
 
     with patch("src.agent.nodes.router._get_llm", return_value=mock_llm):
         from src.agent.nodes.router import router_node
+
         result = await router_node(base_state)
 
     assert result["intent"] == "single_ticker"
@@ -63,6 +65,7 @@ async def test_router_parses_json_with_code_fences(base_state):
 
     with patch("src.agent.nodes.router._get_llm", return_value=mock_llm):
         from src.agent.nodes.router import router_node
+
         result = await router_node(base_state)
 
     assert result["intent"] == "full_report"
@@ -79,6 +82,7 @@ async def test_router_falls_back_to_conversational_on_bad_json(base_state):
 
     with patch("src.agent.nodes.router._get_llm", return_value=mock_llm):
         from src.agent.nodes.router import router_node
+
         result = await router_node(base_state)
 
     assert result["intent"] == "conversational"

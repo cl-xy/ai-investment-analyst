@@ -5,8 +5,6 @@ Verifies the domain event contract between backend and frontend.
 
 import json
 
-import pytest
-
 from src.agent.events import EventEmitter, EventType, StreamEvent
 
 
@@ -37,7 +35,7 @@ class TestStreamEvent:
             payload={"tool_name": "get_quote", "success": True, "cached": True, "duration_ms": 42},
         )
         sse = event.to_sse()
-        data_line = [l for l in sse.split("\n") if l.startswith("data: ")][0]
+        data_line = [line for line in sse.split("\n") if line.startswith("data: ")][0]
         data_json = data_line.removeprefix("data: ")
         parsed = json.loads(data_json)
         assert parsed["run_id"] == "test-123"

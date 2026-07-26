@@ -1,9 +1,10 @@
 """Unit tests for the fetch_data node."""
 
 import json
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from langchain_core.messages import HumanMessage
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 def _text_block(data) -> list[dict]:
@@ -37,9 +38,11 @@ def _make_tool(return_value):
 
 def _mock_cache_passthrough():
     """Mock cache_manager.get_or_fetch to always call the fetch function directly."""
+
     async def _passthrough(provider, tool, ticker, fetch_fn):
         data = await fetch_fn()
         return data, f"{provider}:{ticker}:mock", False
+
     return _passthrough
 
 
@@ -50,7 +53,15 @@ async def test_fetch_data_populates_all_fields(mock_cache, base_state):
 
     from src.agent.nodes.fetch_data import fetch_data_node
 
-    mock_news = [{"title": "NVDA surges", "source": "Bloomberg", "snippet": "Big gains", "published_at": "2024-01-10", "url": "http://example.com"}]
+    mock_news = [
+        {
+            "title": "NVDA surges",
+            "source": "Bloomberg",
+            "snippet": "Big gains",
+            "published_at": "2024-01-10",
+            "url": "http://example.com",
+        }
+    ]
     mock_quote = {"ticker": "NVDA", "price": 500.0, "change_pct": 2.5}
     mock_fundamentals = {"eps_ttm": 12.5, "sector": "Technology"}
     mock_filing = {"text_excerpt": "Risk factors include..."}

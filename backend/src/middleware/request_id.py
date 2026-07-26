@@ -10,7 +10,7 @@ import uuid
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from src.logging_config import request_id_ctx, get_logger
+from src.logging_config import get_logger, request_id_ctx
 
 log = get_logger("middleware.request_id")
 

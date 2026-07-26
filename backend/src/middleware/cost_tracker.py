@@ -98,12 +98,25 @@ class CostTracker:
                 $11, $12, $13, $14, $15, $16, $17, $18, $19
             )
             """,
-            m.run_id, m.tickers, m.started_at, m.completed_at, m.duration_ms,
-            m.router_model, m.analysis_model,
-            m.prompt_tokens, m.completion_tokens, m.total_tokens,
-            m.tool_calls, m.tool_successes, m.tool_failures,
-            m.cache_hits, m.cache_misses, m.cost_usd,
-            m.schema_valid, m.citations_count, m.data_gaps_count,
+            m.run_id,
+            m.tickers,
+            m.started_at,
+            m.completed_at,
+            m.duration_ms,
+            m.router_model,
+            m.analysis_model,
+            m.prompt_tokens,
+            m.completion_tokens,
+            m.total_tokens,
+            m.tool_calls,
+            m.tool_successes,
+            m.tool_failures,
+            m.cache_hits,
+            m.cache_misses,
+            m.cost_usd,
+            m.schema_valid,
+            m.citations_count,
+            m.data_gaps_count,
         )
 
     def summary(self) -> dict[str, Any]:

@@ -2,7 +2,7 @@
 Comparison endpoint. Compares 2-3 tickers using existing analyses or running fresh ones.
 """
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from .analyze import analyze_tickers
 

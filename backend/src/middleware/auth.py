@@ -17,7 +17,6 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 
-
 # Rate limiter instance (shared across the app)
 limiter = Limiter(key_func=get_remote_address)
 
@@ -50,15 +49,15 @@ class DemoAuthMiddleware(BaseHTTPMiddleware):
 
         # Check credentials
         provided = (
-            request.query_params.get("password")
-            or request.headers.get("X-Demo-Password")
-            or ""
+            request.query_params.get("password") or request.headers.get("X-Demo-Password") or ""
         )
 
         if not hmac.compare_digest(provided.encode(), demo_password.encode()):
             return JSONResponse(
                 status_code=401,
-                content={"detail": "Demo password required. Add ?password=xxx or X-Demo-Password header."},
+                content={
+                    "detail": "Demo password required. Add ?password=xxx or X-Demo-Password header."
+                },
             )
 
         return await call_next(request)

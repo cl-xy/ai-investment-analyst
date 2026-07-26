@@ -53,7 +53,9 @@ async def portfolio_ops_node(state: InvestmentAnalystState, *, mcp_tools: dict) 
                 lines.append("| Ticker | Shares | Cost Basis | Sector |")
                 lines.append("|--------|--------|------------|--------|")
                 for p in positions:
-                    lines.append(f"| {p['ticker']} | {p['shares']} | ${p['cost_basis']:.2f} | {p.get('sector', 'Unknown')} |")
+                    lines.append(
+                        f"| {p['ticker']} | {p['shares']} | ${p['cost_basis']:.2f} | {p.get('sector', 'Unknown')} |"
+                    )
                 reply = "\n".join(lines)
         else:
             reply = "Portfolio server not available."
@@ -65,12 +67,16 @@ async def portfolio_ops_node(state: InvestmentAnalystState, *, mcp_tools: dict) 
         if not ticker:
             return {"messages": [AIMessage(content="Please specify a ticker symbol.")]}
         shares_match = re.search(r"(\d+(?:\.\d+)?)\s*shares?", user_text, re.IGNORECASE)
-        cost_match = re.search(r"\$?(\d+(?:\.\d+)?)\s*(?:per share|cost|@)", user_text, re.IGNORECASE)
+        cost_match = re.search(
+            r"\$?(\d+(?:\.\d+)?)\s*(?:per share|cost|@)", user_text, re.IGNORECASE
+        )
         sector_match = re.search(r"sector[:\s]+([A-Za-z &]+?)(?:\)|,|$)", user_text, re.IGNORECASE)
         shares = float(shares_match.group(1)) if shares_match else 1.0
         cost_basis = float(cost_match.group(1)) if cost_match else 0.0
         sector = sector_match.group(1).strip() if sector_match else "Unknown"
-        raw = await add_position.ainvoke({"ticker": ticker, "shares": shares, "cost_basis": cost_basis, "sector": sector})
+        raw = await add_position.ainvoke(
+            {"ticker": ticker, "shares": shares, "cost_basis": cost_basis, "sector": sector}
+        )
         parsed = _parse_tool_result(raw)
         msg = parsed.get("message", str(parsed)) if isinstance(parsed, dict) else str(parsed)
         return {"messages": [AIMessage(content=msg)]}

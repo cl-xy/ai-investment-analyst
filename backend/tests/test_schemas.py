@@ -21,7 +21,11 @@ class TestAnalysisOutput:
             "bear_case": ["Valuation stretched at 60x forward P/E", "China export risk"],
             "risk_flags": ["Concentration risk in AI segment"],
             "citations": [
-                {"source_id": "yfinance:NVDA:1706140800", "claim": "Revenue +150% YoY", "provider": "yfinance"}
+                {
+                    "source_id": "yfinance:NVDA:1706140800",
+                    "claim": "Revenue +150% YoY",
+                    "provider": "yfinance",
+                }
             ],
             "data_gaps": [],
             "price_data": {"price": 875.0},

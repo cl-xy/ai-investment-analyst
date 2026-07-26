@@ -47,12 +47,14 @@ def search_filings(ticker: str, form_type: str = "10-K", count: int = 3) -> list
         for form, date, acc in zip(forms, dates, accessions):
             if form == form_type:
                 acc_clean = acc.replace("-", "")
-                results.append({
-                    "form_type": form,
-                    "filed_date": date,
-                    "accession_number": acc,
-                    "url": f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc_clean}/{acc}-index.htm",
-                })
+                results.append(
+                    {
+                        "form_type": form,
+                        "filed_date": date,
+                        "accession_number": acc,
+                        "url": f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc_clean}/{acc}-index.htm",
+                    }
+                )
                 if len(results) >= count:
                     break
         return results

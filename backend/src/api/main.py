@@ -23,19 +23,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import settings
-from src.logging_config import setup_logging, get_logger
+from src.logging_config import get_logger, setup_logging
 from src.middleware.auth import DemoAuthMiddleware
 from src.middleware.request_id import RequestIDMiddleware
 
 from .db import close_pool, init_schema
+from .routes.admin import router as admin_router
 from .routes.analyze import router as analyze_router
 from .routes.analyze_stream import router as analyze_stream_router
-from .routes.admin import router as admin_router
-from .routes.eval import router as eval_router
+from .routes.compare import router as compare_router
 from .routes.dashboard import router as dashboard_router
+from .routes.eval import router as eval_router
 from .routes.explore import router as explore_router
 from .routes.health import router as health_router
-from .routes.compare import router as compare_router
 from .routes.scheduled import router as scheduled_router
 
 # Initialize structured logging (JSON in production, console in dev)

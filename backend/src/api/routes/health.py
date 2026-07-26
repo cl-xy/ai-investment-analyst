@@ -29,6 +29,7 @@ async def readiness():
 
     if not db_ok:
         from fastapi.responses import JSONResponse
+
         return JSONResponse(
             status_code=503,
             content={"status": "unhealthy", "database": "unreachable"},

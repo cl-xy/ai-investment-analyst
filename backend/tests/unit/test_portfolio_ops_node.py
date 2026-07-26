@@ -1,8 +1,9 @@
 """Unit tests for the portfolio_ops node."""
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from langchain_core.messages import HumanMessage
-from unittest.mock import AsyncMock, MagicMock
 
 
 def _make_state(intent: str, user_text: str, tickers: list[str] | None = None):
@@ -24,6 +25,7 @@ def _make_state(intent: str, user_text: str, tickers: list[str] | None = None):
 def _tool_response(data: dict | list) -> list[dict]:
     """Simulate the content-block format returned by LangChain MCP tools."""
     import json
+
     return [{"type": "text", "text": json.dumps(data)}]
 
 
@@ -70,9 +72,11 @@ async def test_add_position():
     from src.agent.nodes.portfolio_ops import portfolio_ops_node
 
     mcp_tools = {
-        "add_position": _make_tool(_tool_response(
-            {"success": True, "message": "Position NVDA saved (10 shares @ $400.00)"}
-        ))
+        "add_position": _make_tool(
+            _tool_response(
+                {"success": True, "message": "Position NVDA saved (10 shares @ $400.00)"}
+            )
+        )
     }
     state = _make_state(
         "add_position",
@@ -95,9 +99,9 @@ async def test_remove_position():
     from src.agent.nodes.portfolio_ops import portfolio_ops_node
 
     mcp_tools = {
-        "remove_position": _make_tool(_tool_response(
-            {"success": True, "message": "NVDA removed from portfolio"}
-        ))
+        "remove_position": _make_tool(
+            _tool_response({"success": True, "message": "NVDA removed from portfolio"})
+        )
     }
     state = _make_state("remove_position", "Remove NVDA from my portfolio", tickers=["NVDA"])
 

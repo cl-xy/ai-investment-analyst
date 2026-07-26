@@ -74,8 +74,13 @@ class EventEmitter:
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat()
 
-    def _emit(self, event_type: EventType, node: str | None = None,
-              tool: str | None = None, payload: dict | None = None) -> StreamEvent:
+    def _emit(
+        self,
+        event_type: EventType,
+        node: str | None = None,
+        tool: str | None = None,
+        payload: dict | None = None,
+    ) -> StreamEvent:
         event = StreamEvent(
             run_id=self.run_id,
             seq=self._next_seq(),
@@ -99,22 +104,33 @@ class EventEmitter:
         start = self._node_start_times.pop(node_name, None)
         duration_ms = int((time.monotonic() - start) * 1000) if start else 0
         return self._emit(
-            EventType.NODE_COMPLETED, node=node_name,
+            EventType.NODE_COMPLETED,
+            node=node_name,
             payload={"node_name": node_name, "duration_ms": duration_ms},
         )
 
     def tool_call(self, tool_name: str, args: dict, node: str | None = None) -> StreamEvent:
         return self._emit(
-            EventType.TOOL_CALL, node=node, tool=tool_name,
+            EventType.TOOL_CALL,
+            node=node,
+            tool=tool_name,
             payload={"tool_name": tool_name, "args": args},
         )
 
     def tool_result(
-        self, tool_name: str, *, success: bool, cached: bool = False,
-        duration_ms: int = 0, source_id: str = "", node: str | None = None,
+        self,
+        tool_name: str,
+        *,
+        success: bool,
+        cached: bool = False,
+        duration_ms: int = 0,
+        source_id: str = "",
+        node: str | None = None,
     ) -> StreamEvent:
         return self._emit(
-            EventType.TOOL_RESULT, node=node, tool=tool_name,
+            EventType.TOOL_RESULT,
+            node=node,
+            tool=tool_name,
             payload={
                 "tool_name": tool_name,
                 "success": success,
@@ -149,8 +165,11 @@ class EventEmitter:
         )
 
     def run_completed(
-        self, tickers: list[str], total_duration_ms: int,
-        total_tokens: int = 0, cost_usd: float = 0.0,
+        self,
+        tickers: list[str],
+        total_duration_ms: int,
+        total_tokens: int = 0,
+        cost_usd: float = 0.0,
     ) -> StreamEvent:
         return self._emit(
             EventType.RUN_COMPLETED,

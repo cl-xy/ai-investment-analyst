@@ -71,9 +71,15 @@ async def _fetch_cached_analyses(tickers: list[str]) -> dict[str, TickerAnalysis
                 confidence=row["confidence"],
                 sentiment_score=row["sentiment_score"],
                 news_summary=row["news_summary"],
-                risk_flags=row["risk_flags"] if isinstance(row["risk_flags"], list) else json.loads(row["risk_flags"]),
-                price_data=row["price_data"] if isinstance(row["price_data"], dict) else json.loads(row["price_data"]),
-                fundamentals=row["fundamentals"] if isinstance(row["fundamentals"], dict) else json.loads(row["fundamentals"]),
+                risk_flags=row["risk_flags"]
+                if isinstance(row["risk_flags"], list)
+                else json.loads(row["risk_flags"]),
+                price_data=row["price_data"]
+                if isinstance(row["price_data"], dict)
+                else json.loads(row["price_data"]),
+                fundamentals=row["fundamentals"]
+                if isinstance(row["fundamentals"], dict)
+                else json.loads(row["fundamentals"]),
                 sec_notes=row["sec_notes"],
             )
     return cached
@@ -134,7 +140,9 @@ async def analyze_tickers(tickers: list[str], *, force_refresh: bool = False) ->
         VALUES ($1, $2, $3)
         RETURNING id
         """,
-        normalised_tickers, report_markdown, created_at,
+        normalised_tickers,
+        report_markdown,
+        created_at,
     )
     analysis_id = row["id"]
 
@@ -147,7 +155,11 @@ async def analyze_tickers(tickers: list[str], *, force_refresh: bool = False) ->
                 news_summary, risk_flags, price_data, fundamentals, sec_notes
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             """,
-            analysis_id, ta.ticker, ta.signal, ta.confidence, ta.sentiment_score,
+            analysis_id,
+            ta.ticker,
+            ta.signal,
+            ta.confidence,
+            ta.sentiment_score,
             ta.news_summary,
             json.dumps(ta.risk_flags),
             json.dumps(ta.price_data),

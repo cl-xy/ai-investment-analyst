@@ -48,7 +48,7 @@ async def _run_agent(
     tracker: CostTracker,
 ):
     """Execute the LangGraph agent and emit domain events to the queue."""
-    start_time = time.monotonic()
+
     tickers_upper = [t.upper() for t in tickers]
     tool_start_times: dict[str, float] = {}
 
@@ -87,8 +87,12 @@ async def _run_agent(
 
                     # Node lifecycle
                     if kind == "on_chain_start" and name in (
-                        "router", "fetch_data", "analyze_ticker",
-                        "generate_report", "chat", "portfolio_ops",
+                        "router",
+                        "fetch_data",
+                        "analyze_ticker",
+                        "generate_report",
+                        "chat",
+                        "portfolio_ops",
                     ):
                         if current_node:
                             ev = emitter.node_completed(current_node)

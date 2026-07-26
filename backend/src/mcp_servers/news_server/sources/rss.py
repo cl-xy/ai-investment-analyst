@@ -5,13 +5,15 @@ def _parse_feed(url: str, max_articles: int) -> list[dict]:
     feed = feedparser.parse(url)
     results = []
     for entry in feed.entries[:max_articles]:
-        results.append({
-            "title": entry.get("title", ""),
-            "url": entry.get("link", ""),
-            "published_at": entry.get("published", ""),
-            "source": feed.feed.get("title", "RSS"),
-            "snippet": (entry.get("summary") or "")[:400],
-        })
+        results.append(
+            {
+                "title": entry.get("title", ""),
+                "url": entry.get("link", ""),
+                "published_at": entry.get("published", ""),
+                "source": feed.feed.get("title", "RSS"),
+                "snippet": (entry.get("summary") or "")[:400],
+            }
+        )
     return results
 
 

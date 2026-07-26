@@ -1,8 +1,8 @@
 import os
 from functools import cache
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 from ..json_utils import extract_json
@@ -34,10 +34,12 @@ async def router_node(state: InvestmentAnalystState) -> dict:
     last_message = state["messages"][-1]
     user_text = last_message.content if hasattr(last_message, "content") else str(last_message)
 
-    response = await _get_llm().ainvoke([
-        SystemMessage(content=ROUTER_SYSTEM),
-        HumanMessage(content=ROUTER_HUMAN.format(message=user_text)),
-    ])
+    response = await _get_llm().ainvoke(
+        [
+            SystemMessage(content=ROUTER_SYSTEM),
+            HumanMessage(content=ROUTER_HUMAN.format(message=user_text)),
+        ]
+    )
 
     # Try structured validation first
     try:

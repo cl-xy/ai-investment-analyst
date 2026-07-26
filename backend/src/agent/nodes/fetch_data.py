@@ -10,8 +10,9 @@ import asyncio
 import json
 import time
 
-from ..state import InvestmentAnalystState
 from src.cache.manager import cache_manager
+
+from ..state import InvestmentAnalystState
 
 TOOL_TIMEOUT = 30  # seconds per tool call
 
@@ -95,6 +96,7 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
     cache_only = False
     try:
         from src.cache.budget import check_budget
+
         budgets_ok = await asyncio.gather(
             check_budget("newsapi"),
             check_budget("groq"),
@@ -110,11 +112,18 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
         if cache_only:
             # Budget exhausted: serve only from cache, no live API calls
             from src.cache.manager import cache_manager as cm
+
             news_data, _, news_hit = await cm.get_cached_only("newsapi", "get_ticker_news", ticker)
             quote_data, _, quote_hit = await cm.get_cached_only("yfinance", "get_quote", ticker)
-            fundamentals_data, _, fund_hit = await cm.get_cached_only("yfinance", "get_fundamentals", ticker)
-            filing_data, _, filing_hit = await cm.get_cached_only("sec_edgar", "get_latest_filing_summary", ticker)
-            indicators_data, _, ind_hit = await cm.get_cached_only("yfinance", "get_technical_indicators", ticker)
+            fundamentals_data, _, fund_hit = await cm.get_cached_only(
+                "yfinance", "get_fundamentals", ticker
+            )
+            filing_data, _, filing_hit = await cm.get_cached_only(
+                "sec_edgar", "get_latest_filing_summary", ticker
+            )
+            indicators_data, _, ind_hit = await cm.get_cached_only(
+                "yfinance", "get_technical_indicators", ticker
+            )
 
             if not news_hit:
                 gaps.append(f"News data unavailable for {ticker} (budget exhausted)")
@@ -138,16 +147,34 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
                 "fundamentals": fundamentals_data if isinstance(fundamentals_data, dict) else {},
                 "indicators": indicators_data if isinstance(indicators_data, dict) else {},
             }
-            filing_text = filing_data.get("text_excerpt", "") if isinstance(filing_data, dict) else ""
+            filing_text = (
+                filing_data.get("text_excerpt", "") if isinstance(filing_data, dict) else ""
+            )
             return ticker, news, prices, filing_text, gaps
 
         # Normal path: fetch through cache layer
         results = await asyncio.gather(
-            _call_tool_cached(mcp_tools, "newsapi", "get_ticker_news", ticker, {"ticker": ticker, "days_back": 7, "max_articles": 10}),
+            _call_tool_cached(
+                mcp_tools,
+                "newsapi",
+                "get_ticker_news",
+                ticker,
+                {"ticker": ticker, "days_back": 7, "max_articles": 10},
+            ),
             _call_tool_cached(mcp_tools, "yfinance", "get_quote", ticker, {"ticker": ticker}),
-            _call_tool_cached(mcp_tools, "yfinance", "get_fundamentals", ticker, {"ticker": ticker}),
-            _call_tool_cached(mcp_tools, "sec_edgar", "get_latest_filing_summary", ticker, {"ticker": ticker, "form_type": "10-K"}),
-            _call_tool_cached(mcp_tools, "yfinance", "get_technical_indicators", ticker, {"ticker": ticker}),
+            _call_tool_cached(
+                mcp_tools, "yfinance", "get_fundamentals", ticker, {"ticker": ticker}
+            ),
+            _call_tool_cached(
+                mcp_tools,
+                "sec_edgar",
+                "get_latest_filing_summary",
+                ticker,
+                {"ticker": ticker, "form_type": "10-K"},
+            ),
+            _call_tool_cached(
+                mcp_tools, "yfinance", "get_technical_indicators", ticker, {"ticker": ticker}
+            ),
         )
 
         news_data, news_ok, _, _ = results[0]

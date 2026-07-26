@@ -2,12 +2,11 @@
 Golden test set — runs analysis against 20 fixture scenarios.
 Validates schema compliance, citation coverage, and graceful degradation.
 """
-import json
-import pytest
-from pathlib import Path
-from unittest.mock import AsyncMock, patch
 
-from src.agent.structured_output import AnalysisOutput
+import json
+from pathlib import Path
+
+import pytest
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -32,9 +31,11 @@ class TestGoldenSchemaValidation:
         assert "mock_responses" in data
         assert "expected" in data
 
-    @pytest.mark.parametrize("fixture_path", [
-        f for f in all_fixtures() if "invalid" not in f.stem and "timeout" not in f.stem
-    ], ids=lambda p: p.stem)
+    @pytest.mark.parametrize(
+        "fixture_path",
+        [f for f in all_fixtures() if "invalid" not in f.stem and "timeout" not in f.stem],
+        ids=lambda p: p.stem,
+    )
     def test_mock_responses_have_source_ids(self, fixture_path):
         data = json.loads(fixture_path.read_text())
         for tool_name, response in data["mock_responses"].items():
@@ -74,10 +75,11 @@ class TestGoldenEdgeCases:
 class TestGoldenDataConsistency:
     """Verify internal consistency of fixture financial data."""
 
-    @pytest.mark.parametrize("fixture_path", [
-        f for f in all_fixtures()
-        if "invalid" not in f.stem and "timeout" not in f.stem
-    ], ids=lambda p: p.stem)
+    @pytest.mark.parametrize(
+        "fixture_path",
+        [f for f in all_fixtures() if "invalid" not in f.stem and "timeout" not in f.stem],
+        ids=lambda p: p.stem,
+    )
     def test_pe_ratio_consistency(self, fixture_path):
         """P/E ratio should roughly match price / EPS where both are available."""
         data = json.loads(fixture_path.read_text())
@@ -95,10 +97,11 @@ class TestGoldenDataConsistency:
                 f"P/E mismatch: price/eps={computed_pe:.1f} vs stated pe={pe}"
             )
 
-    @pytest.mark.parametrize("fixture_path", [
-        f for f in all_fixtures()
-        if "invalid" not in f.stem and "timeout" not in f.stem
-    ], ids=lambda p: p.stem)
+    @pytest.mark.parametrize(
+        "fixture_path",
+        [f for f in all_fixtures() if "invalid" not in f.stem and "timeout" not in f.stem],
+        ids=lambda p: p.stem,
+    )
     def test_sentiment_range_is_valid(self, fixture_path):
         """Expected sentiment range must be within [-1, 1]."""
         data = json.loads(fixture_path.read_text())

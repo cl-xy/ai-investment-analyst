@@ -9,7 +9,7 @@ without requiring actual LLM calls or MCP servers.
 """
 
 import json
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,11 +24,23 @@ def _mock_astream_events():
             {"event": "on_chain_start", "name": "fetch_data", "data": {}},
             {"event": "on_tool_start", "name": "get_quote", "data": {"input": {"ticker": "NVDA"}}},
             {"event": "on_tool_end", "name": "get_quote", "data": {"output": {"price": 875.0}}},
-            {"event": "on_tool_start", "name": "get_ticker_news", "data": {"input": {"ticker": "NVDA"}}},
+            {
+                "event": "on_tool_start",
+                "name": "get_ticker_news",
+                "data": {"input": {"ticker": "NVDA"}},
+            },
             {"event": "on_tool_end", "name": "get_ticker_news", "data": {"output": []}},
             {"event": "on_chain_start", "name": "analyze_ticker", "data": {}},
-            {"event": "on_chat_model_stream", "name": "llm", "data": {"chunk": MagicMock(content="NVDA looks ")}},
-            {"event": "on_chat_model_stream", "name": "llm", "data": {"chunk": MagicMock(content="strong")}},
+            {
+                "event": "on_chat_model_stream",
+                "name": "llm",
+                "data": {"chunk": MagicMock(content="NVDA looks ")},
+            },
+            {
+                "event": "on_chat_model_stream",
+                "name": "llm",
+                "data": {"chunk": MagicMock(content="strong")},
+            },
         ]
         for e in events:
             yield e
@@ -69,6 +81,7 @@ def client():
         mock_pool.return_value = AsyncMock()
         with patch("src.api.db.init_schema", new_callable=AsyncMock):
             from src.api.main import app
+
             with TestClient(app) as c:
                 yield c
 
@@ -79,9 +92,7 @@ class TestSSEEventContract:
     @patch("src.api.routes.analyze_stream.create_mcp_client")
     @patch("src.api.routes.analyze_stream.AsyncSqliteSaver")
     @patch("src.api.routes.analyze_stream.build_graph")
-    def test_stream_emits_events_in_order(
-        self, mock_build_graph, mock_saver, mock_mcp, client
-    ):
+    def test_stream_emits_events_in_order(self, mock_build_graph, mock_saver, mock_mcp, client):
         """The stream should emit run_started first and run_completed last."""
         # Setup mocks
         mock_mcp_client = MagicMock()
@@ -178,6 +189,7 @@ class TestSSEEventPayloads:
     def test_node_completed_contains_duration(self):
         """node_completed payload must include duration_ms."""
         import time
+
         from src.agent.events import EventEmitter
 
         emitter = EventEmitter()
@@ -193,8 +205,12 @@ class TestSSEEventPayloads:
 
         emitter = EventEmitter()
         event = emitter.tool_result(
-            "get_quote", success=True, cached=True,
-            duration_ms=42, source_id="yfinance:NVDA:123", node="fetch_data"
+            "get_quote",
+            success=True,
+            cached=True,
+            duration_ms=42,
+            source_id="yfinance:NVDA:123",
+            node="fetch_data",
         )
         payload = event.payload
         assert payload["success"] is True

@@ -3,8 +3,9 @@ API endpoint smoke tests.
 Tests that endpoints respond with correct status codes and basic validation.
 """
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
 
 
@@ -14,6 +15,7 @@ def client():
     with patch("src.api.db.get_pool") as mock_pool:
         mock_pool.return_value = AsyncMock()
         from src.api.main import app
+
         with TestClient(app) as c:
             yield c
 

@@ -8,8 +8,8 @@ including relative valuation, normalized metrics, and a brief AI-generated narra
 import os
 from functools import cache
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, ValidationError
 
 from ..state import InvestmentAnalystState
@@ -17,19 +17,18 @@ from ..state import InvestmentAnalystState
 
 class ComparisonOutput(BaseModel):
     """Structured comparison output."""
+
     tickers: list[str]
     summary: str = Field(description="1-2 paragraph comparative narrative")
     metrics_table: list[dict] = Field(
         default_factory=list,
-        description="Normalized metrics for comparison (P/E, growth, sentiment, etc.)"
+        description="Normalized metrics for comparison (P/E, growth, sentiment, etc.)",
     )
     relative_ranking: list[dict] = Field(
-        default_factory=list,
-        description="Tickers ranked by overall attractiveness with reasoning"
+        default_factory=list, description="Tickers ranked by overall attractiveness with reasoning"
     )
     key_differentiators: list[str] = Field(
-        default_factory=list,
-        description="3-5 key differences between the tickers"
+        default_factory=list, description="3-5 key differences between the tickers"
     )
 
 
@@ -92,10 +91,12 @@ async def compare_node(state: InvestmentAnalystState) -> dict:
     prompt = f"Compare these {len(analyses)} stocks:\n\n" + "\n".join(analyses_text)
 
     try:
-        response = await _get_llm().ainvoke([
-            SystemMessage(content=COMPARE_SYSTEM),
-            HumanMessage(content=prompt),
-        ])
+        response = await _get_llm().ainvoke(
+            [
+                SystemMessage(content=COMPARE_SYSTEM),
+                HumanMessage(content=prompt),
+            ]
+        )
 
         comparison = ComparisonOutput.model_validate_json(response.content)
         return {"comparison": comparison.model_dump()}

@@ -47,12 +47,14 @@ def get_price_history(ticker: str, period: str = "3mo") -> list[dict]:
     hist = t.history(period=period)
     records = []
     for date, row in hist.iterrows():
-        records.append({
-            "date": str(date.date()),
-            "open": round(row["Open"], 4),
-            "high": round(row["High"], 4),
-            "low": round(row["Low"], 4),
-            "close": round(row["Close"], 4),
-            "volume": int(row["Volume"]),
-        })
+        records.append(
+            {
+                "date": str(date.date()),
+                "open": round(row["Open"], 4),
+                "high": round(row["High"], 4),
+                "low": round(row["Low"], 4),
+                "close": round(row["Close"], 4),
+                "volume": int(row["Volume"]),
+            }
+        )
     return records

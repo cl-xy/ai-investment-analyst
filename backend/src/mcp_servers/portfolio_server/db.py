@@ -4,7 +4,9 @@ from pathlib import Path
 
 import aiosqlite
 
-DB_PATH = Path(os.environ.get("MCP_DATA_DIR", str(Path.home() / ".mcp_investment"))) / "portfolio.db"
+DB_PATH = (
+    Path(os.environ.get("MCP_DATA_DIR", str(Path.home() / ".mcp_investment"))) / "portfolio.db"
+)
 
 CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS positions (
@@ -57,7 +59,9 @@ async def delete_position(ticker: str) -> bool:
         return cursor.rowcount > 0
 
 
-async def update_position_fields(ticker: str, shares: float | None, cost_basis: float | None) -> bool:
+async def update_position_fields(
+    ticker: str, shares: float | None, cost_basis: float | None
+) -> bool:
     updates = []
     params = []
     if shares is not None:

@@ -22,4 +22,3 @@ Rules:
 - Return ONLY valid JSON, no markdown or commentary"""
 
 ROUTER_HUMAN = "{message}"
-

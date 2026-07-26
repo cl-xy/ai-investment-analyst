@@ -28,9 +28,9 @@ from .nodes.router import router_node
 from .state import InvestmentAnalystState
 
 
-def _route_after_router(state: InvestmentAnalystState) -> Literal[
-    "fetch_data", "portfolio_ops", "chat"
-]:
+def _route_after_router(
+    state: InvestmentAnalystState,
+) -> Literal["fetch_data", "portfolio_ops", "chat"]:
     intent = state.get("intent", "conversational")
     if intent in ("full_report", "single_ticker"):
         return "fetch_data"
@@ -39,7 +39,9 @@ def _route_after_router(state: InvestmentAnalystState) -> Literal[
     return "chat"
 
 
-def _route_after_analyze(state: InvestmentAnalystState) -> Literal["analyze_ticker", "generate_report"]:
+def _route_after_analyze(
+    state: InvestmentAnalystState,
+) -> Literal["analyze_ticker", "generate_report"]:
     analyzed = set(state.get("ticker_analyses", {}).keys())
     remaining = [t for t in state.get("tickers_to_analyze", []) if t not in analyzed]
     if remaining:

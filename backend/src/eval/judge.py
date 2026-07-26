@@ -8,10 +8,11 @@ Scores on 3 dimensions:
 
 Each dimension scored 1-5. Run on golden test set only.
 """
-import os
+
 import json
-from typing import Any
+import os
 from functools import cache
+from typing import Any
 
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
@@ -68,9 +69,12 @@ async def score_analysis(analysis: dict[str, Any]) -> JudgeScore:
     # Calculate weighted average if not provided
     if "overall" not in result or result["overall"] == 0:
         result["overall"] = round(
-            (result["citation_support"] * 0.4 +
-             result["balanced_reasoning"] * 0.3 +
-             result["risk_disclosure"] * 0.3), 1
+            (
+                result["citation_support"] * 0.4
+                + result["balanced_reasoning"] * 0.3
+                + result["risk_disclosure"] * 0.3
+            ),
+            1,
         )
 
     return JudgeScore(**result)

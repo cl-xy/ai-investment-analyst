@@ -18,10 +18,8 @@ router = APIRouter()
 
 _TRENDING_URL = "https://query1.finance.yahoo.com/v1/finance/trending/US"
 _CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; investment-analyst/1.0)"
-}
-_CACHE: TTLCache = TTLCache(maxsize=1, ttl=300)       # 5-minute TTL for trending list
+_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; investment-analyst/1.0)"}
+_CACHE: TTLCache = TTLCache(maxsize=1, ttl=300)  # 5-minute TTL for trending list
 _DETAIL_CACHE: TTLCache = TTLCache(maxsize=50, ttl=900)  # 15-minute TTL per ticker
 _CACHE_KEY = "explore"
 _YF_EXECUTOR = ThreadPoolExecutor(max_workers=4)
@@ -54,9 +52,7 @@ async def _fetch_chart(client: httpx.AsyncClient, symbol: str) -> dict:
         price = meta.get("regularMarketPrice")
         prev_close = meta.get("chartPreviousClose")
         change_pct = (
-            (price - prev_close) / prev_close * 100
-            if price is not None and prev_close
-            else None
+            (price - prev_close) / prev_close * 100 if price is not None and prev_close else None
         )
         return {
             "symbol": symbol,
@@ -150,9 +146,13 @@ async def get_explore() -> ExploreResponse:
                 raise HTTPException(status_code=502, detail="No trending symbols returned")
             quotes = await _fetch_quotes(client, symbols)
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=502, detail=f"Yahoo Finance error: {exc.response.status_code}") from exc
+        raise HTTPException(
+            status_code=502, detail=f"Yahoo Finance error: {exc.response.status_code}"
+        ) from exc
     except httpx.RequestError as exc:
-        raise HTTPException(status_code=502, detail=f"Failed to reach Yahoo Finance: {exc}") from exc
+        raise HTTPException(
+            status_code=502, detail=f"Failed to reach Yahoo Finance: {exc}"
+        ) from exc
 
     stocks: list[TrendingStock] = []
     for rank, symbol in enumerate(symbols, start=1):

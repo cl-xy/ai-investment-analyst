@@ -10,10 +10,9 @@ import asyncio
 import json
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Awaitable
+from typing import Any, Awaitable, Callable
 
-from src.api.db import fetchrow, execute
-
+from src.api.db import execute, fetchrow
 
 # TTL configuration per provider/tool combination
 TTL_CONFIG: dict[str, dict[str, int]] = {
@@ -94,8 +93,13 @@ class CacheManager:
         return data, source_id, False
 
     async def _refresh(
-        self, key: str, provider: str, tool: str, ticker: str,
-        fetch_fn: Callable[[], Awaitable[Any]], ttl: dict[str, int],
+        self,
+        key: str,
+        provider: str,
+        tool: str,
+        ticker: str,
+        fetch_fn: Callable[[], Awaitable[Any]],
+        ttl: dict[str, int],
     ):
         """Background refresh for stale-while-revalidate."""
         try:
@@ -106,8 +110,13 @@ class CacheManager:
             pass
 
     async def _store(
-        self, key: str, data: Any, source_id: str,
-        provider: str, ttl: dict[str, int], now: datetime,
+        self,
+        key: str,
+        data: Any,
+        source_id: str,
+        provider: str,
+        ttl: dict[str, int],
+        now: datetime,
     ):
         """Upsert a cache entry."""
         stale_at = now + timedelta(seconds=ttl["fresh"])
@@ -125,9 +134,14 @@ class CacheManager:
                 stale_at = EXCLUDED.stale_at,
                 expires_at = EXCLUDED.expires_at
             """,
-            key, json.dumps(data), source_id, provider, now, stale_at, expires_at,
+            key,
+            json.dumps(data),
+            source_id,
+            provider,
+            now,
+            stale_at,
+            expires_at,
         )
-
 
     async def get_cached_only(self, provider: str, tool: str, ticker: str) -> tuple[Any, str, bool]:
         """
