@@ -34,16 +34,19 @@ export function useAnalysisStream() {
   }, [])
 
   const connect = useCallback(
-    (tickers: string[]) => {
+    (tickers: string[], isRetry = false) => {
       disconnect()
-      reset()
+      if (!isRetry) {
+        // Only reset on user-initiated connections, not retries
+        reset()
+        retryCountRef.current = 0
+      }
 
       const tickerParam = tickers.map((t) => t.trim().toUpperCase()).join(',')
       const url = `${API_BASE}/api/analyze/stream?tickers=${encodeURIComponent(tickerParam)}`
 
       const es = new EventSource(url)
       eventSourceRef.current = es
-      retryCountRef.current = 0
 
       const handleEvent = (e: MessageEvent) => {
         try {
@@ -112,7 +115,7 @@ export function useAnalysisStream() {
           retryCountRef.current += 1
 
           if (retryCountRef.current <= 5) {
-            retryTimeoutRef.current = setTimeout(() => connect(tickers), delay)
+            retryTimeoutRef.current = setTimeout(() => connect(tickers, true), delay)
           } else {
             setError('Connection lost. Please try again.')
           }
