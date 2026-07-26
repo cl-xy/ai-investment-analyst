@@ -37,7 +37,7 @@ dependencies = [
     "fastapi>=0.111.0",
     "uvicorn[standard]>=0.30.0",
     # Rate limiting
-    "slowapi>=0.1.9",
+    "slowapi>=0.1.10",
     # Logging
     "structlog>=24.0.0",
 ]
