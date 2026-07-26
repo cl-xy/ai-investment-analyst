@@ -2,14 +2,12 @@
 SSE streaming endpoint for real-time analysis with agent trace.
 
 Wires together: LangGraph execution → domain events → cost tracking → persistence.
-Handles timeouts, reconnection replay, and real tool latency measurement.
+Handles timeouts and real tool latency measurement.
 """
 
 import asyncio
-import json
 import re
 import time
-from collections import deque
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -30,7 +28,6 @@ router = APIRouter()
 
 HEARTBEAT_INTERVAL = 15  # seconds
 EXECUTION_TIMEOUT = 120  # max seconds for entire analysis run
-EVENT_BUFFER_SIZE = 200  # ring buffer for reconnection replay
 
 
 async def _heartbeat(emitter: EventEmitter, queue: asyncio.Queue, stop: asyncio.Event):
@@ -202,25 +199,17 @@ async def _run_agent(
     await queue.put(None)
 
 
-async def _stream_generator(
-    tickers: list[str], request: Request, last_event_id: int = 0,
-):
-    """Async generator that yields SSE events with reconnection replay."""
+async def _stream_generator(tickers: list[str], request: Request):
+    """Async generator that yields SSE events."""
     emitter = EventEmitter()
     queue: asyncio.Queue = asyncio.Queue()
     stop_heartbeat = asyncio.Event()
     tracker = CostTracker(run_id=emitter.run_id, tickers=tickers)
 
-    # Ring buffer for reconnection support
-    sent_events: deque[str] = deque(maxlen=EVENT_BUFFER_SIZE)
-
     agent_task = asyncio.create_task(_run_agent(tickers, emitter, queue, tracker))
     heartbeat_task = asyncio.create_task(_heartbeat(emitter, queue, stop_heartbeat))
 
     try:
-        # If reconnecting, replay buffered events after last_event_id
-        # (In practice, a new run starts on reconnect — but this is the correct pattern)
-
         while True:
             if await request.is_disconnected():
                 break
@@ -233,8 +222,6 @@ async def _stream_generator(
             if msg is None:
                 break
 
-            # Buffer for potential reconnection
-            sent_events.append(msg)
             yield msg
 
     finally:
@@ -279,15 +266,8 @@ async def analyze_stream(
     if len(ticker_list) > 5:
         return {"error": "Maximum 5 tickers per analysis request"}
 
-    last_event_id = 0
-    if request.headers.get("Last-Event-ID"):
-        try:
-            last_event_id = int(request.headers["Last-Event-ID"])
-        except ValueError:
-            pass
-
     return StreamingResponse(
-        _stream_generator(ticker_list, request, last_event_id),
+        _stream_generator(ticker_list, request),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
