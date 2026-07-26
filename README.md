@@ -50,7 +50,7 @@ Every step streams to the frontend via SSE — you see tool calls resolve, cache
 | LLM provider | Groq (free tier) | OpenAI-compatible API, fast inference, JSON mode support |
 | Streaming | SSE with domain events | Simpler than WebSocket, works through all proxies, built-in reconnection |
 | Structured output | Groq JSON mode + Pydantic | Schema validation with retry, replaces brittle regex parsing |
-| Caching | MongoDB stale-while-revalidate | Serve stale instantly, refresh in background. No Redis needed. |
+| Caching | PostgreSQL stale-while-revalidate | Serve stale instantly, refresh in background. Single data store. |
 | Frontend state | Zustand | Minimal boilerplate, works naturally with SSE event dispatch |
 | Design | Dark-first, CSS custom properties | Tailwind tokens reference CSS vars — theme switch is instant |
 
@@ -94,10 +94,10 @@ Citations link claims to specific tool results. Data gaps are always disclosed.
 
 ## Stack
 
-**Backend**: Python 3.11, FastAPI, LangGraph, FastMCP, Groq API, Motor (MongoDB async), Pydantic  
+**Backend**: Python 3.11, FastAPI, LangGraph, FastMCP, Groq API, asyncpg (PostgreSQL), Pydantic  
 **Frontend**: React 19, TypeScript, Vite, Tailwind 3, Zustand, Lucide React, Recharts  
-**Data**: MongoDB Atlas (analyses, cache, runs), SQLite (portfolio, checkpoints)  
-**Deploy**: Railway (backend) + Vercel (frontend)  
+**Data**: PostgreSQL (analyses, cache, runs, budget), SQLite (portfolio, checkpoints)  
+**Deploy**: Railway (backend + Postgres) + Vercel (frontend)  
 **CI**: GitHub Actions (lint, type-check, test, docker build)
 
 ## Local Setup
@@ -117,8 +117,8 @@ cp ../.env.example ../.env  # fill in GROQ_API_KEY at minimum
 cd ../frontend
 npm install
 
-# Run (with local MongoDB)
-docker compose up -d mongo
+# Run (with local Postgres)
+docker compose up -d postgres
 cd backend && uvicorn src.api.main:app --reload &
 cd frontend && npm run dev
 ```
