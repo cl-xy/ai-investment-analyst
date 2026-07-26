@@ -4,7 +4,7 @@
 
 Multi-agent investment analysis system with real-time streaming trace, structured outputs, and source-grounded citations.
 
-[Live Demo](https://ai-investment-analyst.vercel.app) · [Video Walkthrough](#demo-video)
+[Live Demo](https://ai-investment-analyst.vercel.app)
 
 ---
 
@@ -101,7 +101,7 @@ Citations link claims to specific tool results. Data gaps are always disclosed.
 **Backend**: Python 3.11, FastAPI, LangGraph, FastMCP, Groq API, asyncpg (PostgreSQL), Pydantic  
 **Frontend**: React 19, TypeScript, Vite, Tailwind 3, Zustand, Lucide React, Recharts  
 **Data**: PostgreSQL (analyses, cache, runs, budget), SQLite (portfolio, checkpoints)  
-**Deploy**: Railway (backend + Postgres) + Vercel (frontend)  
+**Deploy**: Fly.io (backend, containerized) + Neon (serverless PostgreSQL) + Vercel (frontend)  
 **CI**: GitHub Actions (lint, type-check, test, docker build)
 
 ## Local Setup
