@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ArrowRight, Plus, X, Scale } from 'lucide-react'
 
-const API_BASE = import.meta.env.VITE_API_URL || ''
+import { API_BASE, authHeaders } from '../api/config'
 
 interface CompareAnalysis {
   ticker: string
@@ -47,7 +47,8 @@ export default function ComparePage() {
     setError(null)
     try {
       const res = await fetch(
-        `${API_BASE}/api/compare?tickers=${encodeURIComponent(valid.join(','))}`
+        `${API_BASE}/api/compare?tickers=${encodeURIComponent(valid.join(','))}`,
+        { headers: authHeaders() }
       )
       if (!res.ok) {
         const data = await res.json()

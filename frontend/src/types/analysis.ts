@@ -10,10 +10,6 @@ export interface TickerAnalysis {
   sec_notes: string
 }
 
-export interface AnalyzeRequest {
-  tickers: string[]
-}
-
 export interface AnalyzeResponse {
   id: string
   tickers: string[]

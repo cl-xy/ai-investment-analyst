@@ -9,7 +9,7 @@ interface ChatMessage {
   isStreaming?: boolean
 }
 
-const API_BASE = import.meta.env.VITE_API_URL || ''
+import { API_BASE, authParam } from '../api/config'
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -33,7 +33,8 @@ export default function ChatPage() {
     setInput('')
     setIsStreaming(true)
 
-    const url = `${API_BASE}/api/chat/stream?message=${encodeURIComponent(text)}&thread_id=${threadId.current}`
+    const auth = authParam()
+    const url = `${API_BASE}/api/chat/stream?message=${encodeURIComponent(text)}&thread_id=${threadId.current}${auth ? '&' + auth : ''}`
     const es = new EventSource(url)
 
     es.addEventListener('llm_token', (e) => {

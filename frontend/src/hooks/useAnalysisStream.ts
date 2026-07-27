@@ -1,12 +1,12 @@
 import { useCallback, useRef } from 'react'
 import { useAnalysisStore } from '../stores/analysisStore'
+import { API_BASE, authParam } from '../api/config'
 import type {
   AnalysisCompletePayload,
   RunCompletedPayload,
   StreamEvent,
 } from '../types/stream'
 
-const API_BASE = import.meta.env.VITE_API_URL || ''
 const MAX_RETRY_DELAY = 30_000
 const INITIAL_RETRY_DELAY = 1_000
 
@@ -43,7 +43,9 @@ export function useAnalysisStream() {
       }
 
       const tickerParam = tickers.map((t) => t.trim().toUpperCase()).join(',')
-      const url = `${API_BASE}/api/analyze/stream?tickers=${encodeURIComponent(tickerParam)}`
+      const auth = authParam()
+      const separator = auth ? '&' : ''
+      const url = `${API_BASE}/api/analyze/stream?tickers=${encodeURIComponent(tickerParam)}${separator}${auth}`
 
       const es = new EventSource(url)
       eventSourceRef.current = es

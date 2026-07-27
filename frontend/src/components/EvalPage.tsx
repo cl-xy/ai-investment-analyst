@@ -12,7 +12,7 @@ interface EvalSummary {
   last_run_at: string | null
 }
 
-import { API_BASE } from '../api/config'
+import { API_BASE, authHeaders } from '../api/config'
 
 export default function EvalPage() {
   const [summary, setSummary] = useState<EvalSummary | null>(null)
@@ -20,7 +20,7 @@ export default function EvalPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/eval/summary`)
+    fetch(`${API_BASE}/api/eval/summary`, { headers: authHeaders() })
       .then((res) => res.json())
       .then(setSummary)
       .catch((err) => setError(err.message))

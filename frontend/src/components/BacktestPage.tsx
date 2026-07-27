@@ -21,7 +21,7 @@ interface BacktestData {
   }
 }
 
-const API_BASE = import.meta.env.VITE_API_URL || ''
+import { API_BASE, authHeaders } from '../api/config'
 
 export default function BacktestPage() {
   const [data, setData] = useState<BacktestData | null>(null)
@@ -29,7 +29,7 @@ export default function BacktestPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/backtest`)
+    fetch(`${API_BASE}/api/backtest`, { headers: authHeaders() })
       .then((r) => {
         if (!r.ok) throw new Error('Failed to fetch backtest data')
         return r.json()
