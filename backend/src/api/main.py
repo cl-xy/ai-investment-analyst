@@ -7,6 +7,7 @@ or via the project script:
     serve
 """
 
+import asyncio
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -50,21 +51,19 @@ log = get_logger("app")
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    """Initialize DB, MCP servers on startup. Clean up on shutdown."""
-    from src.agent.mcp_client import create_mcp_client, get_mcp_tools_from_client
+    """Initialize DB, load tools on startup. Clean up on shutdown."""
+    from src.agent.direct_tools import load_direct_tools
 
     log.info("starting", version="0.2.0")
     await init_schema()
     log.info("database_ready")
 
-    # Start MCP servers once (not per-request)
-    mcp_client = create_mcp_client()
-    async with mcp_client:
-        app.state.mcp_client = mcp_client
-        app.state.mcp_tools = await get_mcp_tools_from_client(mcp_client)
-        log.info("mcp_servers_ready", servers=4)
+    # Load tools directly in-process (no subprocess MCP servers)
+    app.state.mcp_client = None
+    app.state.mcp_tools = load_direct_tools()
+    log.info("tools_ready", count=len(app.state.mcp_tools))
 
-        yield
+    yield
 
     await close_pool()
     log.info("shutdown_complete")
@@ -77,6 +76,9 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
+app.add_middleware(DemoAuthMiddleware)
+app.add_middleware(RequestIDMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -84,9 +86,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(RequestIDMiddleware)
-app.add_middleware(DemoAuthMiddleware)
 
 app.include_router(health_router, prefix="/api")
 app.include_router(analyze_router, prefix="/api")

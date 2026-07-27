@@ -3,6 +3,8 @@ Initializes MultiServerMCPClient connecting to all four MCP servers via stdio tr
 Call `get_mcp_tools()` inside the agent's async context to retrieve LangChain-compatible tools.
 """
 
+import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -11,13 +13,20 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 # Project root: MCP subprocesses must run from here so `src.*` imports resolve
 _PROJECT_ROOT = str(Path(__file__).parent.parent.parent)
 
+# Use the PATH-resolved python rather than sys.executable, because in Docker
+# sys.executable may point to /usr/local/bin/python while the installed packages
+# are available via /install/bin/python (first in PATH).
+_PYTHON = shutil.which("python") or sys.executable
+
 
 def _server(module: str) -> dict:
+    env = os.environ.copy()
     return {
-        "command": sys.executable,
+        "command": _PYTHON,
         "args": ["-m", module],
         "transport": "stdio",
         "cwd": _PROJECT_ROOT,
+        "env": env,
     }
 
 
