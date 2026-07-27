@@ -23,7 +23,7 @@ export default function DashboardPage() {
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     )
     for (const session of sorted) {
-      for (const ticker of session.tickers) {
+      for (const ticker of session.tickers ?? []) {
         if (!map.has(ticker)) map.set(ticker, session)
       }
     }
@@ -38,7 +38,7 @@ export default function DashboardPage() {
   useEffect(() => {
     getDashboardResults()
       .then((data) => {
-        setSessions(data)
+        setSessions(Array.isArray(data) ? data : [])
       })
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : 'Failed to load dashboard')
@@ -116,7 +116,7 @@ export default function DashboardPage() {
     )
   }
 
-  const analysis = selectedTicker && sessionDetail ? sessionDetail.analyses[selectedTicker] : null
+  const analysis = selectedTicker && sessionDetail ? (sessionDetail.analyses ?? {})[selectedTicker] : null
   const sessionDate = tickerSessionMap.get(selectedTicker ?? '')?.created_at
 
   return (

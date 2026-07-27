@@ -12,7 +12,7 @@ interface EvalSummary {
   last_run_at: string | null
 }
 
-const API_BASE = import.meta.env.VITE_API_URL || ''
+import { API_BASE } from '../api/config'
 
 export default function EvalPage() {
   const [summary, setSummary] = useState<EvalSummary | null>(null)
@@ -70,40 +70,40 @@ export default function EvalPage() {
         <MetricTile
           icon={<CheckCircle2 className="w-4 h-4" />}
           label="Schema Validation"
-          value={`${summary.schema_validation_rate}%`}
-          status={summary.schema_validation_rate >= 95 ? 'good' : summary.schema_validation_rate >= 80 ? 'warn' : 'bad'}
+          value={`${summary.schema_validation_rate ?? 0}%`}
+          status={(summary.schema_validation_rate ?? 0) >= 95 ? 'good' : (summary.schema_validation_rate ?? 0) >= 80 ? 'warn' : 'bad'}
         />
         <MetricTile
           icon={<Clock className="w-4 h-4" />}
           label="Avg Latency"
-          value={`${(summary.avg_latency_ms / 1000).toFixed(1)}s`}
-          subtitle={`p95: ${(summary.p95_latency_ms / 1000).toFixed(1)}s`}
-          status={summary.avg_latency_ms < 8000 ? 'good' : summary.avg_latency_ms < 15000 ? 'warn' : 'bad'}
+          value={`${((summary.avg_latency_ms ?? 0) / 1000).toFixed(1)}s`}
+          subtitle={`p95: ${((summary.p95_latency_ms ?? 0) / 1000).toFixed(1)}s`}
+          status={(summary.avg_latency_ms ?? 0) < 8000 ? 'good' : (summary.avg_latency_ms ?? 0) < 15000 ? 'warn' : 'bad'}
         />
         <MetricTile
           icon={<Zap className="w-4 h-4" />}
           label="Tool Success"
-          value={`${summary.tool_success_rate}%`}
-          status={summary.tool_success_rate >= 90 ? 'good' : summary.tool_success_rate >= 70 ? 'warn' : 'bad'}
+          value={`${summary.tool_success_rate ?? 0}%`}
+          status={(summary.tool_success_rate ?? 0) >= 90 ? 'good' : (summary.tool_success_rate ?? 0) >= 70 ? 'warn' : 'bad'}
         />
         <MetricTile
           icon={<Database className="w-4 h-4" />}
           label="Cache Hit Rate"
-          value={`${summary.cache_hit_rate}%`}
-          status={summary.cache_hit_rate >= 60 ? 'good' : 'warn'}
+          value={`${summary.cache_hit_rate ?? 0}%`}
+          status={(summary.cache_hit_rate ?? 0) >= 60 ? 'good' : 'warn'}
         />
         <MetricTile
           icon={<BarChart3 className="w-4 h-4" />}
           label="Total Runs"
-          value={summary.total_runs.toString()}
+          value={(summary.total_runs ?? 0).toString()}
           status="neutral"
         />
         <MetricTile
           icon={<TrendingUp className="w-4 h-4" />}
           label="Citation Coverage"
-          value={`${summary.citation_coverage}`}
+          value={`${summary.citation_coverage ?? 0}`}
           subtitle="avg per analysis"
-          status={summary.citation_coverage >= 3 ? 'good' : 'warn'}
+          status={(summary.citation_coverage ?? 0) >= 3 ? 'good' : 'warn'}
         />
       </div>
 

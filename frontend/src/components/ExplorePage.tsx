@@ -10,20 +10,8 @@ import {
   YAxis,
 } from 'recharts'
 import { getExploreStocks, getStockDetail } from '../api/exploreService'
+import { formatPrice, formatVolume } from '../utils/formatters'
 import type { ExploreResponse, StockDetail, TrendingStock } from '../types/analysis'
-
-function formatPrice(price: number | null): string {
-  if (price === null) return '-'
-  return `$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
-
-function formatVolume(volume: number | null): string {
-  if (volume === null) return '-'
-  if (volume >= 1_000_000_000) return `${(volume / 1_000_000_000).toFixed(1)}B`
-  if (volume >= 1_000_000) return `${(volume / 1_000_000).toFixed(1)}M`
-  if (volume >= 1_000) return `${(volume / 1_000).toFixed(0)}K`
-  return volume.toString()
-}
 
 function ChangeBadge({ changePct }: { changePct: number | null }) {
   if (changePct === null) return <span className="text-[var(--text-muted)] text-sm">-</span>
@@ -44,7 +32,7 @@ function PriceChart({ history, changePct }: { history: StockDetail['price_histor
   const isPositive = changePct === null || changePct >= 0
   const color = isPositive ? '#10b981' : '#ef4444'
 
-  if (history.length === 0) {
+  if (!history || history.length === 0) {
     return <div className="flex items-center justify-center h-32 text-[var(--text-muted)] text-sm">No price data available</div>
   }
 
@@ -159,15 +147,15 @@ function DetailPanel({ ticker, changePct }: { ticker: string; changePct: number 
       {/* Price chart */}
       <div>
         <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2">30-Day Price</p>
-        <PriceChart history={detail.price_history} changePct={changePct} />
+        <PriceChart history={detail.price_history ?? []} changePct={changePct} />
       </div>
 
       {/* Trending reason */}
-      {detail.trending_reason.length > 0 && (
+      {(detail.trending_reason ?? []).length > 0 && (
         <div>
           <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2">Why It's Trending</p>
           <ul className="space-y-1.5">
-            {detail.trending_reason.map((item, i) => (
+            {(detail.trending_reason ?? []).map((item, i) => (
               <li key={i} className="flex gap-2 text-sm text-[var(--text-secondary)]">
                 <span className="text-[var(--accent)] shrink-0">•</span>
                 {item.url ? (
@@ -272,7 +260,7 @@ export default function ExplorePage() {
     return () => { cancelled = true }
   }, [])
 
-  const updatedAt = data
+  const updatedAt = data?.updated_at
     ? new Date(data.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : null
 
@@ -317,7 +305,13 @@ export default function ExplorePage() {
           <div className="divide-y divide-[var(--border)]">
             {loading
               ? Array.from({ length: 15 }, (_, i) => <SkeletonRow key={i} rank={i + 1} />)
-              : data?.stocks.map((stock) => (
+              : (data?.stocks ?? []).length === 0
+                ? (
+                  <div className="py-12 text-center text-sm text-[var(--text-muted)]">
+                    No trending stocks available right now. Check back later.
+                  </div>
+                )
+                : (data?.stocks ?? []).map((stock) => (
                   <StockRow
                     key={stock.ticker}
                     stock={stock}
