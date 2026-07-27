@@ -3,9 +3,11 @@ Dashboard routes. List and retrieve persisted analysis results.
 """
 
 import json
+import os
+import secrets
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 
 from ..db import execute, fetch, fetchrow
 from ..schemas import AnalysisListItem, AnalyzeResponse, TickerAnalysis
@@ -69,7 +71,19 @@ async def get_analysis(analysis_id: str) -> AnalyzeResponse:
 
 
 @router.delete("/dashboard/{analysis_id}", status_code=204)
-async def delete_analysis(analysis_id: str) -> None:
+async def delete_analysis(
+    analysis_id: str,
+    authorization: str | None = Header(default=None),
+) -> None:
+    token = os.environ.get("SCHEDULER_SECRET_TOKEN", "")
+    if not token:
+        raise HTTPException(status_code=503, detail="Delete not configured")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Bearer token")
+    provided = authorization.removeprefix("Bearer ").strip()
+    if not secrets.compare_digest(provided, token):
+        raise HTTPException(status_code=403, detail="Invalid token")
+
     try:
         aid = uuid.UUID(analysis_id)
     except ValueError:

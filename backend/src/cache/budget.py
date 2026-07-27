@@ -53,6 +53,32 @@ async def increment_budget(provider: str) -> int:
     return row["count"]
 
 
+async def use_budget(provider: str) -> bool:
+    """Atomically consume one unit of budget if available. Returns True if consumed."""
+    limit = DAILY_LIMITS.get(provider)
+    if limit is None:
+        return True
+
+    today = date.today()
+    now = datetime.now(timezone.utc)
+
+    row = await fetchrow(
+        """
+        INSERT INTO budget (provider, date, count, created_at)
+        VALUES ($1, $2, 1, $3)
+        ON CONFLICT (provider, date) DO UPDATE
+            SET count = budget.count + 1
+            WHERE budget.count < $4
+        RETURNING count
+        """,
+        provider,
+        today,
+        now,
+        limit,
+    )
+    return row is not None
+
+
 async def get_budget_status() -> dict[str, dict]:
     """Return current budget status for all tracked providers."""
     today = date.today()

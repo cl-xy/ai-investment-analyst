@@ -1,9 +1,12 @@
+import logging
 import os
 from functools import cache
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
+
+log = logging.getLogger(__name__)
 
 from ..json_utils import extract_json
 from ..prompts.router_prompt import ROUTER_HUMAN, ROUTER_SYSTEM
@@ -23,6 +26,7 @@ def _get_llm() -> ChatOpenAI:
         base_url="https://api.groq.com/openai/v1",
         api_key=api_key,
         model_kwargs={"response_format": {"type": "json_object"}},
+        request_timeout=30,
     )
 
 
@@ -34,12 +38,19 @@ async def router_node(state: InvestmentAnalystState) -> dict:
     last_message = state["messages"][-1]
     user_text = last_message.content if hasattr(last_message, "content") else str(last_message)
 
-    response = await _get_llm().ainvoke(
-        [
-            SystemMessage(content=ROUTER_SYSTEM),
-            HumanMessage(content=ROUTER_HUMAN.format(message=user_text)),
-        ]
-    )
+    try:
+        from ..rate_limiter import groq_limiter
+        await groq_limiter.acquire(timeout=30.0)
+
+        response = await _get_llm().ainvoke(
+            [
+                SystemMessage(content=ROUTER_SYSTEM),
+                HumanMessage(content=ROUTER_HUMAN.format(message=user_text)),
+            ]
+        )
+    except Exception as e:
+        log.warning("router_node LLM call failed: %s", e)
+        return {"intent": "conversational", "tickers_to_analyze": []}
 
     # Try structured validation first
     try:

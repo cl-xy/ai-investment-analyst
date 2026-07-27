@@ -63,7 +63,9 @@ class CircuitBreaker:
         return self._state
 
     async def call(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-        """Execute func through the circuit breaker."""
+        """Execute func through the circuit breaker with rate limiting."""
+        from .rate_limiter import groq_limiter
+
         state = self.state
 
         if state == CircuitState.OPEN:
@@ -71,6 +73,11 @@ class CircuitBreaker:
                 time.monotonic() - self._last_failure_time
             )
             raise CircuitBreakerOpen(retry_after=max(0, retry_after))
+
+        # Acquire rate limiter slot before calling
+        acquired = await groq_limiter.acquire(timeout=30.0)
+        if not acquired:
+            raise CircuitBreakerOpen(retry_after=5.0)
 
         try:
             result = await func(*args, **kwargs)

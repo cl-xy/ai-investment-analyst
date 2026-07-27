@@ -32,7 +32,8 @@ def get_ticker_news(ticker: str, days_back: int = 7, max_articles: int = 10) -> 
     if cache_key in _news_cache:
         return _news_cache[cache_key]
     articles = _fetch_ticker_news(ticker.upper(), days_back, max_articles)
-    _news_cache[cache_key] = articles
+    if articles:
+        _news_cache[cache_key] = articles
     return articles
 
 
@@ -48,8 +49,9 @@ def get_market_headlines(category: str = "business", limit: int = 20) -> list[di
     headlines = newsapi.get_market_headlines(category, limit)
     if not headlines:
         headlines = rss.get_market_headlines_rss(limit)
-    _headlines_cache[cache_key] = headlines
-    return headlines
+    if headlines:
+        _headlines_cache[cache_key] = headlines
+    return headlines or []
 
 
 if __name__ == "__main__":

@@ -2,6 +2,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import logging
+
 from fastmcp import FastMCP
 
 from .cache import _fundamentals_cache, _history_cache, _quote_cache
@@ -9,7 +11,20 @@ from .indicators import compute_indicators
 from .sources import alpha_vantage_market as av
 from .sources import yfinance_client as yf_client
 
+log = logging.getLogger(__name__)
+
 mcp = FastMCP("market-server")
+
+import concurrent.futures
+
+_TIMEOUT = 30  # seconds
+_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
+
+def _call_with_timeout(fn, *args):
+    """Run a sync function in a thread with a timeout."""
+    future = _EXECUTOR.submit(fn, *args)
+    return future.result(timeout=_TIMEOUT)
 
 
 def _get_quote_cached(ticker: str) -> dict:
@@ -17,10 +32,14 @@ def _get_quote_cached(ticker: str) -> dict:
     if key in _quote_cache:
         return _quote_cache[key]
     try:
-        data = yf_client.get_quote(key)
+        data = _call_with_timeout(yf_client.get_quote, key)
     except Exception:
-        data = av.get_quote(key) or {}
-    _quote_cache[key] = data
+        try:
+            data = av.get_quote(key) or {}
+        except Exception:
+            data = {}
+    if data:
+        _quote_cache[key] = data
     return data
 
 
@@ -29,10 +48,14 @@ def _get_fundamentals_cached(ticker: str) -> dict:
     if key in _fundamentals_cache:
         return _fundamentals_cache[key]
     try:
-        data = yf_client.get_fundamentals(key)
+        data = _call_with_timeout(yf_client.get_fundamentals, key)
     except Exception:
-        data = av.get_fundamentals(key) or {}
-    _fundamentals_cache[key] = data
+        try:
+            data = av.get_fundamentals(key) or {}
+        except Exception:
+            data = {}
+    if data:
+        _fundamentals_cache[key] = data
     return data
 
 
@@ -41,10 +64,11 @@ def _get_history_cached(ticker: str, period: str) -> list[dict]:
     if cache_key in _history_cache:
         return _history_cache[cache_key]
     try:
-        data = yf_client.get_price_history(ticker.upper(), period)
+        data = _call_with_timeout(yf_client.get_price_history, ticker.upper(), period)
     except Exception:
         data = []
-    _history_cache[cache_key] = data
+    if data:
+        _history_cache[cache_key] = data
     return data
 
 

@@ -5,6 +5,7 @@ Takes completed ticker_analyses from state and produces a structured comparison
 including relative valuation, normalized metrics, and a brief AI-generated narrative.
 """
 
+import logging
 import os
 from functools import cache
 
@@ -13,6 +14,8 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, ValidationError
 
 from ..state import InvestmentAnalystState
+
+log = logging.getLogger(__name__)
 
 
 class ComparisonOutput(BaseModel):
@@ -66,6 +69,7 @@ def _get_llm() -> ChatOpenAI:
         base_url="https://api.groq.com/openai/v1",
         api_key=os.environ.get("GROQ_API_KEY", ""),
         model_kwargs={"response_format": {"type": "json_object"}},
+        request_timeout=60,
     )
 
 
@@ -91,6 +95,9 @@ async def compare_node(state: InvestmentAnalystState) -> dict:
     prompt = f"Compare these {len(analyses)} stocks:\n\n" + "\n".join(analyses_text)
 
     try:
+        from ..rate_limiter import groq_limiter
+        await groq_limiter.acquire(timeout=30.0)
+
         response = await _get_llm().ainvoke(
             [
                 SystemMessage(content=COMPARE_SYSTEM),
@@ -100,6 +107,7 @@ async def compare_node(state: InvestmentAnalystState) -> dict:
 
         comparison = ComparisonOutput.model_validate_json(response.content)
         return {"comparison": comparison.model_dump()}
-    except (ValidationError, Exception):
+    except (ValidationError, Exception) as e:
         # Non-critical, comparison is supplementary
+        log.warning("compare_node failed: %s", e)
         return {}

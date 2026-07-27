@@ -21,7 +21,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from src.agent.graph import build_graph
 
-from ..db import execute, fetchrow
+from ..db import execute, fetchrow, get_pool
 from ..schemas import AnalyzeRequest, AnalyzeResponse, TickerAnalysis
 
 router = APIRouter()
@@ -128,40 +128,42 @@ async def analyze_tickers(tickers: list[str], mcp_tools: dict, *, force_refresh:
             )
         report_markdown = result.get("report_markdown", "")
 
-    # Persist to PostgreSQL
+    # Persist to PostgreSQL (transactional)
     created_at = datetime.now(timezone.utc)
-    row = await fetchrow(
-        """
-        INSERT INTO analyses (tickers, report_markdown, created_at)
-        VALUES ($1, $2, $3)
-        RETURNING id
-        """,
-        normalised_tickers,
-        report_markdown,
-        created_at,
-    )
-    analysis_id = row["id"]
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                """
+                INSERT INTO analyses (tickers, report_markdown, created_at)
+                VALUES ($1, $2, $3)
+                RETURNING id
+                """,
+                normalised_tickers,
+                report_markdown,
+                created_at,
+            )
+            analysis_id = row["id"]
 
-    # Insert individual ticker analyses
-    for ticker, ta in analyses.items():
-        await execute(
-            """
-            INSERT INTO ticker_analyses (
-                analysis_id, ticker, signal, confidence, sentiment_score,
-                news_summary, risk_flags, price_data, fundamentals, sec_notes
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            """,
-            analysis_id,
-            ta.ticker,
-            ta.signal,
-            ta.confidence,
-            ta.sentiment_score,
-            ta.news_summary,
-            json.dumps(ta.risk_flags),
-            json.dumps(ta.price_data),
-            json.dumps(ta.fundamentals),
-            ta.sec_notes,
-        )
+            for ticker, ta in analyses.items():
+                await conn.execute(
+                    """
+                    INSERT INTO ticker_analyses (
+                        analysis_id, ticker, signal, confidence, sentiment_score,
+                        news_summary, risk_flags, price_data, fundamentals, sec_notes
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    """,
+                    analysis_id,
+                    ta.ticker,
+                    ta.signal,
+                    ta.confidence,
+                    ta.sentiment_score,
+                    ta.news_summary,
+                    json.dumps(ta.risk_flags),
+                    json.dumps(ta.price_data),
+                    json.dumps(ta.fundamentals),
+                    ta.sec_notes,
+                )
 
     return AnalyzeResponse(
         id=str(analysis_id),

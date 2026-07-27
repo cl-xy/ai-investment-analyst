@@ -1,6 +1,9 @@
+import logging
 import re
 
 import httpx
+
+log = logging.getLogger(__name__)
 
 HEADERS = {"User-Agent": "mcp-investment-analyst contact@example.com"}
 EDGAR_BASE = "https://efts.sec.gov"
@@ -8,10 +11,12 @@ SUBMISSIONS_BASE = "https://data.sec.gov/submissions"
 COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 
 _ticker_to_cik: dict[str, str] = {}
+_ticker_map_loaded: bool = False
 
 
 def _load_ticker_map() -> None:
-    if _ticker_to_cik:
+    global _ticker_map_loaded
+    if _ticker_map_loaded:
         return
     try:
         r = httpx.get(COMPANY_TICKERS_URL, headers=HEADERS, timeout=15)
@@ -21,8 +26,10 @@ def _load_ticker_map() -> None:
             cik = str(entry.get("cik_str", "")).zfill(10)
             if ticker:
                 _ticker_to_cik[ticker] = cik
-    except Exception:
-        pass
+        _ticker_map_loaded = True
+    except Exception as exc:
+        log.warning("Failed to load SEC ticker map: %s. Will not retry this process.", exc)
+        _ticker_map_loaded = True
 
 
 def get_cik(ticker: str) -> str | None:

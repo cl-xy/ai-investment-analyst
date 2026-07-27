@@ -1,9 +1,12 @@
 import json
+import logging
 import os
 from functools import cache
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
+
+log = logging.getLogger(__name__)
 
 from ..prompts.report_prompt import REPORT_HUMAN, REPORT_SYSTEM
 from ..state import InvestmentAnalystState
@@ -20,6 +23,7 @@ def _get_llm() -> ChatOpenAI:
         max_tokens=4096,
         base_url="https://api.groq.com/openai/v1",
         api_key=api_key,
+        request_timeout=60,
     )
 
 
@@ -43,11 +47,20 @@ async def generate_report_node(state: InvestmentAnalystState) -> dict:
         portfolio_context=portfolio_context,
     )
 
-    response = await _get_llm().ainvoke(
-        [
-            SystemMessage(content=REPORT_SYSTEM),
-            HumanMessage(content=prompt),
-        ]
-    )
+    try:
+        from ..rate_limiter import groq_limiter
+        await groq_limiter.acquire(timeout=30.0)
+
+        response = await _get_llm().ainvoke(
+            [
+                SystemMessage(content=REPORT_SYSTEM),
+                HumanMessage(content=prompt),
+            ]
+        )
+    except Exception as e:
+        log.warning("generate_report_node LLM call failed: %s", e)
+        return {
+            "report_markdown": "Analysis complete but report generation failed. Please review individual ticker analyses above."
+        }
 
     return {"report_markdown": response.content}

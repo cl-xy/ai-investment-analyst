@@ -3,6 +3,7 @@ Chat endpoint. Multi-turn conversational interface with tool access via SSE.
 """
 
 import asyncio
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -15,6 +16,8 @@ from src.agent.graph import build_graph
 from src.api.shutdown import shutdown_coordinator
 
 router = APIRouter(tags=["chat"])
+
+CHAT_TIMEOUT = 120  # seconds
 
 
 async def _chat_stream_generator(message: str, thread_id: str, request: Request):
@@ -35,32 +38,37 @@ async def _chat_stream_generator(message: str, thread_id: str, request: Request)
             "intent": "conversational",
         }
 
-        # Stream the response
-        async for event_data in compiled.astream_events(
-            initial_state, config=config, version="v2"
-        ):
-            if await request.is_disconnected():
-                break
+        # Stream with hard timeout
+        try:
+            async with asyncio.timeout(CHAT_TIMEOUT):
+                async for event_data in compiled.astream_events(
+                    initial_state, config=config, version="v2"
+                ):
+                    if await request.is_disconnected():
+                        break
 
-            kind = event_data.get("event")
-            data = event_data.get("data", {})
+                    kind = event_data.get("event")
+                    data = event_data.get("data", {})
 
-            if kind == "on_chat_model_stream":
-                chunk = data.get("chunk")
-                if chunk and hasattr(chunk, "content") and chunk.content:
-                    ev = emitter.llm_token(chunk.content)
-                    yield ev.to_sse()
+                    if kind == "on_chat_model_stream":
+                        chunk = data.get("chunk")
+                        if chunk and hasattr(chunk, "content") and chunk.content:
+                            ev = emitter.llm_token(chunk.content)
+                            yield ev.to_sse()
 
-            elif kind == "on_tool_start":
-                name = event_data.get("name", "")
-                tool_input = data.get("input", {})
-                ev = emitter.tool_call(name, tool_input)
-                yield ev.to_sse()
+                    elif kind == "on_tool_start":
+                        name = event_data.get("name", "")
+                        tool_input = data.get("input", {})
+                        ev = emitter.tool_call(name, tool_input)
+                        yield ev.to_sse()
 
-            elif kind == "on_tool_end":
-                name = event_data.get("name", "")
-                ev = emitter.tool_result(name, success=True, cached=False, duration_ms=0, source_id="")
-                yield ev.to_sse()
+                    elif kind == "on_tool_end":
+                        name = event_data.get("name", "")
+                        ev = emitter.tool_result(name, success=True, cached=False, duration_ms=0, source_id="")
+                        yield ev.to_sse()
+        except TimeoutError:
+            ev = emitter.error("Chat stream timed out")
+            yield ev.to_sse()
 
     # Send completion
     ev = emitter.run_completed([], total_duration_ms=0)
@@ -83,6 +91,9 @@ async def chat_stream(
             content={"error": "Server shutting down"},
             headers={"Retry-After": "10"},
         )
+
+    if not re.match(r'^[a-zA-Z0-9_-]{1,64}$', thread_id):
+        return JSONResponse(status_code=400, content={"error": "Invalid thread_id format"})
 
     if not message.strip():
         return JSONResponse(status_code=400, content={"error": "Message is required"})

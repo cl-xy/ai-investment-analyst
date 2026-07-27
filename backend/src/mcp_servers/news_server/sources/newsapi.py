@@ -1,14 +1,26 @@
 import os
 from datetime import datetime, timedelta, timezone
 
+import requests
 from newsapi import NewsApiClient
+
+_TIMEOUT = 30  # seconds
+
+
+class _TimeoutSession(requests.Session):
+    """Session subclass that enforces a default timeout on all requests."""
+
+    def request(self, *args, **kwargs):
+        kwargs.setdefault("timeout", _TIMEOUT)
+        return super().request(*args, **kwargs)
 
 
 def _client() -> NewsApiClient | None:
     key = os.environ.get("NEWS_API_KEY")
     if not key:
         return None
-    return NewsApiClient(api_key=key)
+    session = _TimeoutSession()
+    return NewsApiClient(api_key=key, session=session)
 
 
 def get_ticker_news(ticker: str, days_back: int = 7, max_articles: int = 10) -> list[dict] | None:

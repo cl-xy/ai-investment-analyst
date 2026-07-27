@@ -21,11 +21,15 @@ from tenacity import (
     wait_exponential,
 )
 
-from ..circuit_breaker import groq_breaker
+import logging
+
+from ..circuit_breaker import CircuitBreakerOpen, groq_breaker
 from ..json_utils import extract_json
 from ..prompts.analyst_prompt import ANALYST_HUMAN, ANALYST_SYSTEM
 from ..state import InvestmentAnalystState, TickerAnalysis
 from ..structured_output import AnalysisOutput
+
+log = logging.getLogger(__name__)
 
 
 def _is_retryable_error(exc: BaseException) -> bool:
@@ -58,6 +62,7 @@ def _get_llm() -> ChatOpenAI:
         base_url="https://api.groq.com/openai/v1",
         api_key=api_key,
         model_kwargs={"response_format": {"type": "json_object"}},
+        request_timeout=60,
     )
 
 
@@ -127,7 +132,24 @@ async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
         HumanMessage(content=prompt),
     ]
 
-    response = await _invoke_llm_with_retry(messages)
+    try:
+        response = await _invoke_llm_with_retry(messages)
+    except CircuitBreakerOpen as e:
+        log.warning("analyze_ticker_node circuit breaker open for %s: %s", ticker, e)
+        analysis: TickerAnalysis = {
+            "ticker": ticker,
+            "signal": "insufficient_data",
+            "confidence": "low",
+            "sentiment_score": 0.0,
+            "news_summary": "LLM service temporarily unavailable (circuit breaker open)",
+            "risk_flags": [],
+            "price_data": price_data.get("quote", {}),
+            "fundamentals": price_data.get("fundamentals", {}),
+            "sec_notes": "",
+        }
+        existing = dict(state.get("ticker_analyses", {}))
+        existing[ticker] = analysis
+        return {"ticker_analyses": existing, "current_ticker": ticker, "data_gaps": ["LLM service temporarily unavailable (circuit breaker open)"]}
 
     # Try Pydantic validation first (structured output path)
     try:

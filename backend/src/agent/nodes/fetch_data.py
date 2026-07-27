@@ -8,11 +8,14 @@ Partial failures produce data_gaps rather than crashing the analysis.
 
 import asyncio
 import json
+import logging
 import time
 
 from src.cache.manager import cache_manager
 
 from ..state import InvestmentAnalystState
+
+log = logging.getLogger(__name__)
 
 TOOL_TIMEOUT = 30  # seconds per tool call
 
@@ -102,8 +105,8 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
             check_budget("groq"),
         )
         cache_only = not all(budgets_ok)
-    except Exception:
-        pass  # DB unavailable or not initialized, proceed normally
+    except Exception as e:
+        log.warning("budget_check_failed: %s", e)
 
     async def fetch_one(ticker: str) -> tuple[str, list, dict, str, list[str]]:
         """Fetch all data for one ticker with caching. Returns per-ticker results + gaps."""
