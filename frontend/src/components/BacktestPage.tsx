@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { TrendingUp, TrendingDown, Minus, BarChart3, AlertCircle } from 'lucide-react'
+import SearchInput from './ui/SearchInput'
 
 interface SignalRecord {
   ticker: string
@@ -27,6 +29,9 @@ export default function BacktestPage() {
   const [data, setData] = useState<BacktestData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [sortField, setSortField] = useState<'ticker' | 'signal' | 'date'>('date')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   useEffect(() => {
     fetch(`${API_BASE}/api/backtest`, { headers: authHeaders() })
@@ -84,6 +89,29 @@ export default function BacktestPage() {
     return 'text-amber-500 bg-amber-500/10'
   }
 
+  const toggleSort = (field: 'ticker' | 'signal' | 'date') => {
+    if (sortField === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortField(field)
+      setSortDir('desc')
+    }
+  }
+
+  const filteredSignals = useMemo(() => {
+    let signals = data.signals.filter((s) =>
+      s.ticker.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+    signals.sort((a, b) => {
+      let cmp = 0
+      if (sortField === 'ticker') cmp = a.ticker.localeCompare(b.ticker)
+      else if (sortField === 'signal') cmp = a.signal.localeCompare(b.signal)
+      else cmp = new Date(a.signal_date).getTime() - new Date(b.signal_date).getTime()
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return signals
+  }, [data.signals, searchTerm, sortField, sortDir])
+
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
       <div className="mb-8">
@@ -121,22 +149,37 @@ export default function BacktestPage() {
         </div>
       </div>
 
+      {/* Search bar */}
+      <div className="flex items-center gap-3 mb-4">
+        <SearchInput
+          value={searchTerm}
+          onChange={setSearchTerm}
+          placeholder="Search by ticker..."
+          aria-label="Search signals by ticker"
+          className="flex-1 max-w-xs"
+        />
+        <span className="text-xs text-[var(--text-muted)]">
+          {filteredSignals.length} signal{filteredSignals.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+
       {/* Signal table */}
       <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--border)]">
-                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Ticker</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Signal</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider cursor-pointer hover:text-[var(--text-secondary)] select-none" onClick={() => toggleSort('ticker')}>Ticker {sortField === 'ticker' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider cursor-pointer hover:text-[var(--text-secondary)] select-none" onClick={() => toggleSort('signal')}>Signal {sortField === 'signal' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Confidence</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Sentiment</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Date</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider cursor-pointer hover:text-[var(--text-secondary)] select-none" onClick={() => toggleSort('date')}>Date {sortField === 'date' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Days</th>
+                <th className="text-right px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Action</th>
               </tr>
             </thead>
             <tbody>
-              {data.signals.map((s, i) => (
+              {filteredSignals.map((s, i) => (
                 <tr key={i} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]">
                   <td className="px-4 py-3 font-mono font-medium text-[var(--text-primary)]">{s.ticker}</td>
                   <td className="px-4 py-3">
@@ -153,6 +196,14 @@ export default function BacktestPage() {
                     {new Date(s.signal_date).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-[var(--text-muted)]">{s.days_held}d</td>
+                  <td className="px-4 py-3 text-right">
+                    <Link
+                      to={`/analyze?tickers=${s.ticker}`}
+                      className="text-xs text-[var(--accent)] hover:underline"
+                    >
+                      Re-run
+                    </Link>
+                  </td>
                 </tr>
               ))}
             </tbody>

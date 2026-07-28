@@ -1,7 +1,10 @@
-import { useState } from 'react'
+import { useMemo, useState, useRef, useCallback, type KeyboardEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { ArrowRight, Plus, X, Scale } from 'lucide-react'
 
 import { API_BASE, authHeaders } from '../api/config'
+
+const POPULAR_TICKERS = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'TSLA', 'META', 'SPY', 'QQQ', 'BRK.B']
 
 interface CompareAnalysis {
   ticker: string
@@ -24,6 +27,42 @@ export default function ComparePage() {
   const [result, setResult] = useState<CompareResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [focusedInput, setFocusedInput] = useState<number | null>(null)
+  const [activeDescendant, setActiveDescendant] = useState(-1)
+  const listboxRefs = useRef<(HTMLDivElement | null)[]>([])
+
+  const suggestions = useMemo(() => {
+    if (focusedInput === null) return []
+    const ticker = tickers[focusedInput] || ''
+    return POPULAR_TICKERS.filter((t) => t.startsWith(ticker.toUpperCase()) && t !== ticker.toUpperCase() && !tickers.includes(t)).slice(0, 5)
+  }, [focusedInput, tickers])
+
+  const handleComboboxKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>, idx: number) => {
+    if (focusedInput !== idx || suggestions.length === 0) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActiveDescendant((prev) => Math.min(prev + 1, suggestions.length - 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActiveDescendant((prev) => Math.max(prev - 1, -1))
+    } else if (e.key === 'Enter' && activeDescendant >= 0) {
+      e.preventDefault()
+      updateTicker(idx, suggestions[activeDescendant])
+      setFocusedInput(null)
+      setActiveDescendant(-1)
+    } else if (e.key === 'Escape') {
+      setFocusedInput(null)
+      setActiveDescendant(-1)
+    }
+  }, [focusedInput, suggestions, activeDescendant])
+
+  const handleInputBlur = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
+    // Keep dropdown open if focus moves to an element inside the same combobox container
+    const container = e.currentTarget.closest('[data-combobox]')
+    if (container && container.contains(e.relatedTarget as Node)) return
+    setFocusedInput(null)
+    setActiveDescendant(-1)
+  }, [])
 
   const updateTicker = (idx: number, value: string) => {
     const updated = [...tickers]
@@ -87,26 +126,61 @@ export default function ComparePage() {
 
       {/* Input row */}
       <div className="flex items-end gap-3 mb-8">
-        {tickers.map((ticker, idx) => (
-          <div key={idx} className="relative">
-            <input
-              type="text"
-              value={ticker}
-              onChange={(e) => updateTicker(idx, e.target.value)}
-              placeholder={`Ticker ${idx + 1}`}
-              className="w-28 border border-[var(--border)] bg-[var(--surface)] rounded-lg px-3 py-2.5 text-sm font-mono uppercase text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] transition-shadow"
-              maxLength={10}
-            />
-            {tickers.length > 2 && (
-              <button
-                onClick={() => removeSlot(idx)}
-                className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--bearish)] transition-colors"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-        ))}
+        {tickers.map((ticker, idx) => {
+          const listboxId = `ticker-listbox-${idx}`
+          const isOpen = focusedInput === idx && suggestions.length > 0
+          return (
+            <div key={idx} className="relative" data-combobox>
+              <input
+                type="text"
+                value={ticker}
+                onChange={(e) => { updateTicker(idx, e.target.value); setActiveDescendant(-1) }}
+                onFocus={() => { setFocusedInput(idx); setActiveDescendant(-1) }}
+                onBlur={handleInputBlur}
+                onKeyDown={(e) => handleComboboxKeyDown(e, idx)}
+                placeholder={`Ticker ${idx + 1}`}
+                role="combobox"
+                aria-label={`Ticker ${idx + 1}`}
+                aria-expanded={isOpen}
+                aria-controls={isOpen ? listboxId : undefined}
+                aria-activedescendant={isOpen && activeDescendant >= 0 ? `${listboxId}-opt-${activeDescendant}` : undefined}
+                aria-autocomplete="list"
+                className="w-32 border border-[var(--border)] bg-[var(--surface)] rounded-lg px-3 py-2.5 text-sm font-mono uppercase text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] transition-shadow focus-ring"
+                maxLength={10}
+              />
+              {isOpen && (
+                <div
+                  ref={(el) => { listboxRefs.current[idx] = el }}
+                  id={listboxId}
+                  role="listbox"
+                  className="absolute top-full left-0 mt-1 w-32 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] shadow-lg py-1 z-50"
+                >
+                  {suggestions.map((s, i) => (
+                    <div
+                      key={s}
+                      id={`${listboxId}-opt-${i}`}
+                      role="option"
+                      aria-selected={activeDescendant === i}
+                      onMouseDown={(e) => { e.preventDefault(); updateTicker(idx, s); setFocusedInput(null); setActiveDescendant(-1) }}
+                      className={`block w-full text-left px-3 py-1.5 text-xs font-mono text-[var(--text-primary)] cursor-pointer transition-colors ${activeDescendant === i ? 'bg-[var(--accent-bg)] text-[var(--accent)]' : 'hover:bg-[var(--surface)]'}`}
+                    >
+                      {s}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {tickers.length > 2 && (
+                <button
+                  onClick={() => removeSlot(idx)}
+                  className="absolute -top-2 -right-2 min-w-[28px] min-h-[28px] rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--bearish)] transition-colors"
+                  aria-label={`Remove ticker ${idx + 1}`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          )
+        })}
 
         {tickers.length < 3 && (
           <button
@@ -188,6 +262,16 @@ export default function ComparePage() {
               </tr>
             </tbody>
           </table>
+        </div>
+      )}
+
+      {result && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {result.tickers.map((t) => (
+            <Link key={t} to={`/analyze?tickers=${t}`} className="text-xs px-3 py-1.5 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors focus-ring">
+              Analyze {t}
+            </Link>
+          ))}
         </div>
       )}
     </div>

@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 'react'
-import { Send, Bot, User, Wrench, Square } from 'lucide-react'
+import { Send, Bot, User, Wrench, Square, Trash2 } from 'lucide-react'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import { useRestorableState } from '../hooks/useRestorableState'
+import InvestmentDisclaimer from './InvestmentDisclaimer'
 import { API_BASE, authParam } from '../api/config'
 
 interface ChatMessage {
@@ -13,7 +14,7 @@ interface ChatMessage {
 }
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [messages, setMessages] = useRestorableState<ChatMessage[]>('chat-messages', [])
   // #22: Persist chat input draft across refresh
   const [input, setInput] = useRestorableState('chat-input', '')
   const [isStreaming, setIsStreaming] = useState(false)
@@ -27,6 +28,16 @@ export default function ChatPage() {
 
   // Keep input ref current for stable sendMessage
   inputRef.current = input
+
+  // Strip stale isStreaming from restored messages on mount
+  useEffect(() => {
+    setMessages((prev) => {
+      const hasStale = prev.some((m) => m.isStreaming)
+      if (!hasStale) return prev
+      return prev.map((m) => m.isStreaming ? { ...m, isStreaming: false } : m)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     mountedRef.current = true
@@ -147,11 +158,24 @@ export default function ChatPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 flex flex-col h-[calc(100vh-8rem)]">
-      <div className="mb-4">
-        <h1 className="text-xl font-semibold text-[var(--text-primary)]">Chat</h1>
-        <p className="text-sm text-[var(--text-muted)]">
-          Ask questions about stocks, portfolios, or market conditions.
-        </p>
+      <div className="mb-4 flex items-start justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-[var(--text-primary)]">Chat</h1>
+          <p className="text-sm text-[var(--text-muted)]">
+            Ask questions about stocks, portfolios, or market conditions.
+          </p>
+          <InvestmentDisclaimer />
+        </div>
+        {messages.length > 0 && (
+          <button
+            onClick={() => setMessages([])}
+            className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors focus-ring rounded px-2 py-1.5 min-h-[32px]"
+            aria-label="Clear chat history"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Clear
+          </button>
+        )}
       </div>
 
       {/* #26: Messages with aria-live for streaming */}

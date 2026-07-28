@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { BarChart3, Clock, CheckCircle2, Database, Zap, TrendingUp } from 'lucide-react'
+import { BarChart3, Clock, CheckCircle2, Database, Zap, TrendingUp, AlertCircle, RefreshCw } from 'lucide-react'
+import { Link } from 'react-router-dom'
 
 interface EvalSummary {
   total_runs: number
@@ -19,7 +20,9 @@ export default function EvalPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
+  const fetchData = () => {
+    setLoading(true)
+    setError(null)
     fetch(`${API_BASE}/api/eval/summary`, { headers: authHeaders() })
       .then((res) => {
         if (!res.ok) throw new Error('Failed to fetch eval summary')
@@ -28,6 +31,11 @@ export default function EvalPage() {
       .then(setSummary)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    fetchData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   if (loading) {
@@ -45,11 +53,49 @@ export default function EvalPage() {
     )
   }
 
-  if (error || !summary) {
+  if (error) {
     return (
       <div className="max-w-4xl mx-auto px-6 py-12">
-        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-5 text-sm text-red-500">
-          {error || 'No evaluation data available yet. Run an analysis to generate metrics.'}
+        <div className="max-w-md mx-auto rounded-xl border border-red-500/20 bg-red-500/5 p-6">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-red-500">Failed to load evaluation data</p>
+              <p className="text-sm text-[var(--text-secondary)] mt-1">{error}</p>
+              <div className="flex items-center gap-4 mt-4">
+                <button
+                  onClick={fetchData}
+                  className="flex items-center gap-2 text-sm text-[var(--accent)] hover:underline focus-ring rounded"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Retry
+                </button>
+                <Link to="/" className="text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors">
+                  Go to Watchlist
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!summary) {
+    return (
+      <div className="max-w-4xl mx-auto px-6 py-12">
+        <div className="max-w-md mx-auto rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-8 text-center">
+          <BarChart3 className="w-8 h-8 text-[var(--text-muted)] mx-auto mb-3" />
+          <p className="text-sm font-medium text-[var(--text-primary)]">No evaluation data yet</p>
+          <p className="text-sm text-[var(--text-muted)] mt-1">
+            Run an analysis to generate quality metrics.
+          </p>
+          <Link
+            to="/"
+            className="inline-block mt-4 text-sm text-[var(--accent)] hover:underline focus-ring rounded"
+          >
+            Start an analysis
+          </Link>
         </div>
       </div>
     )

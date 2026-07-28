@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import { useAnalysisStore } from '../stores/analysisStore'
 import { useAnalysisStream } from '../hooks/useAnalysisStream'
 import AgentTracePanel from './AgentTracePanel'
 import DataFreshness from './DataFreshness'
 import EvidenceDrawer from './EvidenceDrawer'
-import { ArrowLeft, AlertCircle } from 'lucide-react'
+import InvestmentDisclaimer from './InvestmentDisclaimer'
+import { ArrowLeft, AlertCircle, Play, Clock } from 'lucide-react'
 import type { AnalysisOutput, Citation } from '../types/stream'
 
 /**
@@ -18,26 +19,35 @@ export default function StreamingAnalysisPage() {
   const { connect, disconnect } = useAnalysisStream()
   const { analyses, isStreaming, error, events } = useAnalysisStore()
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null)
+  const [confirmed, setConfirmed] = useState(false)
+  const hasConnectedRef = useRef(false)
 
-  const toolResults = events.filter((e) => e.type === 'tool_result')
+  const toolResults = useMemo(() => events.filter((e) => e.type === 'tool_result'), [events])
 
   const tickerParam = searchParams.get('tickers') || ''
   const tickers = tickerParam.split(',').filter(Boolean)
 
+  // Only treat as "already active" if actively streaming for THIS ticker set
+  const currentTickerKey = tickers.map((t) => t.toUpperCase()).sort().join(',')
+  const storeTickerKey = Object.keys(analyses).sort().join(',')
+  const alreadyActive = isStreaming && storeTickerKey === currentTickerKey
+
   useEffect(() => {
+    if (!confirmed && !alreadyActive) return
+    if (hasConnectedRef.current) return
     const tickerList = tickerParam.split(',').filter(Boolean)
     if (tickerList.length > 0) {
+      hasConnectedRef.current = true
       connect(tickerList)
       document.title = `Analyzing ${tickerList.join(', ')}... | AI Investment Analyst`
     }
     return () => {
       disconnect()
+      hasConnectedRef.current = false
       document.title = 'AI Investment Analyst'
     }
-    // Re-run if tickers change (e.g. navigation without remount)
-    // connect/disconnect are stable refs from useCallback
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tickerParam])
+  }, [tickerParam, confirmed])
 
   if (tickers.length === 0) {
     return (
@@ -50,6 +60,50 @@ export default function StreamingAnalysisPage() {
         >
           Go back to watchlist
         </button>
+      </div>
+    )
+  }
+
+  // Pre-flight confirmation screen
+  if (!confirmed && !alreadyActive) {
+    return (
+      <div className="max-w-lg mx-auto px-6 py-16">
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-8">
+          <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">
+            Ready to analyze
+          </h2>
+          <div className="space-y-3 mb-6">
+            <div className="flex flex-wrap gap-2">
+              {tickers.map((t) => (
+                <span
+                  key={t}
+                  className="font-mono text-sm px-3 py-1 rounded-full bg-[var(--accent-bg)] text-[var(--accent)] font-medium"
+                >
+                  {t.toUpperCase()}
+                </span>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
+              <Clock className="w-4 h-4" />
+              <span>~5-10 seconds per ticker</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setConfirmed(true)}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[var(--accent)] text-white text-sm font-medium hover:bg-[var(--accent)]/90 transition-colors focus-ring"
+            >
+              <Play className="w-4 h-4" />
+              Start Analysis
+            </button>
+            <Link
+              to="/"
+              className="text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
+            >
+              Back to watchlist
+            </Link>
+          </div>
+        </div>
       </div>
     )
   }
@@ -75,6 +129,7 @@ export default function StreamingAnalysisPage() {
             Streaming results in real-time...
           </p>
         )}
+        <InvestmentDisclaimer />
       </div>
 
       {/* Main layout: trace left, cards right */}
@@ -116,6 +171,26 @@ export default function StreamingAnalysisPage() {
                     Retry analysis
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Next steps CTAs (shown after analysis completes) */}
+          {!isStreaming && Object.keys(analyses).length > 0 && (
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-5">
+              <p className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-3">Next Steps</p>
+              <div className="flex flex-wrap gap-2">
+                {tickers.length >= 2 && (
+                  <Link to={`/compare?tickers=${tickers.join(',')}`} className="text-xs px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors focus-ring">
+                    Compare these stocks
+                  </Link>
+                )}
+                <Link to="/dashboard" className="text-xs px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors focus-ring">
+                  View in History
+                </Link>
+                <Link to="/chat" className="text-xs px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors focus-ring">
+                  Ask about this analysis
+                </Link>
               </div>
             </div>
           )}
@@ -241,9 +316,20 @@ function StreamAnalysisCard({ analysis, onCitationClick }: { analysis: AnalysisO
       {/* Data gaps */}
       {analysis.data_gaps && analysis.data_gaps.length > 0 && (
         <div className="mt-4 pt-4 border-t border-[var(--border)]">
-          <p className="text-xs text-[var(--text-muted)]">
-            ⚠ Based on partial data. Unavailable: {analysis.data_gaps.join(', ')}
-          </p>
+          <div className="flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs font-medium text-[var(--text-secondary)]">
+                Based on partial data
+              </p>
+              <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                Unavailable: {analysis.data_gaps.join(', ')}
+              </p>
+              <p className="text-xs text-[var(--text-muted)] mt-1">
+                Try again during US market hours for better coverage.
+              </p>
+            </div>
+          </div>
         </div>
       )}
 

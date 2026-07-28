@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { BarChart3, Trash2, Loader2 } from 'lucide-react'
+import { useNavigate, Link } from 'react-router-dom'
+import { BarChart3, Trash2, Loader2, RefreshCw } from 'lucide-react'
 import { deleteAnalysis, getDashboardResult, getDashboardResults } from '../api/analyzeService'
 import type { AnalysisListItem, AnalyzeResponse } from '../types/analysis'
 import AnalysisCard from './AnalysisCard'
 import LoadingSpinner from './LoadingSpinner'
+import SearchInput from './ui/SearchInput'
 import { toastUndo, toastError, toastSuccess } from '../stores/toastStore'
 
 export default function DashboardPage() {
   const navigate = useNavigate()
   const [sessions, setSessions] = useState<AnalysisListItem[]>([])
+  const [tickerFilter, setTickerFilter] = useState('')
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null)
   const [sessionDetail, setSessionDetail] = useState<AnalyzeResponse | null>(null)
   const [loadingList, setLoadingList] = useState(true)
@@ -48,6 +50,11 @@ export default function DashboardPage() {
   const uniqueTickers = useMemo(
     () => Array.from(tickerSessionMap.keys()).sort(),
     [tickerSessionMap]
+  )
+
+  const filteredTickers = useMemo(
+    () => uniqueTickers.filter((t) => t.toLowerCase().includes(tickerFilter.toLowerCase())),
+    [uniqueTickers, tickerFilter]
   )
 
   useEffect(() => {
@@ -177,8 +184,21 @@ export default function DashboardPage() {
         <h2 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-3 hidden md:block">
           Stocks
         </h2>
+        {/* Ticker search filter (desktop only) */}
+        <div className="hidden md:block mb-3">
+          <SearchInput
+            value={tickerFilter}
+            onChange={setTickerFilter}
+            placeholder="Filter..."
+            aria-label="Filter analyzed tickers"
+            size="xs"
+          />
+        </div>
         <ul className="flex md:flex-col gap-2 overflow-x-auto pb-2 md:pb-0 md:overflow-x-visible">
-          {uniqueTickers.map((ticker) => (
+          {filteredTickers.length === 0 && tickerFilter ? (
+            <li className="text-xs text-[var(--text-muted)] px-3 py-2">No matches</li>
+          ) : null}
+          {filteredTickers.map((ticker) => (
             <li key={ticker} className="shrink-0">
               <button
                 onClick={() => selectTicker(ticker)}
@@ -211,19 +231,30 @@ export default function DashboardPage() {
                   </span>
                 )}
               </h2>
-              <button
-                onClick={handleDelete}
-                disabled={!!deletingId}
-                title="Delete this analysis"
-                className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-red-500 disabled:opacity-40 transition-colors"
-              >
-                {deletingId ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Trash2 className="w-4 h-4" />
+              <div className="flex items-center gap-3">
+                {selectedTicker && (
+                  <Link
+                    to={`/analyze?tickers=${selectedTicker}`}
+                    className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Re-analyze
+                  </Link>
                 )}
-                Delete
-              </button>
+                <button
+                  onClick={handleDelete}
+                  disabled={!!deletingId}
+                  title="Delete this analysis"
+                  className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-red-500 disabled:opacity-40 transition-colors"
+                >
+                  {deletingId ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
+                  Delete
+                </button>
+              </div>
             </div>
             <AnalysisCard analysis={analysis} />
           </div>

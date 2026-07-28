@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { TrendingUp } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { TrendingUp, Sparkles } from 'lucide-react'
 import {
   Area,
   AreaChart,
@@ -200,6 +201,14 @@ function DetailPanel({ ticker, changePct }: { ticker: string; changePct: number 
           </ul>
         </div>
       )}
+
+      <Link
+        to={`/analyze?tickers=${ticker}`}
+        className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg bg-[var(--accent-bg)] text-[var(--accent)] border border-[var(--accent)]/20 hover:bg-[var(--accent)]/20 transition-colors focus-ring mt-4"
+      >
+        <Sparkles className="w-3.5 h-3.5" />
+        Analyze {ticker}
+      </Link>
     </div>
   )
 }

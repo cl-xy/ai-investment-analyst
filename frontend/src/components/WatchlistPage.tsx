@@ -19,6 +19,27 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
   const [input, setInput] = useState('')
   // #29: Inline validation error
   const [inputError, setInputError] = useState<string | null>(null)
+  // First-run welcome banner
+  const [showWelcome, setShowWelcome] = useState(() => {
+    try {
+      // Migration: read legacy key if present
+      const legacy = localStorage.getItem('invest-welcome-dismissed')
+      if (legacy) {
+        localStorage.setItem('invest-state:welcome-dismissed', legacy)
+        localStorage.removeItem('invest-welcome-dismissed')
+      }
+      return !localStorage.getItem('invest-state:welcome-dismissed')
+    } catch {
+      return true
+    }
+  })
+
+  const dismissWelcome = () => {
+    try {
+      localStorage.setItem('invest-state:welcome-dismissed', '1')
+    } catch { /* quota exceeded, ignore */ }
+    setShowWelcome(false)
+  }
   const inputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
   // #23: Frequency-weighted recents
@@ -64,6 +85,30 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
 
   return (
     <div className="max-w-2xl mx-auto px-6 py-16 flex flex-col items-center gap-10">
+      {/* First-run welcome banner */}
+      {showWelcome && (
+        <div className="w-full rounded-xl border border-[var(--accent)]/20 bg-[var(--accent-bg)] p-5 relative">
+          <button
+            onClick={dismissWelcome}
+            className="absolute top-3 right-3 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors min-w-[28px] min-h-[28px] flex items-center justify-center"
+            aria-label="Dismiss welcome message"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+          <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1.5">Welcome to Investment Analyst</h3>
+          <p className="text-xs text-[var(--text-secondary)] leading-relaxed max-w-md">
+            Add stock tickers to your watchlist, then click Analyze to run a multi-agent AI analysis with real-time streaming. Your results are saved in History.
+          </p>
+          <div className="flex items-center gap-4 mt-3 text-[10px] text-[var(--text-muted)]">
+            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]" />Add tickers</span>
+            <span>→</span>
+            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[var(--bullish)]" />Run analysis</span>
+            <span>→</span>
+            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[var(--live)]" />Review results</span>
+          </div>
+        </div>
+      )}
+
       {/* Hero */}
       <div className="text-center space-y-3">
         <h2 className="text-2xl font-semibold text-[var(--text-primary)] tracking-tight">

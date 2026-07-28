@@ -1,3 +1,5 @@
+import { AlertCircle } from 'lucide-react'
+
 type Signal = 'buy' | 'hold' | 'sell' | 'insufficient_data'
 type Confidence = 'high' | 'medium' | 'low'
 
@@ -21,6 +23,19 @@ const CONFIDENCE_COLOR: Record<Confidence, string> = {
 
 export default function SignalBadge({ signal, confidence }: Props) {
   const cfg = SIGNAL_CONFIG[signal]
+
+  if (signal === 'insufficient_data') {
+    return (
+      <div className={`inline-flex flex-col items-center px-5 py-3 rounded-xl border ${cfg.bg} max-w-[200px]`}>
+        <AlertCircle className="w-5 h-5 text-[var(--text-muted)] mb-1" />
+        <span className={`font-bold text-sm ${cfg.color}`}>{cfg.label}</span>
+        <p className="text-[10px] text-[var(--text-muted)] text-center mt-1.5 leading-relaxed">
+          Not enough data sources returned results. Try a higher-volume ticker or check back during market hours.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className={`inline-flex flex-col items-center px-5 py-3 rounded-xl border ${cfg.bg}`}>
       <span className="text-2xl">{cfg.emoji}</span>
