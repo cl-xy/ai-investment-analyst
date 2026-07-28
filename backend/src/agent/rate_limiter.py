@@ -51,9 +51,6 @@ class TokenBucket:
 # Use 18/min (0.3/sec) with burst capacity of 10 to handle multi-ticker analyses
 llm_limiter = TokenBucket(rate=18.0 / 60.0, capacity=10)
 
-# Keep backward-compat alias
-groq_limiter = llm_limiter
-
 
 class RateLimitExceeded(Exception):
     """Raised when the rate limiter cannot acquire a slot within timeout."""

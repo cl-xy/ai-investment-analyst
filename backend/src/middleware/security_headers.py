@@ -21,7 +21,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "script-src 'self'; "
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: https:; "
-            "connect-src 'self' https://api.groq.com; "
+            "connect-src 'self' https://openrouter.ai; "
             "font-src 'self'"
         )
         return response

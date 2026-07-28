@@ -126,14 +126,14 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
     try:
         from src.cache.budget import check_budget
 
-        newsapi_ok, groq_ok = await asyncio.gather(
+        newsapi_ok, llm_ok = await asyncio.gather(
             check_budget("newsapi"),
-            check_budget("groq"),
+            check_budget("openrouter"),
         )
         if not newsapi_ok:
             budget_exhausted.add("newsapi")
-        if not groq_ok:
-            budget_exhausted.add("groq")
+        if not llm_ok:
+            budget_exhausted.add("openrouter")
         log.info(
             "fetch_data_node: budget_exhausted=%s",
             budget_exhausted or "none",

@@ -1,7 +1,7 @@
 """
 Pydantic schemas for structured LLM outputs.
 
-Replaces brittle extract_json() with Groq JSON mode + Pydantic validation.
+Replaces brittle extract_json() with JSON mode + Pydantic validation.
 Single retry on validation failure. Sends errors back to the model.
 """
 

@@ -136,6 +136,3 @@ llm_breaker = CircuitBreaker(
     window_seconds=60.0,
     recovery_seconds=30.0,
 )
-
-# Keep backward-compat alias
-groq_breaker = llm_breaker

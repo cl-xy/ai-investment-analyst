@@ -138,7 +138,7 @@ export function useAnalysisStream() {
         es.close()
 
         // Each reconnect starts a NEW analysis run on the backend, which wastes
-        // Groq rate-limit budget and causes CORS failures when Fly's proxy
+        // OpenRouter rate-limit budget and causes CORS failures when Fly's proxy
         // returns errors without CORS headers. Only retry once for transient
         // network blips; after that, surface the error to the user.
         if (retryCountRef.current < 1) {

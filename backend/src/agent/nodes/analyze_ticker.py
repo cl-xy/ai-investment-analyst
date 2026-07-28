@@ -1,5 +1,5 @@
 """
-Analyze ticker node. Uses Groq JSON mode + Pydantic validation.
+Analyze ticker node. Uses OpenRouter JSON mode + Pydantic validation.
 
 Replaces brittle extract_json() with structured output validation.
 Single retry on validation failure. Circuit breaker + exponential backoff
@@ -22,7 +22,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from ..circuit_breaker import CircuitBreakerOpen, groq_breaker
+from ..circuit_breaker import CircuitBreakerOpen, llm_breaker
 from ..json_utils import extract_json
 from ..prompts.analyst_prompt import ANALYST_HUMAN, ANALYST_SYSTEM
 from ..state import InvestmentAnalystState, TickerAnalysis
@@ -92,7 +92,7 @@ def _make_source_id(provider: str, ticker: str) -> str:
 )
 async def _invoke_llm_with_retry(messages: list) -> object:
     """Invoke LLM with retry on transient errors, wrapped in circuit breaker."""
-    return await groq_breaker.call(_get_llm().ainvoke, messages)
+    return await llm_breaker.call(_get_llm().ainvoke, messages)
 
 
 async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:

@@ -45,14 +45,14 @@ Respond with ONLY a JSON object:
 
 @cache
 def _get_judge_llm() -> ChatOpenAI:
-    api_key = os.environ.get("GROQ_API_KEY")
+    api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        raise RuntimeError("GROQ_API_KEY required for eval judge")
+        raise RuntimeError("OPENROUTER_API_KEY required for eval judge")
     return ChatOpenAI(
-        model="openai/gpt-oss-20b",
+        model="openai/gpt-oss-20b:free",
         temperature=0,
         max_tokens=512,  # type: ignore[call-arg]
-        base_url="https://api.groq.com/openai/v1",
+        base_url="https://openrouter.ai/api/v1",
         api_key=api_key,  # type: ignore[arg-type]
         model_kwargs={"response_format": {"type": "json_object"}},
     )

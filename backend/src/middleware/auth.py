@@ -1,7 +1,7 @@
 """
 Demo authentication middleware and rate limiting.
 
-Simple password gate for production demo (prevents abuse of Groq free tier).
+Simple password gate for production demo (prevents abuse of free tier LLM APIs).
 Rate limiting via slowapi (per-IP, 10 req/min on analysis endpoints).
 """
 

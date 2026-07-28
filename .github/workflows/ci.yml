@@ -70,7 +70,7 @@ jobs:
       - run: pytest -q --tb=short
         env:
           DATABASE_URL: postgresql://invest:invest_test@localhost:5432/test_investment_analyst
-          GROQ_API_KEY: test-key-not-used-in-unit-tests
+          OPENROUTER_API_KEY: test-key-not-used-in-unit-tests
 
   build-frontend:
     runs-on: ubuntu-latest

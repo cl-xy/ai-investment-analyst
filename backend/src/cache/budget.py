@@ -14,7 +14,7 @@ from src.db import fetchrow
 DAILY_LIMITS: dict[str, int] = {
     "alpha_vantage": 20,
     "newsapi": 90,
-    "groq": 1400,
+    "openrouter": 1400,
 }
 
 

@@ -2,7 +2,7 @@
 Adversarial debate node. Replaces single-shot analyze_ticker with a 3-agent debate.
 
 Protocol: Bull (argues long) -> Bear (rebuts + argues short) -> Moderator (verdict)
-Each agent uses Groq JSON mode + Pydantic validation with 1 retry on failure.
+Each agent uses OpenRouter JSON mode + Pydantic validation with 1 retry on failure.
 Falls back to single-shot analysis if debate fails or rate budget is exhausted.
 """
 
@@ -24,7 +24,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from ..circuit_breaker import CircuitBreakerOpen, groq_breaker
+from ..circuit_breaker import CircuitBreakerOpen, llm_breaker
 from ..debate_schemas import (
     BearCaseOutput,
     BullCaseOutput,
@@ -91,7 +91,7 @@ def _get_llm() -> ChatOpenAI:
 async def _invoke_with_retry(messages: list) -> object:
     """Invoke LLM with retry, circuit breaker, and rate limiting."""
     await acquire_or_raise(timeout=30.0)
-    return await groq_breaker.call(_get_llm().ainvoke, messages)
+    return await llm_breaker.call(_get_llm().ainvoke, messages)
 
 
 def _format_news(articles: list[dict]) -> str:

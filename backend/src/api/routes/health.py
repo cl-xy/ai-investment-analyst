@@ -50,37 +50,37 @@ async def readiness():
         checks["database"] = {"status": "down"}
         status = "unhealthy"
 
-    # 2. Groq budget check
+    # 2. LLM budget check
     if db_ok:
         try:
             budget_status = await get_budget_status()
-            groq_budget = budget_status.get("groq", {})
-            remaining = groq_budget.get("remaining", 0)
-            limit = DAILY_LIMITS.get("groq", 1400)
+            llm_budget = budget_status.get("openrouter", budget_status.get("groq", {}))
+            remaining = llm_budget.get("remaining", 0)
+            limit = DAILY_LIMITS.get("openrouter", DAILY_LIMITS.get("groq", 1400))
             # "low" if less than 10% remaining
             budget_ok = remaining > (limit * 0.1)
-            checks["groq_budget"] = {
+            checks["llm_budget"] = {
                 "status": "ok" if budget_ok else "low",
                 "remaining_today": remaining,
             }
             if not budget_ok:
                 status = "degraded" if status == "healthy" else status
         except Exception:
-            checks["groq_budget"] = {"status": "unknown"}
+            checks["llm_budget"] = {"status": "unknown"}
 
     # 3. Circuit breaker state
     try:
-        from src.agent.circuit_breaker import groq_breaker
+        from src.agent.circuit_breaker import llm_breaker
 
-        cb_state = groq_breaker.state.value
+        cb_state = llm_breaker.state.value
         checks["circuit_breaker"] = {
             "status": cb_state,
-            "provider": "groq",
+            "provider": "openrouter",
         }
         if cb_state in ("open", "half_open"):
             status = "degraded" if status == "healthy" else status
     except Exception:
-        checks["circuit_breaker"] = {"status": "unknown", "provider": "groq"}
+        checks["circuit_breaker"] = {"status": "unknown", "provider": "openrouter"}
 
     uptime = round(time.monotonic() - _start_time, 1)
 

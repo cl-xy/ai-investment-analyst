@@ -7,9 +7,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # LLM
-    groq_api_key: str = ""  # legacy, kept for backward compat
     openrouter_api_key: str = ""
-    xai_api_key: str = ""  # legacy, kept for backward compat
 
     # LLM models
     llm_base_url: str = "https://openrouter.ai/api/v1"
