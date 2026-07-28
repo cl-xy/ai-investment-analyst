@@ -41,7 +41,11 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins(self) -> list[str]:
-        origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+        origins = [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "https://ai-investment-analyst-iota.vercel.app",
+        ]
         if self.frontend_url and self.frontend_url not in origins:
             origins.append(self.frontend_url)
         return origins
