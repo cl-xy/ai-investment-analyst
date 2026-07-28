@@ -4,7 +4,7 @@
 
 Multi-agent investment analysis system with real-time streaming trace, structured outputs, and source-grounded citations.
 
-[Live Demo](https://ai-investment-analyst.vercel.app) · Demo password: `investor2026`
+[Live Demo](https://ai-investment-analyst-iota.vercel.app) · Demo password: `investor2026`
 
 ---
 

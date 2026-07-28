@@ -60,21 +60,23 @@ class UpdatePositionInput(BaseModel):
 
 
 def _wrap_sync(fn, **kwargs) -> str:
-    """Call a sync function and return JSON string (MCP content-block format)."""
-    try:
-        result = fn(**kwargs)
-        return json.dumps(result, default=str)
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+    """Call a sync function and return JSON string (MCP content-block format).
+
+    Exceptions propagate to the caller so fetch_data can detect failures
+    and avoid caching error responses.
+    """
+    result = fn(**kwargs)
+    return json.dumps(result, default=str)
 
 
 async def _wrap_async(fn, **kwargs) -> str:
-    """Call an async function and return JSON string."""
-    try:
-        result = await fn(**kwargs)
-        return json.dumps(result, default=str)
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+    """Call an async function and return JSON string.
+
+    Exceptions propagate to the caller so fetch_data can detect failures
+    and avoid caching error responses.
+    """
+    result = await fn(**kwargs)
+    return json.dumps(result, default=str)
 
 
 def _run_sync_in_thread(fn, **kwargs) -> str:

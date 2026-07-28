@@ -68,6 +68,7 @@ class CacheManager:
     ) -> tuple[Any, str, bool]:
         """
         Get cached data or fetch fresh. Returns (data, source_id, was_cached).
+        Never caches error responses.
         """
         key = f"{provider}:{tool}:{ticker}"
         ttl = _get_ttl(provider, tool)
@@ -81,25 +82,32 @@ class CacheManager:
                 # Hard expired, treat as miss
                 pass
             else:
-                stale_at = row["stale_at"]
-                source_id = row["source_id"]
                 data = row["data"]
+                # Invalidate cached error responses so they get re-fetched
+                if isinstance(data, dict) and "error" in data and len(data) <= 2:
+                    _log.info("cache_invalidate_error key=%s", key)
+                else:
+                    stale_at = row["stale_at"]
+                    source_id = row["source_id"]
 
-                if now < stale_at:
+                    if now < stale_at:
+                        return data, source_id, True
+
+                    # Stale: serve immediately, refresh in background (deduplicated)
+                    if key not in self._pending_refreshes:
+                        task = asyncio.create_task(
+                            self._refresh(key, provider, tool, ticker, fetch_fn, ttl)
+                        )
+                        self._pending_refreshes[key] = task
+                        self._refresh_tasks.add(task)
+                        task.add_done_callback(partial(self._task_cleanup, key=key))
                     return data, source_id, True
-
-                # Stale: serve immediately, refresh in background (deduplicated)
-                if key not in self._pending_refreshes:
-                    task = asyncio.create_task(
-                        self._refresh(key, provider, tool, ticker, fetch_fn, ttl)
-                    )
-                    self._pending_refreshes[key] = task
-                    self._refresh_tasks.add(task)
-                    task.add_done_callback(partial(self._task_cleanup, key=key))
-                return data, source_id, True
 
         # Cache miss, fetch fresh
         data = await fetch_fn()
+        # Never cache error responses
+        if isinstance(data, dict) and "error" in data and len(data) <= 2:
+            raise RuntimeError(f"Tool returned error: {data.get('error')}")
         source_id = f"{provider}:{ticker}:{int(time.time())}"
         await self._store(key, data, source_id, provider, ttl, now)
         return data, source_id, False
@@ -125,6 +133,12 @@ class CacheManager:
                 return
 
             data = await fetch_fn()
+            # Never cache error responses in background refresh either
+            if isinstance(data, dict) and "error" in data and len(data) <= 2:
+                _log.warning(
+                    "background_refresh_got_error key=%s error=%s", key, data.get("error")
+                )
+                return
             source_id = f"{provider}:{ticker}:{int(time.time())}"
             await self._store(key, data, source_id, provider, ttl, datetime.now(timezone.utc))
         except Exception as exc:

@@ -43,6 +43,11 @@ def _unwrap(result) -> dict | list:
     return result
 
 
+def _is_error_response(data) -> bool:
+    """Check if a response is an error dict that should not be treated as valid data."""
+    return isinstance(data, dict) and "error" in data and len(data) <= 2
+
+
 async def _call_tool_raw(tools: dict, name: str, **kwargs) -> tuple[dict | list, bool, int]:
     """
     Call a single MCP tool directly (no cache) with timeout.
@@ -56,7 +61,12 @@ async def _call_tool_raw(tools: dict, name: str, **kwargs) -> tuple[dict | list,
     try:
         raw = await asyncio.wait_for(tool.ainvoke(kwargs), timeout=TOOL_TIMEOUT)
         duration_ms = int((time.monotonic() - start) * 1000)
-        return _unwrap(raw), True, duration_ms
+        unwrapped = _unwrap(raw)
+        # Detect error dicts that slipped through as "successful" responses
+        if _is_error_response(unwrapped):
+            log.warning("tool_returned_error tool=%s error=%s", name, unwrapped.get("error"))
+            return unwrapped, False, duration_ms
+        return unwrapped, True, duration_ms
     except asyncio.TimeoutError:
         duration_ms = int((time.monotonic() - start) * 1000)
         return {"error": f"Timeout after {TOOL_TIMEOUT}s"}, False, duration_ms

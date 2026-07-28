@@ -48,7 +48,9 @@ def _mock_cache_passthrough():
 
 @pytest.mark.asyncio
 @patch("src.agent.nodes.fetch_data.cache_manager")
-async def test_fetch_data_populates_all_fields(mock_cache, base_state):
+@patch("src.cache.budget.check_budget", new_callable=AsyncMock, return_value=True)
+@patch("src.cache.budget.use_budget", new_callable=AsyncMock, return_value=True)
+async def test_fetch_data_populates_all_fields(mock_use, mock_check, mock_cache, base_state):
     mock_cache.get_or_fetch = AsyncMock(side_effect=_mock_cache_passthrough())
 
     from src.agent.nodes.fetch_data import fetch_data_node
@@ -90,7 +92,9 @@ async def test_fetch_data_populates_all_fields(mock_cache, base_state):
 
 @pytest.mark.asyncio
 @patch("src.agent.nodes.fetch_data.cache_manager")
-async def test_fetch_data_handles_tool_errors_gracefully(mock_cache, base_state):
+@patch("src.cache.budget.check_budget", new_callable=AsyncMock, return_value=True)
+@patch("src.cache.budget.use_budget", new_callable=AsyncMock, return_value=True)
+async def test_fetch_data_handles_tool_errors_gracefully(mock_use, mock_check, mock_cache, base_state):
     # Make cache passthrough that will hit the failing tools
     async def _failing_passthrough(provider, tool, ticker, fetch_fn):
         try:
@@ -133,7 +137,9 @@ async def test_fetch_data_returns_empty_for_no_tickers(base_state):
 
 @pytest.mark.asyncio
 @patch("src.agent.nodes.fetch_data.cache_manager")
-async def test_fetch_data_fetches_multiple_tickers_in_parallel(mock_cache, base_state):
+@patch("src.cache.budget.check_budget", new_callable=AsyncMock, return_value=True)
+@patch("src.cache.budget.use_budget", new_callable=AsyncMock, return_value=True)
+async def test_fetch_data_fetches_multiple_tickers_in_parallel(mock_use, mock_check, mock_cache, base_state):
     mock_cache.get_or_fetch = AsyncMock(side_effect=_mock_cache_passthrough())
 
     from src.agent.nodes.fetch_data import fetch_data_node
