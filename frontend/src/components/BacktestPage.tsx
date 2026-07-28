@@ -45,6 +45,24 @@ export default function BacktestPage() {
       .finally(() => setLoading(false))
   }, [])
 
+  // Hooks must be called unconditionally (before any early returns)
+  const filteredSignals = useMemo(() => {
+    if (!data) return []
+    let signals = data.signals.filter((s) => {
+      const matchesTicker = s.ticker.toLowerCase().includes(searchTerm.toLowerCase())
+      const matchesSignal = signalFilter === 'all' || s.signal === signalFilter
+      return matchesTicker && matchesSignal
+    })
+    signals.sort((a, b) => {
+      let cmp = 0
+      if (sortField === 'ticker') cmp = a.ticker.localeCompare(b.ticker)
+      else if (sortField === 'signal') cmp = a.signal.localeCompare(b.signal)
+      else cmp = new Date(a.signal_date).getTime() - new Date(b.signal_date).getTime()
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return signals
+  }, [data, searchTerm, signalFilter, sortField, sortDir])
+
   if (loading) {
     return (
       <div className="max-w-5xl mx-auto px-6 py-12">
@@ -98,22 +116,6 @@ export default function BacktestPage() {
       setSortDir('desc')
     }
   }
-
-  const filteredSignals = useMemo(() => {
-    let signals = data.signals.filter((s) => {
-      const matchesTicker = s.ticker.toLowerCase().includes(searchTerm.toLowerCase())
-      const matchesSignal = signalFilter === 'all' || s.signal === signalFilter
-      return matchesTicker && matchesSignal
-    })
-    signals.sort((a, b) => {
-      let cmp = 0
-      if (sortField === 'ticker') cmp = a.ticker.localeCompare(b.ticker)
-      else if (sortField === 'signal') cmp = a.signal.localeCompare(b.signal)
-      else cmp = new Date(a.signal_date).getTime() - new Date(b.signal_date).getTime()
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-    return signals
-  }, [data.signals, searchTerm, signalFilter, sortField, sortDir])
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
