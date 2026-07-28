@@ -63,7 +63,7 @@ async def update_position_fields(
     ticker: str, shares: float | None, cost_basis: float | None
 ) -> bool:
     updates = []
-    params = []
+    params: list[float | str] = []
     if shares is not None:
         updates.append("shares = ?")
         params.append(shares)

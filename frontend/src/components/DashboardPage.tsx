@@ -16,18 +16,18 @@ export default function DashboardPage() {
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const deleteTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const mountedRef = useRef(true)
 
-  // Cleanup pending delete timer on unmount
+  // Cleanup pending delete timers on unmount
   useEffect(() => {
     mountedRef.current = true
     return () => {
       mountedRef.current = false
-      if (deleteTimerRef.current) {
-        clearTimeout(deleteTimerRef.current)
-        deleteTimerRef.current = null
+      for (const timer of deleteTimersRef.current.values()) {
+        clearTimeout(timer)
       }
+      deleteTimersRef.current.clear()
     }
   }, [])
 
@@ -100,18 +100,13 @@ export default function DashboardPage() {
 
     let undone = false
 
-    // Clear any previous pending delete timer
-    if (deleteTimerRef.current) {
-      clearTimeout(deleteTimerRef.current)
-      deleteTimerRef.current = null
-    }
-
     toastUndo(`Deleted analysis for ${deletedTicker}`, () => {
       undone = true
-      // Cancel the pending deletion
-      if (deleteTimerRef.current) {
-        clearTimeout(deleteTimerRef.current)
-        deleteTimerRef.current = null
+      // Cancel the pending deletion for this specific item
+      const timer = deleteTimersRef.current.get(deletedId)
+      if (timer) {
+        clearTimeout(timer)
+        deleteTimersRef.current.delete(deletedId)
       }
       // Restore from snapshot (uses captured values, not stale closure)
       setSessions(snapshotSessions)
@@ -120,8 +115,8 @@ export default function DashboardPage() {
     })
 
     // Delay actual deletion to allow undo
-    deleteTimerRef.current = setTimeout(async () => {
-      deleteTimerRef.current = null
+    const timer = setTimeout(async () => {
+      deleteTimersRef.current.delete(deletedId)
       if (undone || !mountedRef.current) return
       setDeletingId(deletedId)
       try {
@@ -138,6 +133,7 @@ export default function DashboardPage() {
         if (mountedRef.current) setDeletingId(null)
       }
     }, 5200)
+    deleteTimersRef.current.set(deletedId, timer)
   }
 
   if (loadingList) return <LoadingSpinner />

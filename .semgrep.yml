@@ -217,12 +217,11 @@ rules:
   # 10. Raw exception messages returned to clients
   - id: raw-exception-in-response
     patterns:
-      - pattern-inside: |
-          except $E as $ERR:
-              ...
       - pattern-either:
-          - pattern: return JSONResponse(..., content={"detail": str($ERR)}, ...)
-          - pattern: raise HTTPException(..., detail=str($ERR), ...)
+          - pattern: |
+              raise HTTPException(..., detail=str($ERR), ...)
+          - pattern: |
+              raise HTTPException(..., detail=f"...", ...)
     message: >
       Raw exception message returned directly to the client. Internal error
       details can leak stack traces, file paths, or credential fragments.

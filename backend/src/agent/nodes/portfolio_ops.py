@@ -35,7 +35,8 @@ def _parse_tool_result(result) -> dict | list | str:
 async def portfolio_ops_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> dict:
     intent = state.get("intent")
     last_message = state["messages"][-1]
-    user_text = last_message.content if hasattr(last_message, "content") else str(last_message)
+    raw_content = last_message.content if hasattr(last_message, "content") else str(last_message)
+    user_text = raw_content if isinstance(raw_content, str) else str(raw_content)
 
     get_portfolio = mcp_tools.get("get_portfolio")
     add_position = mcp_tools.get("add_position")

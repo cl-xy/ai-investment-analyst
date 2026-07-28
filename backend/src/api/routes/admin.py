@@ -100,6 +100,7 @@ async def inspect_cache(ticker: str, authorization: str | None = Header(default=
     for row in rows:
         data = row["data"]
         # Summarize the data (first 200 chars or key count)
+        summary: dict | str
         if isinstance(data, dict):
             summary = {
                 k: ("..." if isinstance(v, (dict, list)) else v) for k, v in list(data.items())[:10]

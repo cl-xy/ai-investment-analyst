@@ -51,9 +51,9 @@ def _get_judge_llm() -> ChatOpenAI:
     return ChatOpenAI(
         model="openai/gpt-oss-20b",
         temperature=0,
-        max_tokens=512,
+        max_tokens=512,  # type: ignore[call-arg]
         base_url="https://api.groq.com/openai/v1",
-        api_key=api_key,
+        api_key=api_key,  # type: ignore[arg-type]
         model_kwargs={"response_format": {"type": "json_object"}},
     )
 
@@ -64,7 +64,7 @@ async def score_analysis(analysis: dict[str, Any]) -> JudgeScore:
     prompt = JUDGE_PROMPT.format(analysis=json.dumps(analysis, indent=2))
 
     response = await llm.ainvoke(prompt)
-    result = json.loads(response.content)
+    result = json.loads(str(response.content))
 
     # Calculate weighted average if not provided
     if "overall" not in result or result["overall"] == 0:

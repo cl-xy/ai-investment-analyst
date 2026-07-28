@@ -107,6 +107,7 @@ async def _run_agent(
             initial_state = {
                 "messages": [HumanMessage(content=message)],
                 "tickers_to_analyze": tickers_upper,
+                "intent": "single_ticker" if len(tickers_upper) == 1 else "full_report",
             }
 
             current_node = None

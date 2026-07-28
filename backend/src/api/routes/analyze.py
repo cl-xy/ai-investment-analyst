@@ -20,10 +20,11 @@ from fastapi import APIRouter, HTTPException, Request
 from langchain_core.messages import HumanMessage
 
 from src.agent.checkpointer import get_checkpointer
+from src.agent.concurrency import acquire_analysis_slot, release_analysis_slot
 from src.agent.graph import build_graph
 from src.db import fetchrow, get_pool
 
-from ..schemas import AnalyzeRequest, AnalyzeResponse, TickerAnalysis
+from ..schemas import VALID_TICKER_RE, AnalyzeRequest, AnalyzeResponse, TickerAnalysis
 
 router = APIRouter()
 
@@ -41,6 +42,7 @@ async def _run_analysis(tickers: list[str], mcp_tools: dict) -> dict:
         initial_state: dict = {
             "messages": [HumanMessage(content=message)],
             "tickers_to_analyze": tickers_upper,
+            "intent": "single_ticker" if len(tickers_upper) == 1 else "full_report",
         }
         result = await compiled.ainvoke(initial_state, config=config)
     return result
@@ -186,4 +188,28 @@ async def analyze_tickers(
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(request: Request, body: AnalyzeRequest) -> AnalyzeResponse:
     mcp_tools = request.app.state.mcp_tools
-    return await analyze_tickers(body.tickers, mcp_tools, force_refresh=False)
+
+    # Validate tickers (same rules as streaming endpoint)
+    normalised = _normalise_tickers(body.tickers)
+    if not normalised:
+        raise HTTPException(status_code=400, detail="At least one valid ticker is required")
+    if len(normalised) > 5:
+        raise HTTPException(status_code=400, detail="Maximum 5 tickers per request")
+    invalid = [t for t in normalised if not VALID_TICKER_RE.match(t)]
+    if invalid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid ticker symbols: {', '.join(invalid)}",
+        )
+
+    # Respect global concurrency limit
+    acquired = await acquire_analysis_slot()
+    if not acquired:
+        raise HTTPException(
+            status_code=503,
+            detail="Analysis capacity reached. Please try again shortly.",
+        )
+    try:
+        return await analyze_tickers(normalised, mcp_tools, force_refresh=False)
+    finally:
+        release_analysis_slot()

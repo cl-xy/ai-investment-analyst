@@ -59,11 +59,11 @@ def _get_llm() -> ChatOpenAI:
     return ChatOpenAI(
         model="openai/gpt-oss-120b",
         temperature=0,
-        max_tokens=4096,
+        max_tokens=4096,  # type: ignore[call-arg]
         base_url="https://api.groq.com/openai/v1",
-        api_key=api_key,
+        api_key=api_key,  # type: ignore[arg-type]
         model_kwargs={"response_format": {"type": "json_object"}},
-        request_timeout=60,
+        request_timeout=60,  # type: ignore[call-arg]
     )
 
 
@@ -102,9 +102,9 @@ async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
         return {}
 
     ticker = tickers_remaining[0]
-    price_data = state.get("raw_prices", {}).get(ticker, {})
-    news = state.get("raw_news", {}).get(ticker, [])
-    sec_text = state.get("raw_filings", {}).get(ticker, "") or "Not available."
+    price_data: dict = state.get("raw_prices", {}).get(ticker, {})  # type: ignore[union-attr]
+    news = state.get("raw_news", {}).get(ticker, [])  # type: ignore[union-attr]
+    sec_text = state.get("raw_filings", {}).get(ticker, "") or "Not available."  # type: ignore[union-attr]
 
     # Generate source IDs for citation tracking
     price_source_id = _make_source_id("yfinance", ticker)
@@ -179,7 +179,8 @@ async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
         except (ValidationError, ValueError, Exception):
             # Fallback: use legacy extract_json for resilience
             try:
-                parsed = extract_json(response.content)
+                parsed_raw = extract_json(response.content)
+                parsed = parsed_raw if isinstance(parsed_raw, dict) else {}
                 output = AnalysisOutput(
                     ticker=ticker,
                     signal=parsed.get("signal", "insufficient_data"),
@@ -211,7 +212,7 @@ async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
                 )
 
     # Convert to state-compatible TickerAnalysis dict (preserve all fields)
-    analysis: TickerAnalysis = {
+    analysis = {
         "ticker": output.ticker,
         "signal": output.signal,
         "confidence": output.confidence,

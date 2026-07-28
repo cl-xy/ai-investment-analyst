@@ -183,7 +183,7 @@ function DetailPanel({ ticker, changePct }: { ticker: string; changePct: number 
             {(detail.trending_reason ?? []).map((item, i) => (
               <li key={i} className="flex gap-2 text-sm text-[var(--text-secondary)]">
                 <span className="text-[var(--accent)] shrink-0">•</span>
-                {item.url ? (
+                {item.url && /^https?:\/\//i.test(item.url) ? (
                   <a
                     href={item.url}
                     target="_blank"

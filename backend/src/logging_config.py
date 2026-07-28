@@ -79,7 +79,7 @@ def setup_logging(json_output: bool = True, level: str = "INFO"):
     ]
 
     if json_output:
-        renderer = structlog.processors.JSONRenderer()
+        renderer: structlog.types.Processor = structlog.processors.JSONRenderer()
     else:
         renderer = structlog.dev.ConsoleRenderer()
 

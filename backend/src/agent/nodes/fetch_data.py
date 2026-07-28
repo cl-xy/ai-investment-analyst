@@ -33,13 +33,13 @@ def _unwrap(result) -> dict | list:
                 try:
                     return json.loads(block["text"])
                 except (json.JSONDecodeError, ValueError):
-                    return block["text"]
+                    return {"_raw_text": block["text"]}
         return {}
     if isinstance(result, str):
         try:
             return json.loads(result)
         except (json.JSONDecodeError, ValueError):
-            return result
+            return {"_raw_text": result}
     return result
 
 
@@ -64,6 +64,7 @@ async def _call_tool_raw(tools: dict, name: str, **kwargs) -> tuple[dict | list,
         unwrapped = _unwrap(raw)
         # Detect error dicts that slipped through as "successful" responses
         if _is_error_response(unwrapped):
+            assert isinstance(unwrapped, dict)
             log.warning("tool_returned_error tool=%s error=%s", name, unwrapped.get("error"))
             return unwrapped, False, duration_ms
         return unwrapped, True, duration_ms
@@ -153,7 +154,7 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
         from src.cache.manager import cache_manager as cm
 
         # Define tool calls with their provider mapping
-        tool_calls = [
+        tool_calls: list[tuple[str, str, dict]] = [
             ("newsapi", "get_ticker_news", {"ticker": ticker, "days_back": 7, "max_articles": 10}),
             ("yfinance", "get_quote", {"ticker": ticker}),
             ("yfinance", "get_fundamentals", {"ticker": ticker}),
@@ -161,7 +162,6 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
             ("yfinance", "get_technical_indicators", {"ticker": ticker}),
         ]
 
-        results = []
         # Separate budget-exhausted providers (cache-only) from live fetches
         cache_only_coros = []
         live_coros = []
@@ -179,17 +179,17 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
                 )
 
         # Run all live fetches concurrently (bounded by _GLOBAL_TOOL_SEMAPHORE)
-        cache_results, live_results = await asyncio.gather(
+        cache_results_raw, live_results_raw = await asyncio.gather(
             asyncio.gather(*cache_only_coros) if cache_only_coros else asyncio.sleep(0),
             asyncio.gather(*live_coros) if live_coros else asyncio.sleep(0),
         )
-        if not cache_only_coros:
-            cache_results = []
-        if not live_coros:
-            live_results = []
+        cache_results: list = list(cache_results_raw) if cache_only_coros else []
+        live_results: list = list(live_results_raw) if live_coros else []
 
         # Merge results back in original order
-        results = [None] * len(tool_calls)
+        results: list[tuple[dict | list, bool, int, bool]] = [({}, False, 0, False)] * len(
+            tool_calls
+        )
         for idx, (i, (provider, tool_name, _kwargs)) in enumerate(
             zip(indices_cache, [tool_calls[j] for j in indices_cache])
         ):
@@ -238,9 +238,9 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
 
     all_results = await asyncio.gather(*[fetch_one(t) for t in tickers], return_exceptions=True)
 
-    raw_news = {}
-    raw_prices = {}
-    raw_filings = {}
+    raw_news: dict[str, list] = {}
+    raw_prices: dict[str, dict] = {}
+    raw_filings: dict[str, str] = {}
     all_gaps: list[str] = []
 
     for i, result in enumerate(all_results):

@@ -31,7 +31,14 @@ class DemoAuthMiddleware(BaseHTTPMiddleware):
     Health, explore, and dashboard endpoints are always public.
     """
 
-    PROTECTED_PREFIXES = ("/api/analyze", "/api/compare", "/api/chat", "/api/backtest")
+    PROTECTED_PREFIXES = (
+        "/api/analyze",
+        "/api/compare",
+        "/api/chat",
+        "/api/backtest",
+        "/api/dashboard",
+        "/api/eval",
+    )
     PUBLIC_PREFIXES = ("/api/health", "/api/explore", "/api/admin")
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
@@ -42,19 +49,13 @@ class DemoAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         path = request.url.path
-        method = request.method
 
-        # Protect write operations on dashboard (DELETE)
-        is_dashboard_write = path.startswith("/api/dashboard") and method in (
-            "DELETE",
-            "PUT",
-            "PATCH",
-        )
+        # Skip auth for explicitly public paths
+        if any(path.startswith(prefix) for prefix in self.PUBLIC_PREFIXES):
+            return await call_next(request)
 
-        # Skip auth for non-protected paths (unless it's a dashboard write)
-        if not is_dashboard_write and not any(
-            path.startswith(prefix) for prefix in self.PROTECTED_PREFIXES
-        ):
+        # Skip auth for non-protected paths
+        if not any(path.startswith(prefix) for prefix in self.PROTECTED_PREFIXES):
             return await call_next(request)
 
         # Check credentials

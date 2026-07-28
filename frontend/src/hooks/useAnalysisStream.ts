@@ -13,11 +13,13 @@ const INITIAL_RETRY_DELAY = 1_000
 /**
  * Hook for managing SSE connection to the analysis streaming endpoint.
  * Handles reconnection with exponential backoff and progressive event dispatch.
+ * Uses a generation counter to prevent stale EventSource callbacks from corrupting state.
  */
 export function useAnalysisStream() {
   const eventSourceRef = useRef<EventSource | null>(null)
   const retryCountRef = useRef(0)
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const generationRef = useRef(0)
 
   const { startStream, addEvent, setAnalysis, setComplete, setError, reset } =
     useAnalysisStore()
@@ -42,6 +44,9 @@ export function useAnalysisStream() {
         retryCountRef.current = 0
       }
 
+      // Increment generation so stale callbacks from previous connections are ignored
+      const currentGeneration = ++generationRef.current
+
       const tickerParam = tickers.map((t) => t.trim().toUpperCase()).join(',')
       const auth = authParam()
       const separator = auth ? '&' : ''
@@ -51,6 +56,9 @@ export function useAnalysisStream() {
       eventSourceRef.current = es
 
       const handleEvent = (e: MessageEvent) => {
+        // Guard: ignore events from stale connections
+        if (generationRef.current !== currentGeneration) return
+
         try {
           const event: StreamEvent = JSON.parse(e.data)
 
@@ -108,8 +116,13 @@ export function useAnalysisStream() {
       }
 
       es.onerror = () => {
-        // EventSource auto-reconnects, but we handle backoff ourselves
-        if (es.readyState === EventSource.CLOSED) {
+        // Guard: ignore errors from stale connections
+        if (generationRef.current !== currentGeneration) return
+
+        // Close explicitly to prevent native EventSource auto-reconnect
+        es.close()
+
+        if (es.readyState === EventSource.CLOSED || true) {
           const delay = Math.min(
             INITIAL_RETRY_DELAY * 2 ** retryCountRef.current,
             MAX_RETRY_DELAY,

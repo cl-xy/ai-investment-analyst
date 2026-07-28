@@ -100,7 +100,7 @@ class CacheManager:
             else:
                 data = _normalize(row["data"])
                 # Invalidate cached error responses so they get re-fetched
-                if isinstance(data, dict) and "error" in data and len(data) <= 2:
+                if isinstance(data, dict) and "error" in data:
                     _log.info("cache_invalidate_error key=%s", key)
                 # Invalidate empty responses (from previous silent failures)
                 elif data in ({}, [], "", None):
@@ -125,7 +125,7 @@ class CacheManager:
         # Cache miss, fetch fresh
         data = _normalize(await fetch_fn())
         # Never cache error responses
-        if isinstance(data, dict) and "error" in data and len(data) <= 2:
+        if isinstance(data, dict) and "error" in data:
             raise RuntimeError(f"Tool returned error: {data.get('error')}")
         # Never cache empty responses (transient failures that returned no data)
         if data in ({}, [], "", None):
@@ -154,7 +154,7 @@ class CacheManager:
 
             data = _normalize(await fetch_fn())
             # Never cache error responses in background refresh either
-            if isinstance(data, dict) and "error" in data and len(data) <= 2:
+            if isinstance(data, dict) and "error" in data:
                 _log.warning("background_refresh_got_error key=%s error=%s", key, data.get("error"))
                 return
             # Never cache empty responses in background refresh
@@ -210,11 +210,22 @@ class CacheManager:
         """
         Return cached data without fetching. Used when budget is exhausted.
         Returns (data, source_id, True) if cached, (None, "", False) if no cache.
+        Rejects error responses and expired entries.
         """
         key = f"{provider}:{tool}:{ticker}"
-        row = await fetchrow("SELECT data, source_id FROM cache WHERE key = $1", key)
+        row = await fetchrow("SELECT data, source_id, expires_at FROM cache WHERE key = $1", key)
         if row is not None:
-            return _normalize(row["data"]), row["source_id"], True
+            # Reject hard-expired entries
+            if row["expires_at"] and row["expires_at"] < datetime.now(timezone.utc):
+                return None, "", False
+            data = _normalize(row["data"])
+            # Reject cached error responses
+            if isinstance(data, dict) and "error" in data:
+                return None, "", False
+            # Reject empty responses
+            if data in ({}, [], "", None):
+                return None, "", False
+            return data, row["source_id"], True
         return None, "", False
 
 

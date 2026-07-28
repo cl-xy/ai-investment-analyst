@@ -19,4 +19,4 @@ def get_checkpointer() -> AsyncSqliteSaver:
             compiled = graph.compile(checkpointer=checkpointer)
     """
     Path("data").mkdir(exist_ok=True)
-    return AsyncSqliteSaver.from_conn_string(CHECKPOINTER_PATH)
+    return AsyncSqliteSaver.from_conn_string(CHECKPOINTER_PATH)  # type: ignore[return-value]

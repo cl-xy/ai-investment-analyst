@@ -50,7 +50,7 @@ async def increment_budget(provider: str) -> int:
         today,
         now,
     )
-    return row["count"]
+    return row["count"] if row else 1
 
 
 async def use_budget(provider: str) -> bool:
