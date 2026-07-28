@@ -104,14 +104,6 @@ async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
     news = state.get("raw_news", {}).get(ticker, [])
     sec_text = state.get("raw_filings", {}).get(ticker, "") or "Not available."
 
-    # DEBUG: print to stdout (structlog may swallow standard logger)
-    print(f"[DEBUG] analyze_ticker: ticker={ticker}", flush=True)
-    print(f"[DEBUG] analyze_ticker: raw_prices keys={list(state.get('raw_prices', {}).keys())}", flush=True)
-    print(f"[DEBUG] analyze_ticker: price_data type={type(price_data).__name__} keys={list(price_data.keys()) if isinstance(price_data, dict) else 'N/A'}", flush=True)
-    print(f"[DEBUG] analyze_ticker: price_data.get('quote') type={type(price_data.get('quote', 'MISSING')).__name__} val={str(price_data.get('quote', 'MISSING'))[:200]}", flush=True)
-    print(f"[DEBUG] analyze_ticker: news type={type(news).__name__} count={len(news) if isinstance(news, list) else 'N/A'} val={str(news)[:200]}", flush=True)
-    print(f"[DEBUG] analyze_ticker: sec_text len={len(sec_text)} val={sec_text[:100]}", flush=True)
-
     # Generate source IDs for citation tracking
     price_source_id = _make_source_id("yfinance", ticker)
     fundamentals_source_id = _make_source_id("yfinance", ticker)
