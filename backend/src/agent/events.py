@@ -29,6 +29,10 @@ class EventType(str, Enum):
     ANALYSIS_COMPLETE = "analysis_complete"
     RUN_COMPLETED = "run_completed"
     HEARTBEAT = "heartbeat"
+    # Adversarial debate events
+    DEBATE_STARTED = "debate_started"
+    DEBATE_TURN = "debate_turn"
+    DEBATE_VERDICT = "debate_verdict"
 
 
 class StreamEvent(BaseModel):
@@ -126,6 +130,7 @@ class EventEmitter:
         duration_ms: int = 0,
         source_id: str = "",
         node: str | None = None,
+        no_data: bool = False,
     ) -> StreamEvent:
         return self._emit(
             EventType.TOOL_RESULT,
@@ -137,6 +142,7 @@ class EventEmitter:
                 "cached": cached,
                 "duration_ms": duration_ms,
                 "source_id": source_id,
+                "no_data": no_data,
             },
         )
 
@@ -183,3 +189,58 @@ class EventEmitter:
 
     def heartbeat(self) -> StreamEvent:
         return self._emit(EventType.HEARTBEAT)
+
+    # Adversarial debate events
+
+    def debate_started(self, ticker: str, agents: list[str]) -> StreamEvent:
+        return self._emit(
+            EventType.DEBATE_STARTED,
+            node="debate",
+            payload={"ticker": ticker, "agents": agents},
+        )
+
+    def debate_turn(
+        self,
+        ticker: str,
+        role: str,
+        thesis: str,
+        confidence: str,
+        key_arguments: list[str],
+        turn_index: int,
+        duration_ms: int = 0,
+    ) -> StreamEvent:
+        return self._emit(
+            EventType.DEBATE_TURN,
+            node="debate",
+            payload={
+                "ticker": ticker,
+                "role": role,
+                "thesis": thesis,
+                "confidence": confidence,
+                "key_arguments": key_arguments,
+                "turn_index": turn_index,
+                "duration_ms": duration_ms,
+            },
+        )
+
+    def debate_verdict(
+        self,
+        ticker: str,
+        signal: str,
+        confidence: str,
+        verdict_rationale: str,
+        key_disagreements: list[str],
+        duration_ms: int = 0,
+    ) -> StreamEvent:
+        return self._emit(
+            EventType.DEBATE_VERDICT,
+            node="debate",
+            payload={
+                "ticker": ticker,
+                "signal": signal,
+                "confidence": confidence,
+                "verdict_rationale": verdict_rationale,
+                "key_disagreements": key_disagreements,
+                "duration_ms": duration_ms,
+            },
+        )

@@ -15,6 +15,10 @@ export type EventType =
   | 'analysis_complete'
   | 'run_completed'
   | 'heartbeat'
+  // Adversarial debate events
+  | 'debate_started'
+  | 'debate_turn'
+  | 'debate_verdict'
 
 export interface StreamEvent {
   run_id: string
@@ -32,6 +36,7 @@ export interface ToolResultPayload {
   cached: boolean
   duration_ms: number
   source_id: string
+  no_data?: boolean
 }
 
 export interface AnalysisCompletePayload {
@@ -67,4 +72,30 @@ export interface AnalysisOutput {
   fundamentals: Record<string, unknown>
   sec_notes: string
   news_summary?: string
+}
+
+// Debate-specific payload types
+
+export interface DebateStartedPayload {
+  ticker: string
+  agents: string[]
+}
+
+export interface DebateTurnPayload {
+  ticker: string
+  role: 'bull' | 'bear' | 'moderator'
+  thesis: string
+  confidence: 'high' | 'medium' | 'low'
+  key_arguments: string[]
+  turn_index: number
+  duration_ms: number
+}
+
+export interface DebateVerdictPayload {
+  ticker: string
+  signal: 'buy' | 'hold' | 'sell' | 'insufficient_data'
+  confidence: 'high' | 'medium' | 'low'
+  verdict_rationale: string
+  key_disagreements: string[]
+  duration_ms: number
 }

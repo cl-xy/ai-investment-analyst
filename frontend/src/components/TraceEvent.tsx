@@ -3,6 +3,7 @@ import type { StreamEvent, ToolResultPayload } from '../types/stream'
 import {
   CheckCircle2,
   XCircle,
+  MinusCircle,
   Circle,
   Loader2,
   Database,
@@ -92,7 +93,9 @@ function ToolResultEvent({ event }: { event: StreamEvent }) {
   return (
     <div className="pl-6">
       <div className="flex items-center gap-2 py-1">
-        {payload.success ? (
+        {payload.no_data ? (
+          <MinusCircle className="w-3 h-3 text-[var(--text-muted)]" />
+        ) : payload.success ? (
           <CheckCircle2 className="w-3 h-3 text-emerald-500" />
         ) : (
           <XCircle className="w-3 h-3 text-red-500" />
@@ -100,6 +103,11 @@ function ToolResultEvent({ event }: { event: StreamEvent }) {
         <span className="text-xs font-mono text-[var(--text-secondary)]">
           {payload.tool_name}
         </span>
+        {payload.no_data && (
+          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-[var(--surface)] text-[var(--text-muted)]">
+            no data
+          </span>
+        )}
         {payload.cached && (
           <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500">
             cached

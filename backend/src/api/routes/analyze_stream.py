@@ -6,7 +6,9 @@ Handles timeouts and real tool latency measurement.
 """
 
 import asyncio
+import json
 import time
+from collections import defaultdict
 
 from dotenv import load_dotenv
 
@@ -18,8 +20,10 @@ from langchain_core.messages import HumanMessage
 
 from src.agent.checkpointer import get_checkpointer
 from src.agent.concurrency import acquire_analysis_slot, release_analysis_slot
+from src.agent.debate_schemas import DEBATE_ROLES
 from src.agent.events import EventEmitter
 from src.agent.graph import build_graph
+from src.agent.json_utils import extract_json
 from src.api.schemas import VALID_TICKER_RE
 from src.api.shutdown import shutdown_coordinator
 from src.metrics import metrics
@@ -92,6 +96,9 @@ async def _run_agent(
 
     tickers_upper = [t.upper() for t in tickers]
     tool_start_times: dict[str, float] = {}
+    # Track debate LLM calls within the debate node
+    debate_llm_count: dict[str, int] = defaultdict(int)
+    debate_llm_start: float | None = None
 
     event = emitter.run_started(tickers_upper)
     await queue.put(event.to_sse())
@@ -128,6 +135,7 @@ async def _run_agent(
                         "router",
                         "fetch_data",
                         "analyze_ticker",
+                        "debate",
                         "generate_report",
                         "compare",
                         "chat",
@@ -161,7 +169,14 @@ async def _run_agent(
                             tool_start = time.monotonic()
                         duration_ms = int((time.monotonic() - tool_start) * 1000)
                         output = data.get("output", "")
-                        success = "error" not in str(output).lower()[:100]
+                        output_str = str(output).lower()[:200]
+                        success = "error" not in output_str
+
+                        # Distinguish "no data available" from genuine errors
+                        no_data = not success and any(
+                            phrase in output_str
+                            for phrase in ("no filings found", "not found", "no data", "unavailable")
+                        )
 
                         # Heuristic: sub-50ms responses are cache hits
                         # (real yfinance/newsapi/sec calls take 200ms+)
@@ -188,6 +203,7 @@ async def _run_agent(
                             duration_ms=duration_ms,
                             source_id=f"{tool_name}:{int(time.time())}",
                             node=current_node,
+                            no_data=no_data,
                         )
                         await queue.put(ev.to_sse())
 
@@ -198,7 +214,13 @@ async def _run_agent(
                             ev = emitter.llm_token(chunk.content, node=current_node)
                             await queue.put(ev.to_sse())
 
-                    # LLM completion: track tokens
+                    # LLM start: track debate timing
+                    elif kind == "on_chat_model_start":
+                        if current_node == "debate":
+                            nonlocal debate_llm_start
+                            debate_llm_start = time.monotonic()
+
+                    # LLM completion: track tokens + emit debate events
                     elif kind == "on_chat_model_end":
                         output = data.get("output")
                         if output and hasattr(output, "usage_metadata"):
@@ -209,6 +231,81 @@ async def _run_agent(
                                     completion=usage.get("output_tokens", 0),
                                 )
                         metrics.inc("llm_calls_total")
+
+                        # Emit debate turn events when inside the debate node
+                        if current_node == "debate" and output and hasattr(output, "content"):
+                            # Identify which ticker this LLM call belongs to by
+                            # parsing the ticker field from the JSON output. This is
+                            # robust to retries (which inflate the call count) since
+                            # the LLM always emits its target ticker in the response.
+                            _current_ticker = None
+                            try:
+                                parsed_output = extract_json(output.content)
+                                if isinstance(parsed_output, dict):
+                                    resp_ticker = parsed_output.get("ticker", "").upper()
+                                    if resp_ticker in tickers_upper:
+                                        _current_ticker = resp_ticker
+                            except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
+                                pass
+
+                            # Fallback: use counter-based heuristic if parsing failed
+                            if not _current_ticker:
+                                for t in tickers_upper:
+                                    if debate_llm_count[t] < 3:
+                                        _current_ticker = t
+                                        break
+
+                            if _current_ticker:
+                                count = debate_llm_count[_current_ticker]
+                                # Only advance the counter up to 3 (the expected
+                                # number of debate roles). Extra calls from retries
+                                # are ignored for event emission purposes.
+                                if count >= 3:
+                                    continue
+                                debate_llm_count[_current_ticker] = count + 1
+                                duration_ms = int((time.monotonic() - debate_llm_start) * 1000) if debate_llm_start else 0
+
+                                try:
+                                    turn_data = extract_json(output.content)
+                                except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
+                                    turn_data = {}
+
+                                role = DEBATE_ROLES[min(count, 2)]
+
+                                if count == 0:
+                                    ev = emitter.debate_started(_current_ticker, list(DEBATE_ROLES))
+                                    await queue.put(ev.to_sse())
+
+                                # Emit debate turn for all roles
+                                key_args = (
+                                    turn_data.get("bull_case", []) + turn_data.get("bear_case", [])
+                                    if count == 2
+                                    else turn_data.get("key_arguments", [])
+                                )
+                                ev = emitter.debate_turn(
+                                    ticker=_current_ticker,
+                                    role=role,
+                                    thesis=turn_data.get("thesis", ""),
+                                    confidence=turn_data.get("confidence", "medium"),
+                                    key_arguments=key_args,
+                                    turn_index=count,
+                                    duration_ms=duration_ms,
+                                )
+                                await queue.put(ev.to_sse())
+
+                                # Moderator also produces the verdict
+                                if count == 2:
+                                    ev = emitter.debate_verdict(
+                                        ticker=_current_ticker,
+                                        signal=turn_data.get("signal", "hold"),
+                                        confidence=turn_data.get("confidence", "medium"),
+                                        verdict_rationale=turn_data.get("verdict_rationale", ""),
+                                        key_disagreements=turn_data.get("key_disagreements", []),
+                                        duration_ms=duration_ms,
+                                    )
+                                    await queue.put(ev.to_sse())
+
+                                debate_llm_start = None
 
             try:
                 await asyncio.wait_for(_execute(), timeout=EXECUTION_TIMEOUT)
@@ -231,7 +328,11 @@ async def _run_agent(
             ticker_analyses = state_values.get("ticker_analyses", {})
 
             for ticker, analysis in ticker_analyses.items():
-                ev = emitter.analysis_complete(ticker, analysis)
+                # Strip internal debate fields from SSE payload
+                clean_analysis = {
+                    k: v for k, v in analysis.items() if not k.startswith("_")
+                }
+                ev = emitter.analysis_complete(ticker, clean_analysis)
                 await queue.put(ev.to_sse())
 
                 # Track schema quality
@@ -240,6 +341,20 @@ async def _run_agent(
                 tracker.record_schema_result(
                     valid=True, citations=citations_count, data_gaps=data_gaps_count
                 )
+
+            # Persist analyses + record predictions (non-blocking)
+            if ticker_analyses:
+                try:
+                    from src.api.persistence import persist_full_run
+
+                    report_md = state_values.get("report_markdown", "")
+                    await persist_full_run(tickers_upper, ticker_analyses, report_md)
+                except Exception as persist_err:
+                    import logging as _logging
+
+                    _logging.getLogger("analyze_stream").warning(
+                        "Persistence failed: %s", persist_err
+                    )
 
     except Exception as exc:
         metrics.inc("analyses_total", labels={"status": "error"})
