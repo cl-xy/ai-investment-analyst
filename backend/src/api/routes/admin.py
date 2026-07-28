@@ -87,6 +87,59 @@ async def purge_empty_cache(authorization: str | None = Header(default=None)):
     return {"status": "ok", "deleted": deleted}
 
 
+@router.get("/cache-inspect/{ticker}")
+async def inspect_cache(ticker: str, authorization: str | None = Header(default=None)):
+    """Inspect all cache entries for a ticker to diagnose data pipeline issues."""
+    _verify_token(authorization)
+
+    from src.db import fetch
+
+    rows = await fetch(
+        "SELECT key, data, source_id, provider, fetched_at, stale_at, expires_at FROM cache WHERE key LIKE $1",
+        f"%:{ticker.upper()}",
+    )
+    entries = []
+    for row in rows:
+        data = row["data"]
+        # Summarize the data (first 200 chars or key count)
+        if isinstance(data, dict):
+            summary = {k: ("..." if isinstance(v, (dict, list)) else v) for k, v in list(data.items())[:10]}
+        elif isinstance(data, list):
+            summary = f"[list of {len(data)} items]"
+        else:
+            summary = str(data)[:200]
+        entries.append({
+            "key": row["key"],
+            "provider": row["provider"],
+            "data_summary": summary,
+            "data_is_empty": data in ({}, [], "", None),
+            "fetched_at": str(row["fetched_at"]),
+            "stale_at": str(row["stale_at"]),
+            "expires_at": str(row["expires_at"]),
+        })
+    return {"ticker": ticker.upper(), "entries": entries, "count": len(entries)}
+
+
+@router.get("/tool-test/{ticker}")
+async def test_tool_live(ticker: str, authorization: str | None = Header(default=None)):
+    """Call get_quote directly (bypassing cache) to diagnose tool failures."""
+    _verify_token(authorization)
+
+    import asyncio
+    import time
+
+    from src.mcp_servers.market_server.sources.yfinance_client import get_quote
+
+    start = time.monotonic()
+    try:
+        result = await asyncio.to_thread(get_quote, ticker.upper())
+        duration_ms = int((time.monotonic() - start) * 1000)
+        return {"status": "ok", "duration_ms": duration_ms, "data": result}
+    except Exception as e:
+        duration_ms = int((time.monotonic() - start) * 1000)
+        return {"status": "error", "duration_ms": duration_ms, "error": str(e), "type": type(e).__name__}
+
+
 @router.get("/health/detailed")
 async def detailed_health():
     """Extended health check with system info (public, no auth)."""
