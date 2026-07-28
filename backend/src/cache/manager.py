@@ -86,6 +86,9 @@ class CacheManager:
                 # Invalidate cached error responses so they get re-fetched
                 if isinstance(data, dict) and "error" in data and len(data) <= 2:
                     _log.info("cache_invalidate_error key=%s", key)
+                # Invalidate empty responses (from previous silent failures)
+                elif data in ({}, [], "", None):
+                    _log.info("cache_invalidate_empty key=%s", key)
                 else:
                     stale_at = row["stale_at"]
                     source_id = row["source_id"]
@@ -108,6 +111,9 @@ class CacheManager:
         # Never cache error responses
         if isinstance(data, dict) and "error" in data and len(data) <= 2:
             raise RuntimeError(f"Tool returned error: {data.get('error')}")
+        # Never cache empty responses (transient failures that returned no data)
+        if data in ({}, [], "", None):
+            raise RuntimeError(f"Tool returned empty data for {key}")
         source_id = f"{provider}:{ticker}:{int(time.time())}"
         await self._store(key, data, source_id, provider, ttl, now)
         return data, source_id, False
@@ -138,6 +144,10 @@ class CacheManager:
                 _log.warning(
                     "background_refresh_got_error key=%s error=%s", key, data.get("error")
                 )
+                return
+            # Never cache empty responses in background refresh
+            if data in ({}, [], "", None):
+                _log.warning("background_refresh_got_empty key=%s", key)
                 return
             source_id = f"{provider}:{ticker}:{int(time.time())}"
             await self._store(key, data, source_id, provider, ttl, datetime.now(timezone.utc))

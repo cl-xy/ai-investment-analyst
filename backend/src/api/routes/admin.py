@@ -71,6 +71,22 @@ async def purge_failed_analyses(authorization: str | None = Header(default=None)
     return {"status": "ok", "deleted": deleted}
 
 
+@router.delete("/purge-empty-cache")
+async def purge_empty_cache(authorization: str | None = Header(default=None)):
+    """Delete cache entries with empty payloads that poison the data pipeline."""
+    _verify_token(authorization)
+
+    from src.db import execute
+
+    result = await execute(
+        """DELETE FROM cache WHERE
+           data::text IN ('{}', '[]', '""', 'null', '')
+           OR data IS NULL"""
+    )
+    deleted = int(result.split()[-1]) if result else 0
+    return {"status": "ok", "deleted": deleted}
+
+
 @router.get("/health/detailed")
 async def detailed_health():
     """Extended health check with system info (public, no auth)."""
