@@ -170,8 +170,15 @@ async def _run_agent(
                         tracker.record_tool_call(success=success, cached=is_cached)
 
                         # Record in metrics
-                        metrics.inc("tool_calls_total", labels={"tool": tool_name, "status": "success" if success else "error"})
-                        metrics.observe("tool_call_duration_seconds", duration_ms / 1000, labels={"tool": tool_name})
+                        metrics.inc(
+                            "tool_calls_total",
+                            labels={"tool": tool_name, "status": "success" if success else "error"},
+                        )
+                        metrics.observe(
+                            "tool_call_duration_seconds",
+                            duration_ms / 1000,
+                            labels={"tool": tool_name},
+                        )
 
                         ev = emitter.tool_result(
                             tool_name,
@@ -294,7 +301,9 @@ async def _stream_generator(
     stop_heartbeat = asyncio.Event()
     tracker = CostTracker(run_id=emitter.run_id, tickers=tickers)
 
-    agent_task = asyncio.create_task(_run_agent(tickers, emitter, queue, tracker, request.app.state.mcp_tools))
+    agent_task = asyncio.create_task(
+        _run_agent(tickers, emitter, queue, tracker, request.app.state.mcp_tools)
+    )
     shutdown_coordinator.register(agent_task)
     heartbeat_task = asyncio.create_task(_heartbeat(emitter, queue, stop_heartbeat))
 

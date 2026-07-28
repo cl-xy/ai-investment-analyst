@@ -45,7 +45,7 @@ def _unwrap(result) -> dict | list:
 
 def _is_error_response(data) -> bool:
     """Check if a response is an error dict that should not be treated as valid data."""
-    return isinstance(data, dict) and "error" in data and len(data) <= 2
+    return isinstance(data, dict) and "error" in data
 
 
 async def _call_tool_raw(tools: dict, name: str, **kwargs) -> tuple[dict | list, bool, int]:
@@ -236,9 +236,7 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
 
         return ticker, news, prices, filing_text, gaps
 
-    all_results = await asyncio.gather(
-        *[fetch_one(t) for t in tickers], return_exceptions=True
-    )
+    all_results = await asyncio.gather(*[fetch_one(t) for t in tickers], return_exceptions=True)
 
     raw_news = {}
     raw_prices = {}

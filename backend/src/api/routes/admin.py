@@ -64,9 +64,7 @@ async def purge_failed_analyses(authorization: str | None = Header(default=None)
 
     from src.db import execute
 
-    result = await execute(
-        "DELETE FROM ticker_analyses WHERE signal = 'insufficient_data'"
-    )
+    result = await execute("DELETE FROM ticker_analyses WHERE signal = 'insufficient_data'")
     deleted = int(result.split()[-1]) if result else 0
     return {"status": "ok", "deleted": deleted}
 
@@ -103,20 +101,24 @@ async def inspect_cache(ticker: str, authorization: str | None = Header(default=
         data = row["data"]
         # Summarize the data (first 200 chars or key count)
         if isinstance(data, dict):
-            summary = {k: ("..." if isinstance(v, (dict, list)) else v) for k, v in list(data.items())[:10]}
+            summary = {
+                k: ("..." if isinstance(v, (dict, list)) else v) for k, v in list(data.items())[:10]
+            }
         elif isinstance(data, list):
             summary = f"[list of {len(data)} items]"
         else:
             summary = str(data)[:200]
-        entries.append({
-            "key": row["key"],
-            "provider": row["provider"],
-            "data_summary": summary,
-            "data_is_empty": data in ({}, [], "", None),
-            "fetched_at": str(row["fetched_at"]),
-            "stale_at": str(row["stale_at"]),
-            "expires_at": str(row["expires_at"]),
-        })
+        entries.append(
+            {
+                "key": row["key"],
+                "provider": row["provider"],
+                "data_summary": summary,
+                "data_is_empty": data in ({}, [], "", None),
+                "fetched_at": str(row["fetched_at"]),
+                "stale_at": str(row["stale_at"]),
+                "expires_at": str(row["expires_at"]),
+            }
+        )
     return {"ticker": ticker.upper(), "entries": entries, "count": len(entries)}
 
 
@@ -137,7 +139,12 @@ async def test_tool_live(ticker: str, authorization: str | None = Header(default
         return {"status": "ok", "duration_ms": duration_ms, "data": result}
     except Exception as e:
         duration_ms = int((time.monotonic() - start) * 1000)
-        return {"status": "error", "duration_ms": duration_ms, "error": str(e), "type": type(e).__name__}
+        return {
+            "status": "error",
+            "duration_ms": duration_ms,
+            "error": str(e),
+            "type": type(e).__name__,
+        }
 
 
 @router.get("/health/detailed")

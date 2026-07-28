@@ -62,7 +62,9 @@ async def _chat_stream_generator(message: str, thread_id: str, request: Request)
 
                     elif kind == "on_tool_end":
                         name = event_data.get("name", "")
-                        ev = emitter.tool_result(name, success=True, cached=False, duration_ms=0, source_id="")
+                        ev = emitter.tool_result(
+                            name, success=True, cached=False, duration_ms=0, source_id=""
+                        )
                         yield ev.to_sse()
         except TimeoutError:
             ev = emitter.error("Chat stream timed out")
@@ -91,7 +93,7 @@ async def chat_stream(
             headers={"Retry-After": "10"},
         )
 
-    if not re.match(r'^[a-zA-Z0-9_-]{1,64}$', thread_id):
+    if not re.match(r"^[a-zA-Z0-9_-]{1,64}$", thread_id):
         return JSONResponse(status_code=400, content={"error": "Invalid thread_id format"})
 
     if not message.strip():

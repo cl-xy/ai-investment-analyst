@@ -45,10 +45,16 @@ class DemoAuthMiddleware(BaseHTTPMiddleware):
         method = request.method
 
         # Protect write operations on dashboard (DELETE)
-        is_dashboard_write = path.startswith("/api/dashboard") and method in ("DELETE", "PUT", "PATCH")
+        is_dashboard_write = path.startswith("/api/dashboard") and method in (
+            "DELETE",
+            "PUT",
+            "PATCH",
+        )
 
         # Skip auth for non-protected paths (unless it's a dashboard write)
-        if not is_dashboard_write and not any(path.startswith(prefix) for prefix in self.PROTECTED_PREFIXES):
+        if not is_dashboard_write and not any(
+            path.startswith(prefix) for prefix in self.PROTECTED_PREFIXES
+        ):
             return await call_next(request)
 
         # Check credentials

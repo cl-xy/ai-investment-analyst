@@ -54,7 +54,9 @@ def _redact_sensitive(logger, method_name, event_dict):
             event_dict[key] = _REDACTED
         elif isinstance(event_dict[key], str) and len(event_dict[key]) > 20:
             # Redact values that look like tokens/keys (long strings in known patterns)
-            if key in ("value", "header") and _SENSITIVE_PATTERN.search(str(event_dict.get("event", ""))):
+            if key in ("value", "header") and _SENSITIVE_PATTERN.search(
+                str(event_dict.get("event", ""))
+            ):
                 event_dict[key] = _REDACTED
     return event_dict
 
@@ -99,4 +101,3 @@ def setup_logging(json_output: bool = True, level: str = "INFO"):
 def get_logger(name: str = ""):
     """Get a structured logger instance."""
     return structlog.get_logger(name)
-

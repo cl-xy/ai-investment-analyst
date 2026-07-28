@@ -12,8 +12,13 @@ class TickerAnalysis(TypedDict):
     signal: Literal["buy", "hold", "sell", "insufficient_data"]
     confidence: Literal["high", "medium", "low"]
     sentiment_score: float
+    thesis: str
+    bull_case: list[str]
+    bear_case: list[str]
     news_summary: str
     risk_flags: list[str]
+    citations: list[dict]
+    data_gaps: list[str]
     price_data: dict
     fundamentals: dict
     sec_notes: str

@@ -34,7 +34,10 @@ async def get_backtest_data():
     )
 
     if not rows:
-        return {"signals": [], "summary": {"total": 0, "buy_count": 0, "hold_count": 0, "sell_count": 0}}
+        return {
+            "signals": [],
+            "summary": {"total": 0, "buy_count": 0, "hold_count": 0, "sell_count": 0},
+        }
 
     # For a portfolio piece, we compute simulated returns
     # In production this would fetch real price data
@@ -43,15 +46,17 @@ async def get_backtest_data():
         created = row["created_at"]
         days_ago = (datetime.now(timezone.utc) - created).days
 
-        signals.append({
-            "ticker": row["ticker"],
-            "signal": row["signal"],
-            "confidence": row["confidence"],
-            "sentiment_score": row["sentiment_score"],
-            "signal_date": created.isoformat(),
-            "days_held": days_ago,
-            "analysis_id": str(row["analysis_id"]),
-        })
+        signals.append(
+            {
+                "ticker": row["ticker"],
+                "signal": row["signal"],
+                "confidence": row["confidence"],
+                "sentiment_score": row["sentiment_score"],
+                "signal_date": created.isoformat(),
+                "days_held": days_ago,
+                "analysis_id": str(row["analysis_id"]),
+            }
+        )
 
     return {
         "signals": signals,

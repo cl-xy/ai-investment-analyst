@@ -72,9 +72,7 @@ class CircuitBreaker:
         async with self._lock:
             state = self.state
             if state == CircuitState.OPEN:
-                retry_after = self.recovery_seconds - (
-                    time.monotonic() - self._last_failure_time
-                )
+                retry_after = self.recovery_seconds - (time.monotonic() - self._last_failure_time)
                 raise CircuitBreakerOpen(retry_after=max(0, retry_after))
 
             if state == CircuitState.HALF_OPEN:

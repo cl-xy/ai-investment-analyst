@@ -35,9 +35,7 @@ class ShutdownCoordinator:
             return
 
         log.info("draining", active=len(self._active_streams), timeout=self._drain_timeout)
-        done, pending = await asyncio.wait(
-            self._active_streams, timeout=self._drain_timeout
-        )
+        done, pending = await asyncio.wait(self._active_streams, timeout=self._drain_timeout)
         if pending:
             log.warning("drain_timeout", cancelled=len(pending))
             for task in pending:

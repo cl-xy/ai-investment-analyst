@@ -54,5 +54,3 @@ class RouterOutput(BaseModel):
     ]
     tickers: list[str] = Field(default_factory=list)
     reasoning: str = Field(default="", description="Brief explanation of classification")
-
-

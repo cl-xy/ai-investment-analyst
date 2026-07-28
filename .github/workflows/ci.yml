@@ -132,6 +132,7 @@ jobs:
         run: |
           pip install pip-audit
           pip install -e .
+          pip install "setuptools>=83.0.0"
           pip-audit
       - name: Audit frontend dependencies
         working-directory: frontend

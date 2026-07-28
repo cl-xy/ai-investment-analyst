@@ -27,6 +27,7 @@ from ..schemas import AnalyzeRequest, AnalyzeResponse, TickerAnalysis
 
 router = APIRouter()
 
+
 async def _run_analysis(tickers: list[str], mcp_tools: dict) -> dict:
     tickers_upper = [t.upper() for t in tickers]
     message = f"Analyze these stocks: {', '.join(tickers_upper)}"
@@ -92,7 +93,9 @@ def _normalise_tickers(raw_tickers: list[str]) -> list[str]:
     return tickers
 
 
-async def analyze_tickers(tickers: list[str], mcp_tools: dict, *, force_refresh: bool = False) -> AnalyzeResponse:
+async def analyze_tickers(
+    tickers: list[str], mcp_tools: dict, *, force_refresh: bool = False
+) -> AnalyzeResponse:
     normalised_tickers = _normalise_tickers(tickers)
 
     if not normalised_tickers:

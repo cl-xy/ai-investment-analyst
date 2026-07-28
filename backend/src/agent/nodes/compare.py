@@ -96,6 +96,7 @@ async def compare_node(state: InvestmentAnalystState) -> dict:
 
     try:
         from ..rate_limiter import acquire_or_raise
+
         await acquire_or_raise()
 
         response = await _get_llm().ainvoke(

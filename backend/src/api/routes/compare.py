@@ -31,9 +31,7 @@ async def compare_tickers(
 
     invalid = [t for t in ticker_list if not VALID_TICKER_RE.match(t)]
     if invalid:
-        raise HTTPException(
-            status_code=400, detail=f"Invalid ticker symbols: {', '.join(invalid)}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid ticker symbols: {', '.join(invalid)}")
 
     # Run analysis (will use cache if available)
     mcp_tools = request.app.state.mcp_tools

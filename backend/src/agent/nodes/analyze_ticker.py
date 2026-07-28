@@ -40,15 +40,13 @@ def _is_retryable_error(exc: BaseException) -> bool:
     # Rate limit (429) or server errors (500, 502, 503)
     # Use word-boundary-aware matching to avoid false positives (e.g. port 5003)
     import re
-    if re.search(r'\b(429|500|502|503)\b', exc_str):
+
+    if re.search(r"\b(429|500|502|503)\b", exc_str):
         return True
     if "rate limit" in exc_str:
         return True
     # Retry generic connection/timeout errors
-    if any(
-        term in exc_str
-        for term in ("timeout", "connection", "temporary", "unavailable")
-    ):
+    if any(term in exc_str for term in ("timeout", "connection", "temporary", "unavailable")):
         return True
     return False
 
@@ -144,15 +142,24 @@ async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
             "signal": "insufficient_data",
             "confidence": "low",
             "sentiment_score": 0.0,
+            "thesis": "",
+            "bull_case": [],
+            "bear_case": [],
             "news_summary": "LLM service temporarily unavailable (circuit breaker open)",
             "risk_flags": [],
+            "citations": [],
+            "data_gaps": ["LLM service temporarily unavailable (circuit breaker open)"],
             "price_data": price_data.get("quote", {}),
             "fundamentals": price_data.get("fundamentals", {}),
             "sec_notes": "",
         }
         existing = dict(state.get("ticker_analyses", {}))
         existing[ticker] = analysis
-        return {"ticker_analyses": existing, "current_ticker": ticker, "data_gaps": ["LLM service temporarily unavailable (circuit breaker open)"]}
+        return {
+            "ticker_analyses": existing,
+            "current_ticker": ticker,
+            "data_gaps": ["LLM service temporarily unavailable (circuit breaker open)"],
+        }
 
     # Try Pydantic validation first (structured output path)
     try:
@@ -203,14 +210,21 @@ async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
                     fundamentals=price_data.get("fundamentals", {}),
                 )
 
-    # Convert to state-compatible TickerAnalysis dict
+    # Convert to state-compatible TickerAnalysis dict (preserve all fields)
     analysis: TickerAnalysis = {
         "ticker": output.ticker,
         "signal": output.signal,
         "confidence": output.confidence,
         "sentiment_score": output.sentiment_score,
+        "thesis": output.thesis or "",
+        "bull_case": output.bull_case or [],
+        "bear_case": output.bear_case or [],
         "news_summary": output.news_summary or output.thesis,
         "risk_flags": output.risk_flags,
+        "citations": [
+            c.model_dump() if hasattr(c, "model_dump") else c for c in (output.citations or [])
+        ],
+        "data_gaps": output.data_gaps or [],
         "price_data": output.price_data or price_data.get("quote", {}),
         "fundamentals": output.fundamentals or price_data.get("fundamentals", {}),
         "sec_notes": output.sec_notes,

@@ -133,7 +133,9 @@ class MetricsRegistry:
         if isinstance(counter, Counter):
             counter.inc(labels, amount)
 
-    def observe(self, histogram_name: str, value: float, labels: dict[str, str] | None = None) -> None:
+    def observe(
+        self, histogram_name: str, value: float, labels: dict[str, str] | None = None
+    ) -> None:
         """Record an observation in a histogram by name."""
         hist = getattr(self, histogram_name, None)
         if isinstance(hist, Histogram):

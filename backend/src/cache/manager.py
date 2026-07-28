@@ -149,17 +149,13 @@ class CacheManager:
             from src.cache.budget import check_budget
 
             if not await check_budget(provider):
-                _log.info(
-                    "background_refresh_skipped_budget key=%s provider=%s", key, provider
-                )
+                _log.info("background_refresh_skipped_budget key=%s provider=%s", key, provider)
                 return
 
             data = _normalize(await fetch_fn())
             # Never cache error responses in background refresh either
             if isinstance(data, dict) and "error" in data and len(data) <= 2:
-                _log.warning(
-                    "background_refresh_got_error key=%s error=%s", key, data.get("error")
-                )
+                _log.warning("background_refresh_got_error key=%s error=%s", key, data.get("error"))
                 return
             # Never cache empty responses in background refresh
             if data in ({}, [], "", None):
