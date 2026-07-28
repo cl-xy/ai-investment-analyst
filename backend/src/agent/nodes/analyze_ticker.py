@@ -104,6 +104,15 @@ async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
     news = state.get("raw_news", {}).get(ticker, [])
     sec_text = state.get("raw_filings", {}).get(ticker, "") or "Not available."
 
+    log.info(
+        "analyze_ticker_node: ticker=%s price_data_keys=%s news_count=%d sec_len=%d raw_prices_keys=%s",
+        ticker,
+        list(price_data.keys()) if isinstance(price_data, dict) else type(price_data).__name__,
+        len(news) if isinstance(news, list) else -1,
+        len(sec_text),
+        list(state.get("raw_prices", {}).keys()),
+    )
+
     # Generate source IDs for citation tracking
     price_source_id = _make_source_id("yfinance", ticker)
     fundamentals_source_id = _make_source_id("yfinance", ticker)
