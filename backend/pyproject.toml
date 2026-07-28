@@ -13,7 +13,7 @@ dependencies = [
     "langchain-openai>=0.3.0",
     "langchain-mcp-adapters>=0.1.0",
     # MCP server framework
-    "fastmcp>=2.0.0",
+    "fastmcp>=3.4.4",
     # Financial data
     "yfinance>=0.2.50",
     "feedparser>=6.0.11",
