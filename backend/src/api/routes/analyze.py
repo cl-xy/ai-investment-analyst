@@ -22,7 +22,8 @@ from langchain_core.messages import HumanMessage
 from src.agent.checkpointer import get_checkpointer
 from src.agent.concurrency import acquire_analysis_slot, release_analysis_slot
 from src.agent.graph import build_graph
-from src.db import fetchrow, get_pool
+from src.api.persistence import persist_full_run
+from src.db import fetchrow
 
 from ..schemas import VALID_TICKER_RE, AnalyzeRequest, AnalyzeResponse, TickerAnalysis
 
@@ -111,6 +112,7 @@ async def analyze_tickers(
 
     analyses: dict[str, TickerAnalysis] = dict(cached_analyses)
     report_markdown = ""
+    raw_analyses: dict = {}
 
     if new_tickers:
         try:
@@ -133,48 +135,34 @@ async def analyze_tickers(
             )
         report_markdown = result.get("report_markdown", "")
 
-    # Persist to PostgreSQL (transactional)
-    created_at = datetime.now(timezone.utc)
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        async with conn.transaction():
-            row = await conn.fetchrow(
-                """
-                INSERT INTO analyses (tickers, report_markdown, created_at)
-                VALUES ($1, $2, $3)
-                RETURNING id
-                """,
-                normalised_tickers,
-                report_markdown,
-                created_at,
+    # Persist to PostgreSQL with debate fields + predictions
+    raw_for_persist = {}
+    for ticker, ta in analyses.items():
+        if ticker not in new_tickers and ticker in cached_analyses:
+            continue
+        if new_tickers and ticker in raw_analyses:
+            raw_for_persist[ticker] = raw_analyses[ticker]
+        else:
+            dumped = ta.model_dump(
+                include={"ticker", "signal", "confidence", "sentiment_score",
+                         "news_summary", "risk_flags", "price_data", "fundamentals", "sec_notes"}
             )
-            analysis_id = row["id"]
+            dumped.setdefault("thesis", "")
+            dumped.setdefault("bull_case", [])
+            dumped.setdefault("bear_case", [])
+            raw_for_persist[ticker] = dumped
 
-            for ticker, ta in analyses.items():
-                # Don't persist transient failures; they'd poison the cache
-                if ta.signal == "insufficient_data":
-                    continue
-                # Skip cached analyses (already persisted in a prior request)
-                if ticker not in new_tickers and ticker in cached_analyses:
-                    continue
-                await conn.execute(
-                    """
-                    INSERT INTO ticker_analyses (
-                        analysis_id, ticker, signal, confidence, sentiment_score,
-                        news_summary, risk_flags, price_data, fundamentals, sec_notes
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                    """,
-                    analysis_id,
-                    ta.ticker,
-                    ta.signal,
-                    ta.confidence,
-                    ta.sentiment_score,
-                    ta.news_summary,
-                    json.dumps(ta.risk_flags),
-                    json.dumps(ta.price_data),
-                    json.dumps(ta.fundamentals),
-                    ta.sec_notes,
-                )
+    created_at = datetime.now(timezone.utc)
+
+    try:
+        analysis_id = await persist_full_run(
+            normalised_tickers, raw_for_persist, report_markdown
+        )
+    except Exception:
+        # Persistence failure should not block the response; the analysis
+        # itself succeeded. Use a generated id so the client still gets a
+        # valid response shape.
+        analysis_id = uuid.uuid4()
 
     return AnalyzeResponse(
         id=str(analysis_id),

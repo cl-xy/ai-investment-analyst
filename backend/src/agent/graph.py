@@ -22,6 +22,7 @@ from langgraph.graph import END, START, StateGraph
 from .nodes.analyze_ticker import analyze_ticker_node
 from .nodes.chat import chat_node
 from .nodes.compare import compare_node
+from .nodes.debate import debate_ticker_node
 from .nodes.fetch_data import fetch_data_node
 from .nodes.generate_report import generate_report_node
 from .nodes.portfolio_ops import portfolio_ops_node
@@ -40,13 +41,13 @@ def _route_after_router(
     return "chat"
 
 
-def _route_after_analyze(
+def _route_after_debate(
     state: InvestmentAnalystState,
-) -> Literal["analyze_ticker", "generate_report"]:
+) -> Literal["debate", "generate_report"]:
     analyzed = set(state.get("ticker_analyses", {}).keys())
     remaining = [t for t in state.get("tickers_to_analyze", []) if t not in analyzed]
     if remaining:
-        return "analyze_ticker"
+        return "debate"
     return "generate_report"
 
 
@@ -60,7 +61,7 @@ def build_graph(mcp_tools: dict) -> StateGraph:
 
     graph.add_node("router", router_node)
     graph.add_node("fetch_data", fetch_node)
-    graph.add_node("analyze_ticker", analyze_ticker_node)
+    graph.add_node("debate", debate_ticker_node)
     graph.add_node("generate_report", generate_report_node)
     graph.add_node("compare", compare_node)
     graph.add_node("chat", chat_node_bound)
@@ -78,13 +79,13 @@ def build_graph(mcp_tools: dict) -> StateGraph:
         },
     )
 
-    graph.add_edge("fetch_data", "analyze_ticker")
+    graph.add_edge("fetch_data", "debate")
 
     graph.add_conditional_edges(
-        "analyze_ticker",
-        _route_after_analyze,
+        "debate",
+        _route_after_debate,
         {
-            "analyze_ticker": "analyze_ticker",
+            "debate": "debate",
             "generate_report": "generate_report",
         },
     )

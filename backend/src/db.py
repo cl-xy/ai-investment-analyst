@@ -80,14 +80,41 @@ CREATE TABLE IF NOT EXISTS ticker_analyses (
     signal          TEXT NOT NULL DEFAULT 'insufficient_data',
     confidence      TEXT NOT NULL DEFAULT 'low',
     sentiment_score DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    thesis          TEXT NOT NULL DEFAULT '',
+    bull_case       JSONB NOT NULL DEFAULT '[]',
+    bear_case       JSONB NOT NULL DEFAULT '[]',
     news_summary    TEXT NOT NULL DEFAULT '',
     risk_flags      JSONB NOT NULL DEFAULT '[]',
     price_data      JSONB NOT NULL DEFAULT '{}',
     fundamentals    JSONB NOT NULL DEFAULT '{}',
-    sec_notes       TEXT NOT NULL DEFAULT ''
+    sec_notes       TEXT NOT NULL DEFAULT '',
+    debate          JSONB,
+    verdict_rationale TEXT NOT NULL DEFAULT '',
+    key_disagreements JSONB NOT NULL DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS idx_ticker_analyses_ticker ON ticker_analyses(ticker);
 CREATE INDEX IF NOT EXISTS idx_ticker_analyses_analysis_id ON ticker_analyses(analysis_id);
+
+-- Predictions (Layer 3: track record and calibration)
+CREATE TABLE IF NOT EXISTS predictions (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    analysis_id     UUID REFERENCES analyses(id) ON DELETE SET NULL,
+    ticker          TEXT NOT NULL,
+    signal          TEXT NOT NULL,
+    confidence      TEXT NOT NULL,
+    sentiment_score DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    thesis          TEXT NOT NULL DEFAULT '',
+    price_at_prediction DOUBLE PRECISION,
+    horizon_days    INTEGER NOT NULL DEFAULT 30,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    resolved_at     TIMESTAMPTZ,
+    outcome_price   DOUBLE PRECISION,
+    realized_return DOUBLE PRECISION,
+    outcome         TEXT  -- 'correct', 'incorrect', 'neutral', NULL if unresolved
+);
+CREATE INDEX IF NOT EXISTS idx_predictions_ticker ON predictions(ticker);
+CREATE INDEX IF NOT EXISTS idx_predictions_created_at ON predictions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_predictions_unresolved ON predictions(resolved_at) WHERE resolved_at IS NULL;
 
 -- Runs (cost/latency tracking)
 CREATE TABLE IF NOT EXISTS runs (
