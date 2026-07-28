@@ -7,8 +7,14 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # LLM
-    groq_api_key: str = ""
+    groq_api_key: str = ""  # legacy, kept for backward compat
+    openrouter_api_key: str = ""
     xai_api_key: str = ""  # legacy, kept for backward compat
+
+    # LLM models
+    llm_base_url: str = "https://openrouter.ai/api/v1"
+    llm_model: str = "nvidia/nemotron-3-super-120b-a12b:free"
+    llm_router_model: str = "openai/gpt-oss-20b:free"
 
     # External APIs
     news_api_key: str = ""

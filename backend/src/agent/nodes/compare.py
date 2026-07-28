@@ -62,12 +62,14 @@ Be concise, evidence-based, and acknowledge when differences are marginal."""
 
 @cache
 def _get_llm() -> ChatOpenAI:
+    from ...config import settings
+    api_key = settings.openrouter_api_key or os.environ.get("OPENROUTER_API_KEY", "")
     return ChatOpenAI(
-        model="openai/gpt-oss-120b",
+        model=settings.llm_model,
         temperature=0,
         max_tokens=2048,  # type: ignore[call-arg]
-        base_url="https://api.groq.com/openai/v1",
-        api_key=os.environ.get("GROQ_API_KEY", ""),  # type: ignore[arg-type]
+        base_url=settings.llm_base_url,
+        api_key=api_key,  # type: ignore[arg-type]
         model_kwargs={"response_format": {"type": "json_object"}},
         request_timeout=60,  # type: ignore[call-arg]
     )

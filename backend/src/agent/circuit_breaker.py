@@ -64,7 +64,7 @@ class CircuitBreaker:
 
     async def call(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Execute func through the circuit breaker with rate limiting."""
-        from .rate_limiter import groq_limiter
+        from .rate_limiter import llm_limiter
 
         # Acquire lock to atomically read state and claim probe slot if HALF_OPEN.
         # This prevents the thundering-herd problem where multiple coroutines all
@@ -85,7 +85,7 @@ class CircuitBreaker:
                 log.info("circuit_half_open_probe", breaker=self.name)
 
         # Acquire rate limiter slot before calling
-        acquired = await groq_limiter.acquire(timeout=30.0)
+        acquired = await llm_limiter.acquire(timeout=30.0)
         if not acquired:
             # Rate limiter exhaustion is a throttling signal, not an API failure.
             # Don't count it toward circuit breaker failures — just reject this call.
@@ -130,9 +130,12 @@ class CircuitBreaker:
 
 
 # Singleton for the LLM provider
-groq_breaker = CircuitBreaker(
-    name="groq_api",
+llm_breaker = CircuitBreaker(
+    name="llm_api",
     failure_threshold=5,
     window_seconds=60.0,
     recovery_seconds=30.0,
 )
+
+# Keep backward-compat alias
+groq_breaker = llm_breaker

@@ -1,7 +1,7 @@
 """
-Global Groq rate limiter. Process-wide token bucket for the 30 req/min free tier.
+Global LLM rate limiter. Process-wide token bucket for OpenRouter free tier (20 req/min).
 
-All LLM calls should acquire a slot before invoking Groq to prevent
+All LLM calls should acquire a slot before invoking the provider to prevent
 cascading 429s across concurrent analyses, chats, and scheduled jobs.
 """
 
@@ -47,9 +47,12 @@ class TokenBucket:
         self._last_refill = now
 
 
-# Groq free tier: 30 req/min = 0.5 req/sec
-# Use 28/min (0.467/sec) with burst capacity of 5 to leave headroom
-groq_limiter = TokenBucket(rate=28.0 / 60.0, capacity=5)
+# OpenRouter free tier: 20 req/min = 0.333 req/sec
+# Use 18/min (0.3/sec) with burst capacity of 5 to leave headroom
+llm_limiter = TokenBucket(rate=18.0 / 60.0, capacity=5)
+
+# Keep backward-compat alias
+groq_limiter = llm_limiter
 
 
 class RateLimitExceeded(Exception):
@@ -62,5 +65,5 @@ class RateLimitExceeded(Exception):
 
 async def acquire_or_raise(timeout: float = 30.0) -> None:
     """Acquire a rate limiter slot or raise RateLimitExceeded."""
-    if not await groq_limiter.acquire(timeout=timeout):
+    if not await llm_limiter.acquire(timeout=timeout):
         raise RateLimitExceeded(timeout)
