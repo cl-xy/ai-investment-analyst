@@ -30,6 +30,7 @@ export default function BacktestPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
+  const [signalFilter, setSignalFilter] = useState<'all' | 'buy' | 'hold' | 'sell'>('all')
   const [sortField, setSortField] = useState<'ticker' | 'signal' | 'date'>('date')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
@@ -99,9 +100,11 @@ export default function BacktestPage() {
   }
 
   const filteredSignals = useMemo(() => {
-    let signals = data.signals.filter((s) =>
-      s.ticker.toLowerCase().includes(searchTerm.toLowerCase())
-    )
+    let signals = data.signals.filter((s) => {
+      const matchesTicker = s.ticker.toLowerCase().includes(searchTerm.toLowerCase())
+      const matchesSignal = signalFilter === 'all' || s.signal === signalFilter
+      return matchesTicker && matchesSignal
+    })
     signals.sort((a, b) => {
       let cmp = 0
       if (sortField === 'ticker') cmp = a.ticker.localeCompare(b.ticker)
@@ -110,7 +113,7 @@ export default function BacktestPage() {
       return sortDir === 'asc' ? cmp : -cmp
     })
     return signals
-  }, [data.signals, searchTerm, sortField, sortDir])
+  }, [data.signals, searchTerm, signalFilter, sortField, sortDir])
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
@@ -121,32 +124,52 @@ export default function BacktestPage() {
         </p>
       </div>
 
-      {/* Summary cards */}
+      {/* Summary cards (clickable filters) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-4">
+        <button
+          onClick={() => setSignalFilter(signalFilter === 'all' ? 'all' : 'all')}
+          className={`rounded-lg border bg-[var(--surface-elevated)] p-4 text-left transition-all cursor-pointer ${signalFilter === 'all' ? 'border-[var(--accent)] ring-1 ring-[var(--accent)]' : 'border-[var(--border)] hover:border-[var(--text-muted)]'}`}
+          aria-pressed={signalFilter === 'all'}
+          aria-label="Show all signals"
+        >
           <p className="text-xs text-[var(--text-muted)] uppercase tracking-wider">Total Signals</p>
           <p className="text-2xl font-semibold font-mono text-[var(--text-primary)] mt-1">
             {data.summary.total}
           </p>
-        </div>
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-4">
+        </button>
+        <button
+          onClick={() => setSignalFilter(signalFilter === 'buy' ? 'all' : 'buy')}
+          className={`rounded-lg border bg-[var(--surface-elevated)] p-4 text-left transition-all cursor-pointer ${signalFilter === 'buy' ? 'border-emerald-500 ring-1 ring-emerald-500' : 'border-[var(--border)] hover:border-emerald-500/50'}`}
+          aria-pressed={signalFilter === 'buy'}
+          aria-label="Filter by buy signals"
+        >
           <p className="text-xs text-emerald-500 uppercase tracking-wider">Buy</p>
           <p className="text-2xl font-semibold font-mono text-emerald-500 mt-1">
             {data.summary.buy_count}
           </p>
-        </div>
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-4">
+        </button>
+        <button
+          onClick={() => setSignalFilter(signalFilter === 'hold' ? 'all' : 'hold')}
+          className={`rounded-lg border bg-[var(--surface-elevated)] p-4 text-left transition-all cursor-pointer ${signalFilter === 'hold' ? 'border-amber-500 ring-1 ring-amber-500' : 'border-[var(--border)] hover:border-amber-500/50'}`}
+          aria-pressed={signalFilter === 'hold'}
+          aria-label="Filter by hold signals"
+        >
           <p className="text-xs text-amber-500 uppercase tracking-wider">Hold</p>
           <p className="text-2xl font-semibold font-mono text-amber-500 mt-1">
             {data.summary.hold_count}
           </p>
-        </div>
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-4">
+        </button>
+        <button
+          onClick={() => setSignalFilter(signalFilter === 'sell' ? 'all' : 'sell')}
+          className={`rounded-lg border bg-[var(--surface-elevated)] p-4 text-left transition-all cursor-pointer ${signalFilter === 'sell' ? 'border-red-500 ring-1 ring-red-500' : 'border-[var(--border)] hover:border-red-500/50'}`}
+          aria-pressed={signalFilter === 'sell'}
+          aria-label="Filter by sell signals"
+        >
           <p className="text-xs text-red-500 uppercase tracking-wider">Sell</p>
           <p className="text-2xl font-semibold font-mono text-red-500 mt-1">
             {data.summary.sell_count}
           </p>
-        </div>
+        </button>
       </div>
 
       {/* Search bar */}
@@ -158,6 +181,15 @@ export default function BacktestPage() {
           aria-label="Search signals by ticker"
           className="flex-1 max-w-xs"
         />
+        {signalFilter !== 'all' && (
+          <button
+            onClick={() => setSignalFilter('all')}
+            className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${signalColor(signalFilter)}`}
+            aria-label="Clear signal filter"
+          >
+            {signalFilter.toUpperCase()} &times;
+          </button>
+        )}
         <span className="text-xs text-[var(--text-muted)]">
           {filteredSignals.length} signal{filteredSignals.length !== 1 ? 's' : ''}
         </span>
@@ -183,10 +215,14 @@ export default function BacktestPage() {
                 <tr key={i} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]">
                   <td className="px-4 py-3 font-mono font-medium text-[var(--text-primary)]">{s.ticker}</td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${signalColor(s.signal)}`}>
+                    <button
+                      onClick={() => setSignalFilter(signalFilter === s.signal ? 'all' : s.signal)}
+                      className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full cursor-pointer transition-opacity hover:opacity-80 ${signalColor(s.signal)}`}
+                      aria-label={`Filter by ${s.signal} signals`}
+                    >
                       {signalIcon(s.signal)}
                       {s.signal.toUpperCase()}
-                    </span>
+                    </button>
                   </td>
                   <td className="px-4 py-3 text-[var(--text-secondary)] capitalize">{s.confidence}</td>
                   <td className="px-4 py-3 font-mono text-[var(--text-secondary)]">
