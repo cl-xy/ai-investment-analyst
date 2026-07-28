@@ -278,16 +278,16 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     ctx = _build_data_context(ticker, state)
     price_data = ctx["raw_price_data"]
 
-    log.info("debate_starting", ticker=ticker)
+    log.info("debate_starting ticker=%s", ticker)
 
     # Run bull agent
     bull_start = time.monotonic()
     try:
         bull = await _run_bull_agent(ctx)
         bull_duration = int((time.monotonic() - bull_start) * 1000)
-        log.info("bull_complete", ticker=ticker, confidence=bull.confidence, ms=bull_duration)
+        log.info("bull_complete ticker=%s confidence=%s ms=%d", ticker, bull.confidence, bull_duration)
     except (CircuitBreakerOpen, Exception) as e:
-        log.warning("bull_failed", ticker=ticker, error=str(e))
+        log.warning("bull_failed ticker=%s error=%s", ticker, e)
         # Fallback: create minimal analysis without debate
         analysis: TickerAnalysis = {
             "ticker": ticker,
@@ -317,9 +317,9 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     try:
         bear = await _run_bear_agent(ctx, bull)
         bear_duration = int((time.monotonic() - bear_start) * 1000)
-        log.info("bear_complete", ticker=ticker, confidence=bear.confidence, ms=bear_duration)
+        log.info("bear_complete ticker=%s confidence=%s ms=%d", ticker, bear.confidence, bear_duration)
     except (CircuitBreakerOpen, Exception) as e:
-        log.warning("bear_failed", ticker=ticker, error=str(e))
+        log.warning("bear_failed ticker=%s error=%s", ticker, e)
         # Degrade: use bull-only analysis
         analysis = {
             "ticker": ticker,
@@ -349,15 +349,9 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     try:
         moderator = await _run_moderator(ctx, bull, bear)
         mod_duration = int((time.monotonic() - mod_start) * 1000)
-        log.info(
-            "moderator_complete",
-            ticker=ticker,
-            signal=moderator.signal,
-            confidence=moderator.confidence,
-            ms=mod_duration,
-        )
+        log.info("moderator_complete ticker=%s signal=%s confidence=%s ms=%d", ticker, moderator.signal, moderator.confidence, mod_duration)
     except (CircuitBreakerOpen, Exception) as e:
-        log.warning("moderator_failed", ticker=ticker, error=str(e))
+        log.warning("moderator_failed ticker=%s error=%s", ticker, e)
         # Degrade: synthesize from bull + bear without moderator
         analysis = {
             "ticker": ticker,
