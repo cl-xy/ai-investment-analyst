@@ -20,7 +20,7 @@ rules:
     languages: [python]
     paths:
       include:
-        - backend/
+        - "**/backend/"
 
   # 2. Missing await on async DB calls
   - id: missing-await-async-db
@@ -47,7 +47,7 @@ rules:
     languages: [python]
     paths:
       include:
-        - backend/
+        - "**/backend/"
 
   # 3. Prompt injection via f-string interpolation of user input
   - id: prompt-injection-fstring
@@ -71,7 +71,7 @@ rules:
     languages: [python]
     paths:
       include:
-        - backend/src/agent/
+        - "**/backend/src/agent/"
 
   # 4. Hardcoded API keys
   - id: hardcoded-api-key
@@ -91,9 +91,9 @@ rules:
     languages: [python]
     paths:
       include:
-        - backend/
+        - "**/backend/"
       exclude:
-        - backend/tests/
+        - "**/backend/tests/"
 
   # 5. LLM invoke without max_tokens
   - id: groq-missing-max-tokens
@@ -118,7 +118,7 @@ rules:
     languages: [python]
     paths:
       include:
-        - backend/src/agent/
+        - "**/backend/src/agent/"
 
   # 6. Unsafe CORS wildcard in production
   - id: unsafe-cors-wildcard
@@ -138,7 +138,7 @@ rules:
     languages: [python]
     paths:
       include:
-        - backend/src/api/
+        - "**/backend/src/api/"
 
   # 7. Unvalidated ticker input used directly
   - id: unvalidated-ticker-input
@@ -168,7 +168,7 @@ rules:
     languages: [python]
     paths:
       include:
-        - backend/src/api/
+        - "**/backend/src/api/"
 
   # 8. Secrets leaked in log statements
   - id: secrets-in-log
@@ -192,7 +192,7 @@ rules:
     languages: [python]
     paths:
       include:
-        - backend/
+        - "**/backend/"
 
   # 9. HTTP client calls without explicit timeout
   - id: missing-timeout-external-call
@@ -212,7 +212,7 @@ rules:
     languages: [python]
     paths:
       include:
-        - backend/
+        - "**/backend/"
 
   # 10. Raw exception messages returned to clients
   - id: raw-exception-in-response
@@ -221,15 +221,15 @@ rules:
           - pattern: |
               except $E as $ERR:
                   ...
-                  return {"error": str($ERR)}
+                  return {"error": str(...)}
           - pattern: |
               except $E as $ERR:
                   ...
-                  return JSONResponse(..., content={"detail": str($ERR)}, ...)
+                  return JSONResponse(..., content={"detail": str(...)}, ...)
           - pattern: |
               except $E as $ERR:
                   ...
-                  return {"detail": str($ERR), ...}
+                  return {"detail": str(...), ...}
     message: >
       Raw exception message returned directly to the client. Internal error
       details can leak stack traces, file paths, or credential fragments.
@@ -239,7 +239,7 @@ rules:
     languages: [python]
     paths:
       include:
-        - backend/src/api/
+        - "**/backend/src/api/"
 
   # 11. Unbounded asyncio.gather without concurrency control
   - id: unbounded-async-gather
@@ -253,7 +253,7 @@ rules:
     languages: [python]
     paths:
       include:
-        - backend/
+        - "**/backend/"
 
   # 12. dangerouslySetInnerHTML in React components
   - id: frontend-dangerouslysetinnerhtml
@@ -267,4 +267,4 @@ rules:
     languages: [typescript, javascript]
     paths:
       include:
-        - frontend/src/
+        - "**/frontend/src/"

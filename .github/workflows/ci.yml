@@ -132,7 +132,7 @@ jobs:
         run: |
           pip install pip-audit
           pip install -e .
-          pip-audit --severity high
+          pip-audit
       - name: Audit frontend dependencies
         working-directory: frontend
         run: |
