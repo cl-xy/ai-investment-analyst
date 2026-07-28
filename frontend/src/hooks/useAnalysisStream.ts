@@ -3,6 +3,8 @@ import { useAnalysisStore } from '../stores/analysisStore'
 import { API_BASE, authParam } from '../api/config'
 import type {
   AnalysisCompletePayload,
+  DebateTurnPayload,
+  DebateVerdictPayload,
   RunCompletedPayload,
   StreamEvent,
 } from '../types/stream'
@@ -21,7 +23,7 @@ export function useAnalysisStream() {
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const generationRef = useRef(0)
 
-  const { startStream, addEvent, setAnalysis, setComplete, setError, reset } =
+  const { startStream, addEvent, setAnalysis, setComplete, setError, addDebateTurn, setDebateVerdict, reset } =
     useAnalysisStore()
 
   const disconnect = useCallback(() => {
@@ -75,6 +77,16 @@ export function useAnalysisStream() {
             setAnalysis(payload.ticker, payload.analysis)
           }
 
+          // Debate events
+          if (event.type === 'debate_turn') {
+            const payload = event.payload as unknown as DebateTurnPayload
+            addDebateTurn(payload.ticker, payload)
+          }
+          if (event.type === 'debate_verdict') {
+            const payload = event.payload as unknown as DebateVerdictPayload
+            setDebateVerdict(payload.ticker, payload)
+          }
+
           // Stream complete
           if (event.type === 'run_completed') {
             const payload = event.payload as unknown as RunCompletedPayload
@@ -110,6 +122,9 @@ export function useAnalysisStream() {
         'analysis_complete',
         'run_completed',
         'heartbeat',
+        'debate_started',
+        'debate_turn',
+        'debate_verdict',
       ]
       for (const type of eventTypes) {
         es.addEventListener(type, handleEvent)
@@ -137,7 +152,7 @@ export function useAnalysisStream() {
         }
       }
     },
-    [disconnect, reset, startStream, addEvent, setAnalysis, setComplete, setError],
+    [disconnect, reset, startStream, addEvent, setAnalysis, setComplete, setError, addDebateTurn, setDebateVerdict],
   )
 
   return { connect, disconnect }

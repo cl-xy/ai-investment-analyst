@@ -12,6 +12,7 @@ const PRIMARY_NAV = [
 
 const HISTORY_NAV = [
   { to: '/dashboard', label: 'Past Analyses' },
+  { to: '/calibration', label: 'Track Record' },
   { to: '/backtest', label: 'Signal History' },
   { to: '/evals', label: 'Quality Metrics' },
 ] as const
