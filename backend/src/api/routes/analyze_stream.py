@@ -230,6 +230,10 @@ async def _run_agent(
         metrics.inc("analyses_total", labels={"status": "error"})
         ev = emitter.error(str(exc), recoverable=False, context="agent_execution")
         await queue.put(ev.to_sse())
+    else:
+        # Record success metrics only when no exception occurred
+        metrics.inc("analyses_total", labels={"status": "success"})
+        metrics.observe("analysis_duration_seconds", summary["total_duration_ms"] / 1000)
 
     # Run completed with real metrics
     summary = tracker.summary()
@@ -240,10 +244,6 @@ async def _run_agent(
         cost_usd=summary["cost_usd"],
     )
     await queue.put(ev.to_sse())
-
-    # Record success metrics
-    metrics.inc("analyses_total", labels={"status": "success"})
-    metrics.observe("analysis_duration_seconds", summary["total_duration_ms"] / 1000)
 
     # Persist run metrics to PostgreSQL
     try:
@@ -271,6 +271,8 @@ async def _stream_generator(
             # Check if run already completed
             _, stored = _recent_runs.get(resume_run_id, (0, []))
             if any("run_completed" in ev for ev in stored):
+                # Release the slot before returning (acquired by caller)
+                release_analysis_slot()
                 return  # Run finished, nothing to stream
 
     emitter = EventEmitter()

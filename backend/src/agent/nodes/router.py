@@ -62,8 +62,9 @@ async def router_node(state: InvestmentAnalystState) -> dict:
         try:
             parsed = extract_json(response.content)
             intent = parsed.get("intent", "conversational")
-            tickers = [t.upper() for t in parsed.get("tickers", [])]
-        except (ValueError, AttributeError):
+            raw_tickers = parsed.get("tickers") or []
+            tickers = [t.upper() for t in raw_tickers if isinstance(t, str)]
+        except (ValueError, AttributeError, TypeError):
             intent = "conversational"
             tickers = []
 
