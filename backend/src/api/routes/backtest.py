@@ -24,11 +24,11 @@ async def get_backtest_data():
     rows = await fetch(
         """
         SELECT ta.ticker, ta.signal, ta.confidence, ta.sentiment_score,
-               ta.created_at, a.id as analysis_id
+               a.created_at, a.id as analysis_id
         FROM ticker_analyses ta
         JOIN analyses a ON ta.analysis_id = a.id
         WHERE ta.signal IN ('buy', 'hold', 'sell')
-        ORDER BY ta.created_at DESC
+        ORDER BY a.created_at DESC
         LIMIT 50
         """
     )
