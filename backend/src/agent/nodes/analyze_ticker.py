@@ -34,12 +34,16 @@ log = logging.getLogger(__name__)
 def _is_retryable_error(exc: BaseException) -> bool:
     """Return True for transient errors that should be retried."""
     exc_str = str(exc).lower()
-    # Rate limit (429) or server errors (500, 502, 503)
-    if any(code in exc_str for code in ("429", "500", "502", "503", "rate limit")):
-        return True
-    # Don't retry auth errors (401) or bad request (400)
+    # Don't retry auth errors (401) or bad request (400) — check these first
     if any(code in exc_str for code in ("401", "400", "unauthorized", "bad request")):
         return False
+    # Rate limit (429) or server errors (500, 502, 503)
+    # Use word-boundary-aware matching to avoid false positives (e.g. port 5003)
+    import re
+    if re.search(r'\b(429|500|502|503)\b', exc_str):
+        return True
+    if "rate limit" in exc_str:
+        return True
     # Retry generic connection/timeout errors
     if any(
         term in exc_str

@@ -7,6 +7,7 @@ Used in production where subprocess spawning is unreliable (Docker/Fly.io).
 import asyncio
 import json
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -79,9 +80,14 @@ async def _wrap_async(fn, **kwargs) -> str:
     return json.dumps(result, default=str)
 
 
-def _run_sync_in_thread(fn, **kwargs) -> str:
-    """Wrapper for sync tool functions to be used as async."""
-    return _wrap_sync(fn, **kwargs)
+async def _run_in_pool(fn, **kwargs) -> str:
+    """Run a sync tool function in the bounded thread pool.
+
+    Uses _TOOL_EXECUTOR (16 workers) instead of the default executor which
+    can be as low as 5 threads on single-CPU deployments (Fly.io shared-cpu-1x).
+    """
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_TOOL_EXECUTOR, partial(_wrap_sync, fn, **kwargs))
 
 
 def load_direct_tools() -> dict:
@@ -102,28 +108,28 @@ def load_direct_tools() -> dict:
 
         tools["get_quote"] = StructuredTool.from_function(
             func=lambda ticker: _wrap_sync(get_quote, ticker=ticker),
-            coroutine=lambda ticker: asyncio.to_thread(_wrap_sync, get_quote, ticker=ticker),
+            coroutine=lambda ticker: _run_in_pool(get_quote, ticker=ticker),
             name="get_quote",
             description="Get current market quote for a ticker. Returns current_price, change_pct, volume, market_cap, pe_ratio.",
             args_schema=TickerInput,
         )
         tools["get_fundamentals"] = StructuredTool.from_function(
             func=lambda ticker: _wrap_sync(get_fundamentals, ticker=ticker),
-            coroutine=lambda ticker: asyncio.to_thread(_wrap_sync, get_fundamentals, ticker=ticker),
+            coroutine=lambda ticker: _run_in_pool(get_fundamentals, ticker=ticker),
             name="get_fundamentals",
             description="Get fundamental financial data for a ticker. Returns revenue, eps, debt_to_equity, profit_margin, etc.",
             args_schema=TickerInput,
         )
         tools["get_price_history"] = StructuredTool.from_function(
             func=lambda ticker, period="3mo": _wrap_sync(get_price_history, ticker=ticker, period=period),
-            coroutine=lambda ticker, period="3mo": asyncio.to_thread(_wrap_sync, get_price_history, ticker=ticker, period=period),
+            coroutine=lambda ticker, period="3mo": _run_in_pool(get_price_history, ticker=ticker, period=period),
             name="get_price_history",
             description="Get historical price data for a ticker over a given period.",
             args_schema=PriceHistoryInput,
         )
         tools["get_technical_indicators"] = StructuredTool.from_function(
             func=lambda ticker: _wrap_sync(get_technical_indicators, ticker=ticker),
-            coroutine=lambda ticker: asyncio.to_thread(_wrap_sync, get_technical_indicators, ticker=ticker),
+            coroutine=lambda ticker: _run_in_pool(get_technical_indicators, ticker=ticker),
             name="get_technical_indicators",
             description="Get technical indicators (RSI, MACD, moving averages) for a ticker.",
             args_schema=TickerInput,
@@ -137,14 +143,14 @@ def load_direct_tools() -> dict:
 
         tools["get_ticker_news"] = StructuredTool.from_function(
             func=lambda ticker, days_back=7, max_articles=10: _wrap_sync(get_ticker_news, ticker=ticker, days_back=days_back, max_articles=max_articles),
-            coroutine=lambda ticker, days_back=7, max_articles=10: asyncio.to_thread(_wrap_sync, get_ticker_news, ticker=ticker, days_back=days_back, max_articles=max_articles),
+            coroutine=lambda ticker, days_back=7, max_articles=10: _run_in_pool(get_ticker_news, ticker=ticker, days_back=days_back, max_articles=max_articles),
             name="get_ticker_news",
             description="Get recent news articles for a specific ticker.",
             args_schema=NewsInput,
         )
         tools["get_market_headlines"] = StructuredTool.from_function(
             func=lambda category="business", limit=20: _wrap_sync(get_market_headlines, category=category, limit=limit),
-            coroutine=lambda category="business", limit=20: asyncio.to_thread(_wrap_sync, get_market_headlines, category=category, limit=limit),
+            coroutine=lambda category="business", limit=20: _run_in_pool(get_market_headlines, category=category, limit=limit),
             name="get_market_headlines",
             description="Get current market news headlines.",
             args_schema=HeadlinesInput,
@@ -158,14 +164,14 @@ def load_direct_tools() -> dict:
 
         tools["search_sec_filings"] = StructuredTool.from_function(
             func=lambda ticker, form_type="10-K", count=3: _wrap_sync(search_sec_filings, ticker=ticker, form_type=form_type, count=count),
-            coroutine=lambda ticker, form_type="10-K", count=3: asyncio.to_thread(_wrap_sync, search_sec_filings, ticker=ticker, form_type=form_type, count=count),
+            coroutine=lambda ticker, form_type="10-K", count=3: _run_in_pool(search_sec_filings, ticker=ticker, form_type=form_type, count=count),
             name="search_sec_filings",
             description="Search SEC EDGAR for filings by ticker and form type.",
             args_schema=SECInput,
         )
         tools["get_latest_filing_summary"] = StructuredTool.from_function(
             func=lambda ticker, form_type="10-K": _wrap_sync(get_latest_filing_summary, ticker=ticker, form_type=form_type),
-            coroutine=lambda ticker, form_type="10-K": asyncio.to_thread(_wrap_sync, get_latest_filing_summary, ticker=ticker, form_type=form_type),
+            coroutine=lambda ticker, form_type="10-K": _run_in_pool(get_latest_filing_summary, ticker=ticker, form_type=form_type),
             name="get_latest_filing_summary",
             description="Get a summary of the latest SEC filing for a ticker.",
             args_schema=SECSummaryInput,

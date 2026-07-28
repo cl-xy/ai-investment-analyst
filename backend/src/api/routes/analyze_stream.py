@@ -142,7 +142,9 @@ async def _run_agent(
                     # Tool start: record timestamp for duration
                     elif kind == "on_tool_start":
                         tool_name = name
-                        tool_start_times[tool_name] = time.monotonic()
+                        # Use run_id from event to handle concurrent same-name tool calls
+                        tool_run_id = event_data.get("run_id", tool_name)
+                        tool_start_times[tool_run_id] = (time.monotonic(), tool_name)
                         tool_input = data.get("input", {})
                         ev = emitter.tool_call(tool_name, tool_input, node=current_node)
                         await queue.put(ev.to_sse())
@@ -150,7 +152,12 @@ async def _run_agent(
                     # Tool end: compute real duration
                     elif kind == "on_tool_end":
                         tool_name = name
-                        tool_start = tool_start_times.pop(tool_name, time.monotonic())
+                        tool_run_id = event_data.get("run_id", tool_name)
+                        start_entry = tool_start_times.pop(tool_run_id, None)
+                        if start_entry:
+                            tool_start, _ = start_entry
+                        else:
+                            tool_start = time.monotonic()
                         duration_ms = int((time.monotonic() - tool_start) * 1000)
                         output = data.get("output", "")
                         success = "error" not in str(output).lower()[:100]
@@ -230,29 +237,36 @@ async def _run_agent(
         metrics.inc("analyses_total", labels={"status": "error"})
         ev = emitter.error(str(exc), recoverable=False, context="agent_execution")
         await queue.put(ev.to_sse())
+        _run_succeeded = False
     else:
-        # Record success metrics only when no exception occurred
         metrics.inc("analyses_total", labels={"status": "success"})
-        metrics.observe("analysis_duration_seconds", summary["total_duration_ms"] / 1000)
+        _run_succeeded = True
 
-    # Run completed with real metrics
-    summary = tracker.summary()
-    ev = emitter.run_completed(
-        tickers_upper,
-        total_duration_ms=summary["total_duration_ms"],
-        total_tokens=summary["total_tokens"],
-        cost_usd=summary["cost_usd"],
-    )
-    await queue.put(ev.to_sse())
-
-    # Persist run metrics to PostgreSQL
+    # Always emit run_completed and signal done, even if summary/persist fail
     try:
-        await tracker.persist()
-    except Exception:
-        pass  # Non-critical, don't break the stream for persistence failure
+        summary = tracker.summary()
 
-    # Signal done
-    await queue.put(None)
+        if _run_succeeded:
+            metrics.observe("analysis_duration_seconds", summary["total_duration_ms"] / 1000)
+
+        ev = emitter.run_completed(
+            tickers_upper,
+            total_duration_ms=summary["total_duration_ms"],
+            total_tokens=summary["total_tokens"],
+            cost_usd=summary["cost_usd"],
+        )
+        await queue.put(ev.to_sse())
+
+        # Persist run metrics to PostgreSQL
+        try:
+            await tracker.persist()
+        except Exception:
+            pass  # Non-critical, don't break the stream for persistence failure
+    except Exception:
+        pass  # Don't let summary/emit failures prevent stream termination
+    finally:
+        # Signal done (must always fire so _stream_generator exits cleanly)
+        await queue.put(None)
 
 
 async def _stream_generator(

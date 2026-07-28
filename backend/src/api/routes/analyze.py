@@ -149,6 +149,9 @@ async def analyze_tickers(tickers: list[str], mcp_tools: dict, *, force_refresh:
                 # Don't persist transient failures; they'd poison the cache
                 if ta.signal == "insufficient_data":
                     continue
+                # Skip cached analyses (already persisted in a prior request)
+                if ticker not in new_tickers and ticker in cached_analyses:
+                    continue
                 await conn.execute(
                     """
                     INSERT INTO ticker_analyses (

@@ -66,13 +66,25 @@ class CircuitBreaker:
         """Execute func through the circuit breaker with rate limiting."""
         from .rate_limiter import groq_limiter
 
-        state = self.state
+        # Acquire lock to atomically read state and claim probe slot if HALF_OPEN.
+        # This prevents the thundering-herd problem where multiple coroutines all
+        # see HALF_OPEN and proceed to make concurrent probe calls.
+        async with self._lock:
+            state = self.state
+            if state == CircuitState.OPEN:
+                retry_after = self.recovery_seconds - (
+                    time.monotonic() - self._last_failure_time
+                )
+                raise CircuitBreakerOpen(retry_after=max(0, retry_after))
 
-        if state == CircuitState.OPEN:
-            retry_after = self.recovery_seconds - (
-                time.monotonic() - self._last_failure_time
-            )
-            raise CircuitBreakerOpen(retry_after=max(0, retry_after))
+            if state == CircuitState.HALF_OPEN:
+                # Claim the probe slot: transition to CLOSED optimistically.
+                # - First coroutine sees HALF_OPEN, sets CLOSED, proceeds to probe.
+                # - Subsequent coroutines see CLOSED and proceed normally.
+                # - If the probe fails, _on_failure will re-open the circuit.
+                # - If it succeeds, _on_success confirms CLOSED (no-op).
+                self._state = CircuitState.CLOSED
+                log.info("circuit_half_open_probe", breaker=self.name)
 
         # Acquire rate limiter slot before calling
         acquired = await groq_limiter.acquire(timeout=30.0)
