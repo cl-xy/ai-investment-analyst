@@ -56,6 +56,21 @@ async def budget_status(authorization: str | None = Header(default=None)):
     return {"status": "ok", "budgets": status}
 
 
+@router.delete("/purge-failed-analyses")
+async def purge_failed_analyses(authorization: str | None = Header(default=None)):
+    """Delete all ticker_analyses rows with signal='insufficient_data'.
+    These represent transient failures that should not be served as cached results."""
+    _verify_token(authorization)
+
+    from src.db import execute
+
+    result = await execute(
+        "DELETE FROM ticker_analyses WHERE signal = 'insufficient_data'"
+    )
+    deleted = int(result.split()[-1]) if result else 0
+    return {"status": "ok", "deleted": deleted}
+
+
 @router.get("/health/detailed")
 async def detailed_health():
     """Extended health check with system info (public, no auth)."""

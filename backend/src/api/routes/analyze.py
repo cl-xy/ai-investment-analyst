@@ -46,14 +46,15 @@ async def _run_analysis(tickers: list[str], mcp_tools: dict) -> dict:
 
 
 async def _fetch_cached_analyses(tickers: list[str]) -> dict[str, TickerAnalysis]:
-    """Return the most recent stored TickerAnalysis for each ticker."""
+    """Return the most recent stored TickerAnalysis for each ticker.
+    Skips insufficient_data results since those represent transient failures."""
     cached: dict[str, TickerAnalysis] = {}
     for ticker in tickers:
         row = await fetchrow(
             """
             SELECT ta.* FROM ticker_analyses ta
             JOIN analyses a ON ta.analysis_id = a.id
-            WHERE ta.ticker = $1
+            WHERE ta.ticker = $1 AND ta.signal != 'insufficient_data'
             ORDER BY a.created_at DESC
             LIMIT 1
             """,
@@ -145,6 +146,9 @@ async def analyze_tickers(tickers: list[str], mcp_tools: dict, *, force_refresh:
             analysis_id = row["id"]
 
             for ticker, ta in analyses.items():
+                # Don't persist transient failures; they'd poison the cache
+                if ta.signal == "insufficient_data":
+                    continue
                 await conn.execute(
                     """
                     INSERT INTO ticker_analyses (
