@@ -2,6 +2,7 @@ app = "ai-investment-analyst"
 primary_region = "sin"
 
 [build]
+  dockerfile = "Dockerfile"
 
 [env]
   PORT = "8000"
