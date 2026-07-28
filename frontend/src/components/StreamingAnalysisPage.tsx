@@ -4,6 +4,7 @@ import { useAnalysisStore } from '../stores/analysisStore'
 import { useAnalysisStream } from '../hooks/useAnalysisStream'
 import AgentTracePanel from './AgentTracePanel'
 import DataFreshness from './DataFreshness'
+import DebatePanel from './DebatePanel'
 import EvidenceDrawer from './EvidenceDrawer'
 import InvestmentDisclaimer from './InvestmentDisclaimer'
 import { ArrowLeft, AlertCircle, Play, Clock } from 'lucide-react'
@@ -17,7 +18,7 @@ export default function StreamingAnalysisPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { connect, disconnect } = useAnalysisStream()
-  const { analyses, isStreaming, error, events } = useAnalysisStore()
+  const { analyses, isStreaming, error, events, debates } = useAnalysisStore()
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null)
   const [confirmed, setConfirmed] = useState(false)
   const hasConnectedRef = useRef(false)
@@ -85,7 +86,7 @@ export default function StreamingAnalysisPage() {
             </div>
             <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
               <Clock className="w-4 h-4" />
-              <span>~5-10 seconds per ticker</span>
+              <span>~30-60 seconds per ticker (reasoning model)</span>
             </div>
           </div>
           <div className="flex items-center gap-4">
@@ -141,6 +142,15 @@ export default function StreamingAnalysisPage() {
 
         {/* Analysis cards (progressive) */}
         <div className="space-y-6">
+          {/* Debate panels (render during active debate before analysis completes) */}
+          {tickers.map((t) => {
+            const ticker = t.toUpperCase()
+            if (debates[ticker] && debates[ticker].turns.length > 0) {
+              return <DebatePanel key={`debate-${ticker}`} ticker={ticker} />
+            }
+            return null
+          })}
+
           {Object.entries(analyses).map(([ticker, analysis]) => (
             <StreamAnalysisCard
               key={ticker}
