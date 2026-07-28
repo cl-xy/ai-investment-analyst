@@ -48,8 +48,8 @@ class TokenBucket:
 
 
 # OpenRouter free tier: 20 req/min = 0.333 req/sec
-# Use 18/min (0.3/sec) with burst capacity of 5 to leave headroom
-llm_limiter = TokenBucket(rate=18.0 / 60.0, capacity=5)
+# Use 18/min (0.3/sec) with burst capacity of 10 to handle multi-ticker analyses
+llm_limiter = TokenBucket(rate=18.0 / 60.0, capacity=10)
 
 # Keep backward-compat alias
 groq_limiter = llm_limiter
