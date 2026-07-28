@@ -36,6 +36,22 @@ def _get_ttl(provider: str, tool: str) -> dict[str, int]:
     return TTL_CONFIG.get(key, TTL_CONFIG.get(f"{provider}:default", DEFAULT_TTL))
 
 
+def _normalize(data: Any) -> Any:
+    """Normalize cached data to canonical Python types.
+
+    Tool results may arrive as JSON strings (from direct_tools._wrap_sync).
+    PostgreSQL JSONB stores them as quoted strings, and asyncpg returns them
+    as Python str. This function ensures callers always get dict/list/scalar,
+    never a JSON-encoded string masquerading as data.
+    """
+    if isinstance(data, str):
+        try:
+            return json.loads(data)
+        except (json.JSONDecodeError, ValueError):
+            return data
+    return data
+
+
 class CacheManager:
     """PostgreSQL stale-while-revalidate cache layer."""
 
@@ -82,7 +98,7 @@ class CacheManager:
                 # Hard expired, treat as miss
                 pass
             else:
-                data = row["data"]
+                data = _normalize(row["data"])
                 # Invalidate cached error responses so they get re-fetched
                 if isinstance(data, dict) and "error" in data and len(data) <= 2:
                     _log.info("cache_invalidate_error key=%s", key)
@@ -107,7 +123,7 @@ class CacheManager:
                     return data, source_id, True
 
         # Cache miss, fetch fresh
-        data = await fetch_fn()
+        data = _normalize(await fetch_fn())
         # Never cache error responses
         if isinstance(data, dict) and "error" in data and len(data) <= 2:
             raise RuntimeError(f"Tool returned error: {data.get('error')}")
@@ -138,7 +154,7 @@ class CacheManager:
                 )
                 return
 
-            data = await fetch_fn()
+            data = _normalize(await fetch_fn())
             # Never cache error responses in background refresh either
             if isinstance(data, dict) and "error" in data and len(data) <= 2:
                 _log.warning(
@@ -168,7 +184,8 @@ class CacheManager:
         ttl: dict[str, int],
         now: datetime,
     ):
-        """Upsert a cache entry."""
+        """Upsert a cache entry. Normalizes data before storing to prevent double-encoding."""
+        data = _normalize(data)
         stale_at = now + timedelta(seconds=ttl["fresh"])
         expires_at = now + timedelta(seconds=ttl["expire"]) if ttl["expire"] > 0 else None
 
@@ -201,7 +218,7 @@ class CacheManager:
         key = f"{provider}:{tool}:{ticker}"
         row = await fetchrow("SELECT data, source_id FROM cache WHERE key = $1", key)
         if row is not None:
-            return row["data"], row["source_id"], True
+            return _normalize(row["data"]), row["source_id"], True
         return None, "", False
 
 

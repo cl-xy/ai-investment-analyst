@@ -105,13 +105,6 @@ async def _call_tool_cached(
             ticker=ticker,
             fetch_fn=_fetch,
         )
-        # Cache may return JSON strings (from direct_tools _wrap_sync storing json.dumps output).
-        # Unwrap to dict/list so downstream code can use isinstance checks.
-        if isinstance(data, str):
-            try:
-                data = json.loads(data)
-            except (json.JSONDecodeError, ValueError):
-                pass
         duration_ms = int((time.monotonic() - start) * 1000)
         return data, True, duration_ms, was_cached
     except Exception as e:
