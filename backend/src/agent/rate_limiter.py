@@ -48,8 +48,10 @@ class TokenBucket:
 
 
 # OpenRouter free tier: 20 req/min = 0.333 req/sec
-# Use 18/min (0.3/sec) with burst capacity of 10 to handle multi-ticker analyses
-llm_limiter = TokenBucket(rate=18.0 / 60.0, capacity=10)
+# With 2 Fly.io machines, each instance gets half the budget to prevent
+# aggregate rate from exceeding the provider limit.
+# 10/min per instance (0.167/sec) with burst capacity of 5.
+llm_limiter = TokenBucket(rate=10.0 / 60.0, capacity=5)
 
 
 class RateLimitExceeded(Exception):

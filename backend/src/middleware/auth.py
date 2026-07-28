@@ -38,8 +38,9 @@ class DemoAuthMiddleware(BaseHTTPMiddleware):
         "/api/backtest",
         "/api/dashboard",
         "/api/eval",
+        "/api/calibration",
     )
-    PUBLIC_PREFIXES = ("/api/health", "/api/explore", "/api/admin")
+    PUBLIC_PREFIXES = ("/api/health", "/api/explore")
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         demo_password = os.environ.get("DEMO_PASSWORD", "")

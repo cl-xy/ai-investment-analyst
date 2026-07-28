@@ -7,12 +7,15 @@ hit rate by confidence bucket).
 """
 
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Query
 
 from src.db import execute, fetch, fetchrow, fetchval
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -175,8 +178,6 @@ async def list_predictions(
         conditions.append("resolved_at IS NULL")
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-
-    conditions.append(f"${idx}")
     params.append(limit)
 
     rows = await fetch(
@@ -222,7 +223,7 @@ async def resolve_predictions():
     """
     import yfinance as yf
 
-    # Find predictions past their horizon
+    # Find predictions past their horizon (skip locked to prevent concurrent resolution)
     rows = await fetch(
         """
         SELECT id, ticker, signal, price_at_prediction, horizon_days, created_at
@@ -230,6 +231,7 @@ async def resolve_predictions():
         WHERE resolved_at IS NULL
           AND created_at + (horizon_days || ' days')::interval <= now()
         LIMIT 50
+        FOR UPDATE SKIP LOCKED
         """,
     )
 
@@ -251,7 +253,8 @@ async def resolve_predictions():
             if hist.empty:
                 continue
             current_price = float(hist["Close"].iloc[-1])
-        except Exception:
+        except Exception as exc:
+            log.warning("resolve_price_fetch_failed ticker=%s error=%s", ticker, exc)
             continue
 
         # Compute return

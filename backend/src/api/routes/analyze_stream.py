@@ -33,7 +33,8 @@ from src.middleware.cost_tracker import CostTracker
 router = APIRouter()
 
 HEARTBEAT_INTERVAL = 15  # seconds
-EXECUTION_TIMEOUT = 120  # max seconds for entire analysis run
+EXECUTION_TIMEOUT_PER_TICKER = 120  # seconds per ticker for debate
+EXECUTION_TIMEOUT_BASE = 30  # base overhead (graph setup, data fetch, report)
 
 # Module-level event store for reconnection (last 5 minutes)
 _recent_runs: dict[str, tuple[float, list[str]]] = {}  # run_id -> (timestamp, [sse_strings])
@@ -98,7 +99,7 @@ async def _run_agent(
     tool_start_times: dict[str, float] = {}
     # Track debate LLM calls within the debate node
     debate_llm_count: dict[str, int] = defaultdict(int)
-    debate_llm_start: float | None = None
+    debate_llm_start: dict[str, float] = {}  # per-ticker start times
 
     event = emitter.run_started(tickers_upper)
     await queue.put(event.to_sse())
@@ -214,11 +215,11 @@ async def _run_agent(
                             ev = emitter.llm_token(chunk.content, node=current_node)
                             await queue.put(ev.to_sse())
 
-                    # LLM start: track debate timing
+                    # LLM start: track debate timing (keyed by current_node context)
                     elif kind == "on_chat_model_start":
                         if current_node == "debate":
-                            nonlocal debate_llm_start
-                            debate_llm_start = time.monotonic()
+                            # Store start time; ticker resolved at on_chat_model_end
+                            debate_llm_start["_pending"] = time.monotonic()
 
                     # LLM completion: track tokens + emit debate events
                     elif kind == "on_chat_model_end":
@@ -263,7 +264,7 @@ async def _run_agent(
                                 if count >= 3:
                                     continue
                                 debate_llm_count[_current_ticker] = count + 1
-                                duration_ms = int((time.monotonic() - debate_llm_start) * 1000) if debate_llm_start else 0
+                                duration_ms = int((time.monotonic() - debate_llm_start.pop("_pending", time.monotonic())) * 1000)
 
                                 try:
                                     turn_data = extract_json(output.content)
@@ -305,13 +306,16 @@ async def _run_agent(
                                     )
                                     await queue.put(ev.to_sse())
 
-                                debate_llm_start = None
+                                debate_llm_start.pop("_pending", None)
+
+            # Scale timeout with ticker count: each ticker's debate takes ~100s
+            execution_timeout = EXECUTION_TIMEOUT_BASE + (len(tickers_upper) * EXECUTION_TIMEOUT_PER_TICKER)
 
             try:
-                await asyncio.wait_for(_execute(), timeout=EXECUTION_TIMEOUT)
+                await asyncio.wait_for(_execute(), timeout=execution_timeout)
             except asyncio.TimeoutError:
                 ev = emitter.error(
-                    f"Analysis timed out after {EXECUTION_TIMEOUT}s",
+                    f"Analysis timed out after {execution_timeout}s",
                     recoverable=False,
                     context="execution_timeout",
                 )
@@ -402,6 +406,17 @@ async def _stream_generator(
     # If reconnecting, try to replay missed events
     if last_event_id is not None and resume_run_id:
         replayed = _replay_events(resume_run_id, last_event_id)
+        if not replayed and resume_run_id not in _recent_runs:
+            # Run state not found on this instance (likely routed to different machine).
+            # Emit a terminal error so the client stops reconnecting blindly.
+            error_msg = (
+                f"event: error\ndata: "
+                f'{{"type":"error","message":"Run state unavailable on this instance. '
+                f'Please start a new analysis.","recoverable":false}}\n\n'
+            )
+            yield error_msg
+            release_analysis_slot()
+            return
         for ev in replayed:
             yield ev
         if replayed:
@@ -417,13 +432,16 @@ async def _stream_generator(
     stop_heartbeat = asyncio.Event()
     tracker = CostTracker(run_id=emitter.run_id, tickers=tickers)
 
-    agent_task = asyncio.create_task(
-        _run_agent(tickers, emitter, queue, tracker, request.app.state.mcp_tools)
-    )
-    shutdown_coordinator.register(agent_task)
-    heartbeat_task = asyncio.create_task(_heartbeat(emitter, queue, stop_heartbeat))
+    agent_task: asyncio.Task | None = None
+    heartbeat_task: asyncio.Task | None = None
 
     try:
+        agent_task = asyncio.create_task(
+            _run_agent(tickers, emitter, queue, tracker, request.app.state.mcp_tools)
+        )
+        shutdown_coordinator.register(agent_task)
+        heartbeat_task = asyncio.create_task(_heartbeat(emitter, queue, stop_heartbeat))
+
         while True:
             if await request.is_disconnected():
                 break
@@ -441,16 +459,18 @@ async def _stream_generator(
 
     finally:
         stop_heartbeat.set()
-        agent_task.cancel()
-        heartbeat_task.cancel()
-        try:
-            await agent_task
-        except (asyncio.CancelledError, Exception):
-            pass
-        try:
-            await heartbeat_task
-        except (asyncio.CancelledError, Exception):
-            pass
+        if agent_task is not None:
+            agent_task.cancel()
+            try:
+                await agent_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        if heartbeat_task is not None:
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except (asyncio.CancelledError, Exception):
+                pass
         release_analysis_slot()
 
 
@@ -496,10 +516,10 @@ async def analyze_stream(
             content={"detail": f"Invalid ticker symbols: {', '.join(invalid)}"},
         )
 
-    if len(ticker_list) > 5:
+    if len(ticker_list) > 3:
         return JSONResponse(
             status_code=400,
-            content={"detail": "Maximum 5 tickers per analysis request"},
+            content={"detail": "Maximum 3 tickers per streaming analysis request"},
         )
 
     # Acquire concurrency slot

@@ -58,6 +58,7 @@ class CacheManager:
     def __init__(self):
         self._refresh_tasks: set[asyncio.Task] = set()
         self._pending_refreshes: dict[str, asyncio.Task] = {}  # key -> task (dedup)
+        self._inflight_locks: dict[str, asyncio.Lock] = {}  # singleflight per cache key
 
     def _task_cleanup(self, task: asyncio.Task, *, key: str) -> None:
         """Done-callback for background refresh tasks. Captures only key, not full scope."""
@@ -122,17 +123,37 @@ class CacheManager:
                         task.add_done_callback(partial(self._task_cleanup, key=key))
                     return data, source_id, True
 
-        # Cache miss, fetch fresh
-        data = _normalize(await fetch_fn())
-        # Never cache error responses
-        if isinstance(data, dict) and "error" in data:
-            raise RuntimeError(f"Tool returned error: {data.get('error')}")
-        # Never cache empty responses (transient failures that returned no data)
-        if data in ({}, [], "", None):
-            raise RuntimeError(f"Tool returned empty data for {key}")
-        source_id = f"{provider}:{ticker}:{int(time.time())}"
-        await self._store(key, data, source_id, provider, ttl, now)
-        return data, source_id, False
+        # Cache miss: use per-key lock to prevent stampede (singleflight).
+        # Only one caller fetches; others wait and re-check cache after lock release.
+        if key not in self._inflight_locks:
+            self._inflight_locks[key] = asyncio.Lock()
+        lock = self._inflight_locks[key]
+
+        try:
+            async with lock:
+                # Re-check cache after acquiring lock (another caller may have populated it)
+                row = await fetchrow("SELECT * FROM cache WHERE key = $1", key)
+                if row is not None:
+                    data = _normalize(row["data"])
+                    expires_at = row["expires_at"]
+                    if not (expires_at and expires_at < datetime.now(timezone.utc)):
+                        if not (isinstance(data, dict) and "error" in data) and data not in ({}, [], "", None):
+                            return data, row["source_id"], True
+
+                data = _normalize(await fetch_fn())
+                # Never cache error responses
+                if isinstance(data, dict) and "error" in data:
+                    raise RuntimeError(f"Tool returned error: {data.get('error')}")
+                # Never cache empty responses (transient failures that returned no data)
+                if data in ({}, [], "", None):
+                    raise RuntimeError(f"Tool returned empty data for {key}")
+                source_id = f"{provider}:{ticker}:{int(time.time())}"
+                await self._store(key, data, source_id, provider, ttl, now)
+                return data, source_id, False
+        finally:
+            # Evict lock if no one else is waiting on it to prevent unbounded growth
+            if not lock.locked():
+                self._inflight_locks.pop(key, None)
 
     async def _refresh(
         self,
