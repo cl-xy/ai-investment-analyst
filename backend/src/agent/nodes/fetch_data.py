@@ -19,6 +19,11 @@ log = logging.getLogger(__name__)
 
 TOOL_TIMEOUT = 30  # seconds per tool call
 
+# Global semaphore bounding concurrent tool calls across all analyses.
+# Prevents overwhelming external APIs (SEC EDGAR ~10 req/s, yfinance, newsapi).
+# With analysis_slot semaphore(3) × 5 tools × N tickers, this caps actual I/O.
+_GLOBAL_TOOL_SEMAPHORE = asyncio.Semaphore(15)
+
 
 def _unwrap(result) -> dict | list:
     """Unwrap LangChain MCP content-block format: [{'type':'text','text':'<json>'}]."""
@@ -70,6 +75,14 @@ async def _call_tool_cached(
     start = time.monotonic()
 
     async def _fetch():
+        # Atomically consume budget before making the actual API call.
+        # This prevents the TOCTOU race where multiple concurrent cache misses
+        # all pass a read-only budget check and then exceed the limit.
+        from src.cache.budget import use_budget
+
+        if not await use_budget(provider):
+            raise RuntimeError(f"Budget exhausted for {provider}")
+
         data, success, _ = await _call_tool_raw(tools, tool_name, **tool_kwargs)
         if not success:
             raise RuntimeError(f"Tool {tool_name} failed")
@@ -84,101 +97,101 @@ async def _call_tool_cached(
         )
         duration_ms = int((time.monotonic() - start) * 1000)
         return data, True, duration_ms, was_cached
-    except Exception:
-        # Cache miss + fetch failure: fall back to direct call
-        data, success, duration_ms = await _call_tool_raw(tools, tool_name, **tool_kwargs)
-        return data, success, duration_ms, False
+    except Exception as e:
+        # Cache miss + fetch failure: don't retry raw call (budget already consumed
+        # inside _fetch). Return the error as a failed result.
+        duration_ms = int((time.monotonic() - start) * 1000)
+        return {"error": str(e)}, False, duration_ms, False
 
 
 async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> dict:
     tickers = state.get("tickers_to_analyze", [])
+    log.info("fetch_data_node: tickers=%s, tools_count=%d", tickers, len(mcp_tools))
     if not tickers:
         return {}
 
-    # Budget-exhaustion fallback: if providers are nearly depleted, serve cache-only
-    cache_only = False
+    # Per-provider budget check: only degrade the provider that's exhausted
+    budget_exhausted: set[str] = set()
     try:
         from src.cache.budget import check_budget
 
-        budgets_ok = await asyncio.gather(
+        newsapi_ok, groq_ok = await asyncio.gather(
             check_budget("newsapi"),
             check_budget("groq"),
         )
-        cache_only = not all(budgets_ok)
+        if not newsapi_ok:
+            budget_exhausted.add("newsapi")
+        if not groq_ok:
+            budget_exhausted.add("groq")
+        log.info(
+            "fetch_data_node: budget_exhausted=%s",
+            budget_exhausted or "none",
+        )
     except Exception as e:
         log.warning("budget_check_failed: %s", e)
+
+    # Bound concurrent tool calls across all tickers (global limit across analyses)
+    async def _bounded_tool_cached(
+        tools: dict, provider: str, tool_name: str, ticker: str, tool_kwargs: dict
+    ) -> tuple[dict | list, bool, int, bool]:
+        async with _GLOBAL_TOOL_SEMAPHORE:
+            return await _call_tool_cached(tools, provider, tool_name, ticker, tool_kwargs)
 
     async def fetch_one(ticker: str) -> tuple[str, list, dict, str, list[str]]:
         """Fetch all data for one ticker with caching. Returns per-ticker results + gaps."""
         gaps: list[str] = []
+        from src.cache.manager import cache_manager as cm
 
-        if cache_only:
-            # Budget exhausted: serve only from cache, no live API calls
-            from src.cache.manager import cache_manager as cm
+        # Define tool calls with their provider mapping
+        tool_calls = [
+            ("newsapi", "get_ticker_news", {"ticker": ticker, "days_back": 7, "max_articles": 10}),
+            ("yfinance", "get_quote", {"ticker": ticker}),
+            ("yfinance", "get_fundamentals", {"ticker": ticker}),
+            ("sec_edgar", "get_latest_filing_summary", {"ticker": ticker, "form_type": "10-K"}),
+            ("yfinance", "get_technical_indicators", {"ticker": ticker}),
+        ]
 
-            news_data, _, news_hit = await cm.get_cached_only("newsapi", "get_ticker_news", ticker)
-            quote_data, _, quote_hit = await cm.get_cached_only("yfinance", "get_quote", ticker)
-            fundamentals_data, _, fund_hit = await cm.get_cached_only(
-                "yfinance", "get_fundamentals", ticker
-            )
-            filing_data, _, filing_hit = await cm.get_cached_only(
-                "sec_edgar", "get_latest_filing_summary", ticker
-            )
-            indicators_data, _, ind_hit = await cm.get_cached_only(
-                "yfinance", "get_technical_indicators", ticker
-            )
+        results = []
+        # Separate budget-exhausted providers (cache-only) from live fetches
+        cache_only_coros = []
+        live_coros = []
+        indices_cache = []
+        indices_live = []
 
-            if not news_hit:
-                gaps.append(f"News data unavailable for {ticker} (budget exhausted)")
-                news_data = []
-            if not quote_hit:
-                gaps.append(f"Price quote unavailable for {ticker} (budget exhausted)")
-                quote_data = {}
-            if not fund_hit:
-                gaps.append(f"Fundamentals unavailable for {ticker} (budget exhausted)")
-                fundamentals_data = {}
-            if not filing_hit:
-                gaps.append(f"SEC filing unavailable for {ticker} (budget exhausted)")
-                filing_data = {}
-            if not ind_hit:
-                gaps.append(f"Technical indicators unavailable for {ticker} (budget exhausted)")
-                indicators_data = {}
+        for i, (provider, tool_name, kwargs) in enumerate(tool_calls):
+            if provider in budget_exhausted:
+                indices_cache.append(i)
+                cache_only_coros.append(cm.get_cached_only(provider, tool_name, ticker))
+            else:
+                indices_live.append(i)
+                live_coros.append(
+                    _bounded_tool_cached(mcp_tools, provider, tool_name, ticker, kwargs)
+                )
 
-            news = news_data if isinstance(news_data, list) else []
-            prices = {
-                "quote": quote_data if isinstance(quote_data, dict) else {},
-                "fundamentals": fundamentals_data if isinstance(fundamentals_data, dict) else {},
-                "indicators": indicators_data if isinstance(indicators_data, dict) else {},
-            }
-            filing_text = (
-                filing_data.get("text_excerpt", "") if isinstance(filing_data, dict) else ""
-            )
-            return ticker, news, prices, filing_text, gaps
-
-        # Normal path: fetch through cache layer
-        results = await asyncio.gather(
-            _call_tool_cached(
-                mcp_tools,
-                "newsapi",
-                "get_ticker_news",
-                ticker,
-                {"ticker": ticker, "days_back": 7, "max_articles": 10},
-            ),
-            _call_tool_cached(mcp_tools, "yfinance", "get_quote", ticker, {"ticker": ticker}),
-            _call_tool_cached(
-                mcp_tools, "yfinance", "get_fundamentals", ticker, {"ticker": ticker}
-            ),
-            _call_tool_cached(
-                mcp_tools,
-                "sec_edgar",
-                "get_latest_filing_summary",
-                ticker,
-                {"ticker": ticker, "form_type": "10-K"},
-            ),
-            _call_tool_cached(
-                mcp_tools, "yfinance", "get_technical_indicators", ticker, {"ticker": ticker}
-            ),
+        # Run all live fetches concurrently (bounded by _GLOBAL_TOOL_SEMAPHORE)
+        cache_results, live_results = await asyncio.gather(
+            asyncio.gather(*cache_only_coros) if cache_only_coros else asyncio.sleep(0),
+            asyncio.gather(*live_coros) if live_coros else asyncio.sleep(0),
         )
+        if not cache_only_coros:
+            cache_results = []
+        if not live_coros:
+            live_results = []
+
+        # Merge results back in original order
+        results = [None] * len(tool_calls)
+        for idx, (i, (provider, tool_name, _kwargs)) in enumerate(
+            zip(indices_cache, [tool_calls[j] for j in indices_cache])
+        ):
+            data, source_id, hit = cache_results[idx]
+            if hit:
+                results[i] = (data, True, 0, True)
+            else:
+                gaps.append(f"{tool_name} unavailable for {ticker} (budget exhausted)")
+                results[i] = ({} if "news" not in tool_name else [], False, 0, False)
+
+        for idx, i in enumerate(indices_live):
+            results[i] = live_results[idx]
 
         news_data, news_ok, _, _ = results[0]
         quote_data, quote_ok, _, _ = results[1]
@@ -213,14 +226,25 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
 
         return ticker, news, prices, filing_text, gaps
 
-    all_results = await asyncio.gather(*[fetch_one(t) for t in tickers])
+    all_results = await asyncio.gather(
+        *[fetch_one(t) for t in tickers], return_exceptions=True
+    )
 
     raw_news = {}
     raw_prices = {}
     raw_filings = {}
     all_gaps: list[str] = []
 
-    for ticker, news, prices, filing_text, gaps in all_results:
+    for i, result in enumerate(all_results):
+        ticker = tickers[i]
+        if isinstance(result, BaseException):
+            log.error("fetch_one_failed ticker=%s error=%s", ticker, result)
+            all_gaps.append(f"All data unavailable for {ticker} (fetch error)")
+            raw_news[ticker] = []
+            raw_prices[ticker] = {"quote": {}, "fundamentals": {}, "indicators": {}}
+            raw_filings[ticker] = ""
+            continue
+        _, news, prices, filing_text, gaps = result
         raw_news[ticker] = news
         raw_prices[ticker] = prices
         raw_filings[ticker] = filing_text

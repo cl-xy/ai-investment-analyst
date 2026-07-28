@@ -18,22 +18,24 @@ export default function AnalysisCard({ analysis }: Props) {
 
   return (
     <div className="bg-[var(--surface-elevated)] rounded-2xl border border-[var(--border)] overflow-hidden">
-      {/* Card header */}
-      <div
-        className="flex items-center justify-between px-6 py-4 cursor-pointer hover:bg-[var(--surface)] transition-colors"
+      {/* Card header - #5: keyboard operable */}
+      <button
+        className="w-full flex items-center justify-between px-6 py-4 hover:bg-[var(--surface)] transition-colors text-left focus-ring rounded-t-2xl"
         onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        aria-controls={`analysis-content-${analysis.ticker}`}
       >
         <div className="flex items-center gap-4">
           <span className="text-2xl font-bold font-mono text-[var(--text-primary)]">{analysis.ticker}</span>
           <SignalBadge signal={analysis.signal} confidence={analysis.confidence} />
         </div>
-        <button className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] text-xl font-bold">
+        <span className="text-[var(--text-muted)] text-xl font-bold" aria-hidden="true">
           {expanded ? '▲' : '▼'}
-        </button>
-      </div>
+        </span>
+      </button>
 
       {expanded && (
-        <div className="px-6 pb-6 space-y-6">
+        <div id={`analysis-content-${analysis.ticker}`} className="px-6 pb-6 space-y-6">
           {/* Sentiment */}
           <SentimentBar score={analysis.sentiment_score} />
 

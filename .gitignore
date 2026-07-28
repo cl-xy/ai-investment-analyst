@@ -16,3 +16,8 @@ docker-compose.override.yml
 
 node_modules/
 frontend/dist/
+
+# Local environment
+.envrc
+.playwright-mcp/
+analyze-complete.png

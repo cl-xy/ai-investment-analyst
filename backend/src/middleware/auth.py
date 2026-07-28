@@ -31,7 +31,7 @@ class DemoAuthMiddleware(BaseHTTPMiddleware):
     Health, explore, and dashboard endpoints are always public.
     """
 
-    PROTECTED_PREFIXES = ("/api/analyze",)
+    PROTECTED_PREFIXES = ("/api/analyze", "/api/compare")
     PUBLIC_PREFIXES = ("/api/health", "/api/explore", "/api/dashboard", "/api/admin")
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:

@@ -21,7 +21,6 @@ load_dotenv()
 
 import typer
 from langchain_core.messages import HumanMessage
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -32,6 +31,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from src.agent.checkpointer import get_checkpointer
 from src.agent.graph import build_graph
 from src.agent.mcp_client import create_mcp_client
 
@@ -43,22 +43,17 @@ app.add_typer(portfolio_app, name="portfolio")
 _DEFAULT_THREAD = "default-session"
 
 
-def _ensure_data_dir() -> None:
-    Path("data").mkdir(exist_ok=True)
-
-
 async def _run_graph(
     user_message: str,
     thread_id: str = _DEFAULT_THREAD,
     intent: str | None = None,
     tickers: list[str] | None = None,
 ) -> dict:
-    _ensure_data_dir()
     client = create_mcp_client()
     tools_list = await client.get_tools()
     mcp_tools = {t.name: t for t in tools_list}
     graph = build_graph(mcp_tools)
-    async with AsyncSqliteSaver.from_conn_string("data/checkpointer.db") as checkpointer:
+    async with get_checkpointer() as checkpointer:
         compiled = graph.compile(checkpointer=checkpointer)
         config = {"configurable": {"thread_id": thread_id}}
         initial_state: dict = {"messages": [HumanMessage(content=user_message)]}

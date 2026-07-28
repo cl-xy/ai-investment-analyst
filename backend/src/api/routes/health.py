@@ -10,8 +10,8 @@ import time
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from src.api.db import fetchval
 from src.cache.budget import DAILY_LIMITS, get_budget_status
+from src.db import fetchval
 
 router = APIRouter()
 

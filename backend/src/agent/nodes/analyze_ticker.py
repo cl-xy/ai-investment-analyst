@@ -7,6 +7,7 @@ for transient LLM API errors.
 """
 
 import json
+import logging
 import os
 import time
 from functools import cache
@@ -20,8 +21,6 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
-
-import logging
 
 from ..circuit_breaker import CircuitBreakerOpen, groq_breaker
 from ..json_utils import extract_json

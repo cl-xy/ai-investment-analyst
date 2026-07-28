@@ -10,9 +10,13 @@ import asyncio
 import json
 import time
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from typing import Any, Awaitable, Callable
 
-from src.api.db import execute, fetchrow
+from src.db import execute, fetchrow
+from src.logging_config import get_logger
+
+_log = get_logger("cache.refresh")
 
 # TTL configuration per provider/tool combination
 TTL_CONFIG: dict[str, dict[str, int]] = {
@@ -37,6 +41,12 @@ class CacheManager:
 
     def __init__(self):
         self._refresh_tasks: set[asyncio.Task] = set()
+        self._pending_refreshes: dict[str, asyncio.Task] = {}  # key -> task (dedup)
+
+    def _task_cleanup(self, task: asyncio.Task, *, key: str) -> None:
+        """Done-callback for background refresh tasks. Captures only key, not full scope."""
+        self._refresh_tasks.discard(task)
+        self._pending_refreshes.pop(key, None)
 
     async def get(self, key: str) -> dict | None:
         """Get a cache entry by key. Returns None if not found or expired."""
@@ -78,12 +88,14 @@ class CacheManager:
                 if now < stale_at:
                     return data, source_id, True
 
-                # Stale: serve immediately, refresh in background
-                task = asyncio.create_task(
-                    self._refresh(key, provider, tool, ticker, fetch_fn, ttl)
-                )
-                self._refresh_tasks.add(task)
-                task.add_done_callback(self._refresh_tasks.discard)
+                # Stale: serve immediately, refresh in background (deduplicated)
+                if key not in self._pending_refreshes:
+                    task = asyncio.create_task(
+                        self._refresh(key, provider, tool, ticker, fetch_fn, ttl)
+                    )
+                    self._pending_refreshes[key] = task
+                    self._refresh_tasks.add(task)
+                    task.add_done_callback(partial(self._task_cleanup, key=key))
                 return data, source_id, True
 
         # Cache miss, fetch fresh
@@ -101,13 +113,27 @@ class CacheManager:
         fetch_fn: Callable[[], Awaitable[Any]],
         ttl: dict[str, int],
     ):
-        """Background refresh for stale-while-revalidate."""
+        """Background refresh for stale-while-revalidate. Respects provider budget."""
         try:
+            # Check budget before making the API call to avoid untracked spend
+            from src.cache.budget import check_budget
+
+            if not await check_budget(provider):
+                _log.info(
+                    "background_refresh_skipped_budget key=%s provider=%s", key, provider
+                )
+                return
+
             data = await fetch_fn()
             source_id = f"{provider}:{ticker}:{int(time.time())}"
             await self._store(key, data, source_id, provider, ttl, datetime.now(timezone.utc))
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.warning(
+                "background_refresh_failed key=%s provider=%s error=%s",
+                key,
+                provider,
+                exc,
+            )
 
     async def _store(
         self,

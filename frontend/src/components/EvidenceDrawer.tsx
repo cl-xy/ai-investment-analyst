@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { X, Database, Clock, CheckCircle2 } from 'lucide-react'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 import type { Citation, StreamEvent, ToolResultPayload } from '../types/stream'
 
 interface EvidenceDrawerProps {
@@ -10,6 +11,10 @@ interface EvidenceDrawerProps {
 
 export default function EvidenceDrawer({ citation, toolResults, onClose }: EvidenceDrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null)
+  const isOpen = citation !== null
+
+  // #14: Focus trap with restore
+  useFocusTrap(drawerRef, isOpen)
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -18,6 +23,30 @@ export default function EvidenceDrawer({ citation, toolResults, onClose }: Evide
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)
   }, [onClose])
+
+  // #14: Set inert on siblings when open
+  useEffect(() => {
+    if (!isOpen) return
+    const main = document.getElementById('main-content')
+    const header = document.querySelector('header')
+    const footer = document.querySelector('footer')
+    main?.setAttribute('inert', '')
+    header?.setAttribute('inert', '')
+    footer?.setAttribute('inert', '')
+    return () => {
+      main?.removeAttribute('inert')
+      header?.removeAttribute('inert')
+      footer?.removeAttribute('inert')
+    }
+  }, [isOpen])
+
+  // Body scroll lock when drawer is open
+  useEffect(() => {
+    if (!isOpen) return
+    const originalOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = originalOverflow }
+  }, [isOpen])
 
   if (!citation) return null
 
@@ -54,7 +83,7 @@ export default function EvidenceDrawer({ citation, toolResults, onClose }: Evide
           </div>
           <button
             onClick={onClose}
-            className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors focus-ring rounded p-1"
+            className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors focus-ring rounded min-w-[44px] min-h-[44px] flex items-center justify-center"
             aria-label="Close evidence drawer"
           >
             <X className="w-4 h-4" />

@@ -2,9 +2,9 @@
 
 import asyncio
 
-import structlog
+from src.logging_config import get_logger
 
-log = structlog.get_logger("shutdown")
+log = get_logger("shutdown")
 
 
 class ShutdownCoordinator:

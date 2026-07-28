@@ -12,7 +12,7 @@ import re
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from src.agent.events import EventEmitter, EventType
+from src.agent.events import EventEmitter
 from src.agent.json_utils import extract_json
 from src.agent.structured_output import AnalysisOutput, Citation
 

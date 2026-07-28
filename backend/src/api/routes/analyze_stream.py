@@ -6,10 +6,7 @@ Handles timeouts and real tool latency measurement.
 """
 
 import asyncio
-import re
 import time
-import time as _time
-from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -18,13 +15,15 @@ load_dotenv()
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_core.messages import HumanMessage
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
+from src.agent.checkpointer import get_checkpointer
 from src.agent.concurrency import acquire_analysis_slot, release_analysis_slot
 from src.agent.events import EventEmitter
 from src.agent.graph import build_graph
+from src.api.schemas import VALID_TICKER_RE
 from src.api.shutdown import shutdown_coordinator
 from src.metrics import metrics
+from src.middleware.auth import limiter
 from src.middleware.cost_tracker import CostTracker
 
 router = APIRouter()
@@ -35,19 +34,23 @@ EXECUTION_TIMEOUT = 120  # max seconds for entire analysis run
 # Module-level event store for reconnection (last 5 minutes)
 _recent_runs: dict[str, tuple[float, list[str]]] = {}  # run_id -> (timestamp, [sse_strings])
 _MAX_RUN_AGE = 300  # 5 minutes
+_MAX_STORED_RUNS = 100  # cap total stored runs to prevent unbounded memory growth
 
 
 def _store_event(run_id: str, sse_msg: str):
     """Store SSE message for potential replay."""
-    now = _time.time()
+    now = time.time()
     if run_id not in _recent_runs:
         _recent_runs[run_id] = (now, [])
     _recent_runs[run_id] = (now, _recent_runs[run_id][1])
     _recent_runs[run_id][1].append(sse_msg)
-    # Evict old runs
+    # Evict old runs and enforce max size
     expired = [k for k, (ts, _) in _recent_runs.items() if now - ts > _MAX_RUN_AGE]
     for k in expired:
         del _recent_runs[k]
+    # Hard cap: evict oldest by insertion order (Python 3.7+ dicts are ordered)
+    while len(_recent_runs) > _MAX_STORED_RUNS:
+        del _recent_runs[next(iter(_recent_runs))]
 
 
 def _replay_events(run_id: str, after_seq: int) -> list[str]:
@@ -59,7 +62,7 @@ def _replay_events(run_id: str, after_seq: int) -> list[str]:
     result = []
     for ev in events:
         lines = ev.split("\n")
-        id_line = next((l for l in lines if l.startswith("id: ")), None)
+        id_line = next((line for line in lines if line.startswith("id: ")), None)
         if id_line:
             seq = int(id_line.removeprefix("id: "))
             if seq > after_seq:
@@ -89,18 +92,16 @@ async def _run_agent(
 
     tickers_upper = [t.upper() for t in tickers]
     tool_start_times: dict[str, float] = {}
-    run_start = time.monotonic()
 
     event = emitter.run_started(tickers_upper)
     await queue.put(event.to_sse())
 
     try:
-        Path("data").mkdir(exist_ok=True)
         message = f"Analyze these stocks: {', '.join(tickers_upper)}"
 
         graph = build_graph(mcp_tools)
 
-        async with AsyncSqliteSaver.from_conn_string("data/checkpointer.db") as checkpointer:
+        async with get_checkpointer() as checkpointer:
             compiled = graph.compile(checkpointer=checkpointer)
             config = {"configurable": {"thread_id": f"stream-{emitter.run_id}"}}
             initial_state = {
@@ -313,6 +314,7 @@ async def _stream_generator(
 
 
 @router.get("/analyze/stream")
+@limiter.limit("10/minute")
 async def analyze_stream(
     request: Request,
     tickers: str = Query(..., description="Comma-separated ticker symbols"),
@@ -340,15 +342,24 @@ async def analyze_stream(
 
     ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
     if not ticker_list:
-        return {"error": "At least one ticker is required"}
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "At least one ticker is required"},
+        )
 
-    valid_pattern = re.compile(r"\A[A-Z0-9.]{1,10}\Z")
+    valid_pattern = VALID_TICKER_RE
     invalid = [t for t in ticker_list if not valid_pattern.match(t)]
     if invalid:
-        return {"error": f"Invalid ticker symbols: {', '.join(invalid)}"}
+        return JSONResponse(
+            status_code=400,
+            content={"detail": f"Invalid ticker symbols: {', '.join(invalid)}"},
+        )
 
     if len(ticker_list) > 5:
-        return {"error": "Maximum 5 tickers per analysis request"}
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "Maximum 5 tickers per analysis request"},
+        )
 
     # Acquire concurrency slot
     slot_acquired = await acquire_analysis_slot()
@@ -359,9 +370,18 @@ async def analyze_stream(
             headers={"Retry-After": "5"},
         )
 
-    # Check for reconnection
+    # Check for reconnection (parse safely to avoid slot leak on bad header)
     last_event_id_header = request.headers.get("Last-Event-ID")
-    last_event_id = int(last_event_id_header) if last_event_id_header else None
+    last_event_id: int | None = None
+    if last_event_id_header:
+        try:
+            last_event_id = int(last_event_id_header)
+        except (ValueError, TypeError):
+            release_analysis_slot()
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Invalid Last-Event-ID header"},
+            )
     resume_run_id = request.headers.get("X-Run-ID")  # Client sends this on reconnect
 
     return StreamingResponse(

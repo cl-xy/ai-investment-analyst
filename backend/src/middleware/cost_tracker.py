@@ -13,7 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from src.api.db import execute
+from src.db import execute
 
 
 class RunMetrics(BaseModel):

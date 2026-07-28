@@ -2,7 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Design tokens: 4-theme system */
+/* Motion tokens (#6) */
+:root {
+  --motion-micro: 120ms;
+  --motion-standard: 200ms;
+  --motion-surface: 320ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-decelerate: cubic-bezier(0.0, 0, 0.2, 1);
+  --ease-overshoot: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Design tokens: 4-theme system with per-theme risk encoding (#17) */
 [data-theme="petroleum"],
 :root {
   --bg: #0d1317;
@@ -12,7 +22,7 @@
   --border-subtle: #1c2830;
   --text-primary: #e8edef;
   --text-secondary: #8fa3b0;
-  --text-muted: #4d6472;
+  --text-muted: #688699;
   --bullish: #2dd4a8;
   --bullish-bg: rgba(45, 212, 168, 0.1);
   --bearish: #e07060;
@@ -25,6 +35,10 @@
   --live: #40b0e0;
   --ring: #f0a030;
   --ring-offset: #0d1317;
+  /* Risk encoding: saturated single-hue (only buy uses full green) */
+  --signal-buy-border: 2px solid #2dd4a8;
+  --signal-sell-border: 2px solid #e07060;
+  --signal-hold-border: 1px solid #d4a853;
 }
 
 [data-theme="plum"] {
@@ -35,7 +49,7 @@
   --border-subtle: #2a2238;
   --text-primary: #ede8f2;
   --text-secondary: #a89bb8;
-  --text-muted: #6b5d7a;
+  --text-muted: #8a7b9a;
   --bullish: #5ecfac;
   --bullish-bg: rgba(94, 207, 172, 0.1);
   --bearish: #d47080;
@@ -48,6 +62,10 @@
   --live: #9080e0;
   --ring: #d4af37;
   --ring-offset: #15101e;
+  /* Risk encoding: desaturated fills, risk through density */
+  --signal-buy-border: 2px solid #5ecfac;
+  --signal-sell-border: 2px solid #d47080;
+  --signal-hold-border: 1px solid #c8a850;
 }
 
 [data-theme="moss"] {
@@ -58,7 +76,7 @@
   --border-subtle: #232e23;
   --text-primary: #e4ebe4;
   --text-secondary: #96aa96;
-  --text-muted: #556b55;
+  --text-muted: #6d8a6d;
   --bullish: #6ec870;
   --bullish-bg: rgba(110, 200, 112, 0.1);
   --bearish: #d08050;
@@ -71,6 +89,10 @@
   --live: #50b8a0;
   --ring: #e6b801;
   --ring-offset: #101410;
+  /* Risk encoding: organic, earth-tone stroke weight */
+  --signal-buy-border: 2px solid #6ec870;
+  --signal-sell-border: 2px solid #d08050;
+  --signal-hold-border: 1px solid #c8b040;
 }
 
 [data-theme="graphite"] {
@@ -81,7 +103,7 @@
   --border-subtle: #302c25;
   --text-primary: #e8e4de;
   --text-secondary: #a09888;
-  --text-muted: #6a6050;
+  --text-muted: #938670;
   --bullish: #3ab0a0;
   --bullish-bg: rgba(58, 176, 160, 0.1);
   --bearish: #c85a3a;
@@ -94,6 +116,10 @@
   --live: #5090d0;
   --ring: #c2703d;
   --ring-offset: #1a1715;
+  /* Risk encoding: inverted luminance, warm tones */
+  --signal-buy-border: 3px solid #3ab0a0;
+  --signal-sell-border: 3px solid #c85a3a;
+  --signal-hold-border: 1px solid #a08860;
 }
 
 body {
@@ -104,7 +130,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Animations */
+/* Animations using motion tokens */
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
@@ -123,11 +149,11 @@ body {
     var(--surface) 75%
   );
   background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
+  animation: shimmer 1.5s var(--ease-standard) infinite;
 }
 
 .animate-fade-in {
-  animation: fade-in 200ms ease-out forwards;
+  animation: fade-in var(--motion-standard) var(--ease-decelerate) forwards;
 }
 
 @keyframes slide-in-right {
@@ -136,11 +162,11 @@ body {
 }
 
 .animate-slide-in-right {
-  animation: slide-in-right 200ms ease-out;
+  animation: slide-in-right var(--motion-standard) var(--ease-decelerate);
 }
 
 .trace-event-enter {
-  animation: fade-in 150ms ease-out forwards;
+  animation: fade-in var(--motion-micro) var(--ease-decelerate) forwards;
   opacity: 0;
 }
 
@@ -154,6 +180,11 @@ body {
   outline-offset: 2px;
 }
 
+/* Micro-interactions (#31) */
+.active\:scale-\[0\.98\]:active {
+  transform: scale(0.98);
+}
+
 /* Mobile responsive */
 @media (max-width: 768px) {
   .max-w-7xl {
@@ -162,17 +193,38 @@ body {
   }
 }
 
+/* Typing indicator */
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
+}
+
+.typing-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--text-muted);
+  animation: typing-bounce 1.2s ease-in-out infinite;
+}
+
+/* #7: Reduced motion (comprehensive) */
 @media (prefers-reduced-motion: reduce) {
   .animate-shimmer,
   .animate-fade-in,
   .animate-slide-in-right,
   .trace-event-enter,
   .animate-pulse,
-  .animate-spin {
+  .animate-spin,
+  .typing-dot {
     animation: none !important;
   }
-  * {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

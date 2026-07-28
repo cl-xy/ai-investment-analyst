@@ -6,8 +6,9 @@ from time import perf_counter
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
+from src.agent.concurrency import acquire_analysis_slot, release_analysis_slot
 from src.config import settings
-from src.mcp_servers.portfolio_server.db import fetch_all_positions
+from src.mcp_servers.portfolio_server import fetch_all_positions
 
 from ..schemas import ScheduledRefreshResponse
 from .analyze import analyze_tickers
@@ -80,9 +81,25 @@ async def refresh_portfolio_analyses(
                 duration_ms=int((perf_counter() - started) * 1000),
             )
 
-        logger.info("scheduled_refresh_started tickers=%s", tickers)
-        mcp_tools = request.app.state.mcp_tools
-        analysis = await analyze_tickers(tickers, mcp_tools, force_refresh=True)
+        # Acquire concurrency slot to avoid starving streaming analyses
+        slot_acquired = await acquire_analysis_slot()
+        if not slot_acquired:
+            logger.warning("scheduled_refresh_skipped_no_slot")
+            return ScheduledRefreshResponse(
+                status="skipped",
+                message="Server at capacity; scheduled refresh deferred",
+                tickers=tickers,
+                created_at=datetime.now(timezone.utc),
+                duration_ms=int((perf_counter() - started) * 1000),
+            )
+
+        try:
+            logger.info("scheduled_refresh_started tickers=%s", tickers)
+            mcp_tools = request.app.state.mcp_tools
+            analysis = await analyze_tickers(tickers, mcp_tools, force_refresh=True)
+        finally:
+            release_analysis_slot()
+
         logger.info(
             "scheduled_refresh_finished tickers=%s analysis_id=%s duration_ms=%s",
             tickers,

@@ -22,15 +22,16 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from src.config import settings
+from src.db import close_pool, init_schema
 from src.logging_config import get_logger, setup_logging
-from src.middleware.auth import DemoAuthMiddleware
+from src.metrics import router as metrics_router
+from src.middleware.auth import DemoAuthMiddleware, limiter
 from src.middleware.request_id import RequestIDMiddleware
 from src.middleware.security_headers import SecurityHeadersMiddleware
-
-from .db import close_pool, init_schema
-from src.metrics import router as metrics_router
 
 from .routes.admin import router as admin_router
 from .routes.analyze import router as analyze_router
@@ -52,9 +53,15 @@ log = get_logger("app")
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     """Initialize DB, load tools on startup. Clean up on shutdown."""
-    from src.agent.direct_tools import load_direct_tools
+
+    from src.agent.direct_tools import _TOOL_EXECUTOR, load_direct_tools
 
     log.info("starting", version="0.2.0")
+
+    # Set bounded thread pool as default executor so asyncio.to_thread uses it.
+    # Prevents thread exhaustion on low-CPU deployments (Fly.io shared-cpu-1x).
+    asyncio.get_event_loop().set_default_executor(_TOOL_EXECUTOR)
+
     await init_schema()
     log.info("database_ready")
 
@@ -66,6 +73,7 @@ async def _lifespan(app: FastAPI):
     yield
 
     await close_pool()
+    _TOOL_EXECUTOR.shutdown(wait=False)
     log.info("shutdown_complete")
 
 
@@ -75,6 +83,10 @@ app = FastAPI(
     version="0.2.0",
     lifespan=_lifespan,
 )
+
+# Attach rate limiter
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(DemoAuthMiddleware)
 app.add_middleware(RequestIDMiddleware)

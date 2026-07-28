@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { TrendingUp } from 'lucide-react'
 import {
   Area,
@@ -12,6 +12,28 @@ import {
 import { getExploreStocks, getStockDetail } from '../api/exploreService'
 import { formatPrice, formatVolume } from '../utils/formatters'
 import type { ExploreResponse, StockDetail, TrendingStock } from '../types/analysis'
+
+// Reads theme colors from CSS custom properties, re-renders on theme change
+// Stable subscribe/snapshot refs avoid re-creating the observer per component instance.
+const _subscribe = (cb: () => void) => {
+  const observer = new MutationObserver(cb)
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+  return () => observer.disconnect()
+}
+const _getSnapshot = () => document.documentElement.getAttribute('data-theme') ?? 'petroleum'
+
+function useThemeColors() {
+  const theme = useSyncExternalStore(_subscribe, _getSnapshot)
+  return useMemo(() => {
+    const root = document.documentElement
+    const get = (v: string) => getComputedStyle(root).getPropertyValue(v).trim() || undefined
+    return {
+      bullish: get('--bullish') ?? '#10b981',
+      bearish: get('--bearish') ?? '#ef4444',
+      textMuted: get('--text-muted') ?? '#9ca3af',
+    }
+  }, [theme])
+}
 
 function ChangeBadge({ changePct }: { changePct: number | null }) {
   if (changePct === null) return <span className="text-[var(--text-muted)] text-sm">-</span>
@@ -28,9 +50,12 @@ function ChangeBadge({ changePct }: { changePct: number | null }) {
   )
 }
 
-function PriceChart({ history, changePct }: { history: StockDetail['price_history']; changePct: number | null }) {
+function PriceChart({ history, changePct, ticker }: { history: StockDetail['price_history']; changePct: number | null; ticker: string }) {
+  const { bullish, bearish, textMuted } = useThemeColors()
   const isPositive = changePct === null || changePct >= 0
-  const color = isPositive ? '#10b981' : '#ef4444'
+  const color = isPositive ? bullish : bearish
+  // #34: Unique gradient IDs to prevent collision across multiple charts
+  const gradId = `grad-${ticker}-${isPositive ? 'up' : 'down'}`
 
   if (!history || history.length === 0) {
     return <div className="flex items-center justify-center h-32 text-[var(--text-muted)] text-sm">No price data available</div>
@@ -44,7 +69,7 @@ function PriceChart({ history, changePct }: { history: StockDetail['price_histor
     <ResponsiveContainer width="100%" height={140}>
       <AreaChart data={history} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
         <defs>
-          <linearGradient id={`grad-${isPositive ? 'up' : 'down'}`} x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="5%" stopColor={color} stopOpacity={0.25} />
             <stop offset="95%" stopColor={color} stopOpacity={0} />
           </linearGradient>
@@ -52,7 +77,7 @@ function PriceChart({ history, changePct }: { history: StockDetail['price_histor
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
         <XAxis
           dataKey="date"
-          tick={{ fontSize: 10, fill: '#9ca3af' }}
+          tick={{ fontSize: 10, fill: textMuted }}
           tickLine={false}
           axisLine={false}
           tickFormatter={(v: string) => {
@@ -63,7 +88,7 @@ function PriceChart({ history, changePct }: { history: StockDetail['price_histor
         />
         <YAxis
           domain={[minClose - padding, maxClose + padding]}
-          tick={{ fontSize: 10, fill: '#9ca3af' }}
+          tick={{ fontSize: 10, fill: textMuted }}
           tickLine={false}
           axisLine={false}
           tickFormatter={(v: number) => `$${v.toFixed(0)}`}
@@ -82,7 +107,7 @@ function PriceChart({ history, changePct }: { history: StockDetail['price_histor
           dataKey="close"
           stroke={color}
           strokeWidth={2}
-          fill={`url(#grad-${isPositive ? 'up' : 'down'})`}
+          fill={`url(#${gradId})`}
           dot={false}
           activeDot={{ r: 4, fill: color }}
         />
@@ -147,7 +172,7 @@ function DetailPanel({ ticker, changePct }: { ticker: string; changePct: number 
       {/* Price chart */}
       <div>
         <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2">30-Day Price</p>
-        <PriceChart history={detail.price_history ?? []} changePct={changePct} />
+        <PriceChart history={detail.price_history ?? []} changePct={changePct} ticker={ticker} />
       </div>
 
       {/* Trending reason */}
@@ -193,8 +218,11 @@ function StockRow({
       <div
         className="flex items-center gap-4 py-3.5 px-5 hover:bg-[var(--surface)] transition-colors cursor-pointer select-none"
         onClick={onToggle}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() } }}
         role="button"
+        tabIndex={0}
         aria-expanded={expanded}
+        aria-label={`${stock.ticker} ${stock.name}, ${stock.change_pct !== null ? `${stock.change_pct >= 0 ? '+' : ''}${stock.change_pct.toFixed(2)}%` : ''}`}
       >
         <span className="w-7 text-right text-sm text-[var(--text-muted)] font-mono shrink-0">
           {stock.rank}

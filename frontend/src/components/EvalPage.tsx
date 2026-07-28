@@ -21,7 +21,10 @@ export default function EvalPage() {
 
   useEffect(() => {
     fetch(`${API_BASE}/api/eval/summary`, { headers: authHeaders() })
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error('Failed to fetch eval summary')
+        return res.json()
+      })
       .then(setSummary)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))

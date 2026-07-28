@@ -176,6 +176,11 @@ async def get_explore() -> ExploreResponse:
 @router.get("/explore/{ticker}/detail", response_model=StockDetail)
 async def get_stock_detail(ticker: str) -> StockDetail:
     ticker = ticker.upper()
+
+    from src.api.schemas import VALID_TICKER_RE
+
+    if not VALID_TICKER_RE.match(ticker):
+        raise HTTPException(status_code=400, detail="Invalid ticker symbol")
     cached = _DETAIL_CACHE.get(ticker)
     if cached is not None:
         return cached

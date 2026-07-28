@@ -4,12 +4,16 @@ Comparison endpoint. Compares 2-3 tickers using existing analyses or running fre
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from src.api.schemas import VALID_TICKER_RE, CompareResponse
+from src.middleware.auth import limiter
+
 from .analyze import analyze_tickers
 
 router = APIRouter()
 
 
-@router.get("/compare")
+@router.get("/compare", response_model=CompareResponse)
+@limiter.limit("10/minute")
 async def compare_tickers(
     request: Request,
     tickers: str = Query(..., description="Comma-separated tickers (2-3)"),
@@ -24,6 +28,12 @@ async def compare_tickers(
         raise HTTPException(status_code=400, detail="At least 2 tickers required for comparison")
     if len(ticker_list) > 3:
         raise HTTPException(status_code=400, detail="Maximum 3 tickers for comparison")
+
+    invalid = [t for t in ticker_list if not VALID_TICKER_RE.match(t)]
+    if invalid:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid ticker symbols: {', '.join(invalid)}"
+        )
 
     # Run analysis (will use cache if available)
     mcp_tools = request.app.state.mcp_tools

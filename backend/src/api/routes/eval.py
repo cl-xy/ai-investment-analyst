@@ -7,12 +7,13 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter
 
-from src.api.db import fetch
+from src.api.schemas import EvalHistoryResponse, EvalSummary
+from src.db import fetch
 
 router = APIRouter(prefix="/eval", tags=["eval"])
 
 
-@router.get("/summary")
+@router.get("/summary", response_model=EvalSummary)
 async def eval_summary():
     """Return latest eval metrics summary for the dashboard."""
     rows = await fetch("SELECT * FROM runs ORDER BY started_at DESC LIMIT 100")
@@ -51,7 +52,7 @@ async def eval_summary():
     }
 
 
-@router.get("/history")
+@router.get("/history", response_model=EvalHistoryResponse)
 async def eval_history():
     """Return eval metrics over time (last 30 days, grouped by day)."""
     thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)

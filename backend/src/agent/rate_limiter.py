@@ -50,3 +50,17 @@ class TokenBucket:
 # Groq free tier: 30 req/min = 0.5 req/sec
 # Use 28/min (0.467/sec) with burst capacity of 5 to leave headroom
 groq_limiter = TokenBucket(rate=28.0 / 60.0, capacity=5)
+
+
+class RateLimitExceeded(Exception):
+    """Raised when the rate limiter cannot acquire a slot within timeout."""
+
+    def __init__(self, timeout: float):
+        super().__init__(f"Rate limit: could not acquire slot within {timeout}s")
+        self.timeout = timeout
+
+
+async def acquire_or_raise(timeout: float = 30.0) -> None:
+    """Acquire a rate limiter slot or raise RateLimitExceeded."""
+    if not await groq_limiter.acquire(timeout=timeout):
+        raise RateLimitExceeded(timeout)

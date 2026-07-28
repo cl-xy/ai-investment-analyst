@@ -14,9 +14,9 @@ from collections import deque
 from enum import Enum
 from typing import Any, Callable, TypeVar
 
-import structlog
+from src.logging_config import get_logger
 
-log = structlog.get_logger("circuit_breaker")
+log = get_logger("circuit_breaker")
 
 T = TypeVar("T")
 
@@ -77,6 +77,8 @@ class CircuitBreaker:
         # Acquire rate limiter slot before calling
         acquired = await groq_limiter.acquire(timeout=30.0)
         if not acquired:
+            # Rate limiter exhaustion is a throttling signal, not an API failure.
+            # Don't count it toward circuit breaker failures — just reject this call.
             raise CircuitBreakerOpen(retry_after=5.0)
 
         try:

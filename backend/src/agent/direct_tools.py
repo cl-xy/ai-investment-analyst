@@ -6,11 +6,15 @@ Used in production where subprocess spawning is unreliable (Docker/Fly.io).
 
 import asyncio
 import json
-from functools import partial
-from typing import Any
+from concurrent.futures import ThreadPoolExecutor
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
+
+# Explicit bounded thread pool for sync tool calls.
+# Default pool is min(32, cpu_count+4) which can be as low as 5 on Fly.io shared-cpu-1x.
+# 16 workers handles 3 concurrent analyses × 5 tools comfortably without exhaustion.
+_TOOL_EXECUTOR = ThreadPoolExecutor(max_workers=16, thread_name_prefix="mcp-tool")
 
 
 # --- Schemas for tool arguments ---
@@ -88,9 +92,9 @@ def load_direct_tools() -> dict:
     # --- Market tools ---
     try:
         from src.mcp_servers.market_server.server import (
-            get_quote,
             get_fundamentals,
             get_price_history,
+            get_quote,
             get_technical_indicators,
         )
 
@@ -127,7 +131,7 @@ def load_direct_tools() -> dict:
 
     # --- News tools ---
     try:
-        from src.mcp_servers.news_server.server import get_ticker_news, get_market_headlines
+        from src.mcp_servers.news_server.server import get_market_headlines, get_ticker_news
 
         tools["get_ticker_news"] = StructuredTool.from_function(
             func=lambda ticker, days_back=7, max_articles=10: _wrap_sync(get_ticker_news, ticker=ticker, days_back=days_back, max_articles=max_articles),
@@ -148,7 +152,7 @@ def load_direct_tools() -> dict:
 
     # --- SEC tools ---
     try:
-        from src.mcp_servers.sec_server.server import search_sec_filings, get_latest_filing_summary
+        from src.mcp_servers.sec_server.server import get_latest_filing_summary, search_sec_filings
 
         tools["search_sec_filings"] = StructuredTool.from_function(
             func=lambda ticker, form_type="10-K", count=3: _wrap_sync(search_sec_filings, ticker=ticker, form_type=form_type, count=count),
@@ -170,11 +174,11 @@ def load_direct_tools() -> dict:
     # --- Portfolio tools ---
     try:
         from src.mcp_servers.portfolio_server.server import (
-            get_portfolio,
             add_position,
+            get_portfolio,
+            get_portfolio_value,
             remove_position,
             update_position,
-            get_portfolio_value,
         )
 
         tools["get_portfolio"] = StructuredTool.from_function(

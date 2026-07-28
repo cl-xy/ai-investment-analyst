@@ -358,8 +358,6 @@ class TestNoHardcodedApiKeys:
         violations = []
 
         for path in _get_python_files(BACKEND_SRC):
-            content = path.read_text()
-
             tree = _parse_file(path)
             for node in ast.walk(tree):
                 if isinstance(node, ast.Constant) and isinstance(node.value, str):

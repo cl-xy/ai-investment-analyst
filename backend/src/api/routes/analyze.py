@@ -4,6 +4,7 @@ Analyze endpoint. Runs the LangGraph agent and persists results to PostgreSQL.
 
 import json
 import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,27 +18,25 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from fastapi import APIRouter, HTTPException, Request
 from langchain_core.messages import HumanMessage
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
+from src.agent.checkpointer import get_checkpointer
 from src.agent.graph import build_graph
+from src.db import fetchrow, get_pool
 
-from ..db import execute, fetchrow, get_pool
 from ..schemas import AnalyzeRequest, AnalyzeResponse, TickerAnalysis
 
 router = APIRouter()
 
-_DEFAULT_THREAD = "api-session"
-
-
 async def _run_analysis(tickers: list[str], mcp_tools: dict) -> dict:
-    Path("data").mkdir(exist_ok=True)
     tickers_upper = [t.upper() for t in tickers]
     message = f"Analyze these stocks: {', '.join(tickers_upper)}"
 
     graph = build_graph(mcp_tools)
-    async with AsyncSqliteSaver.from_conn_string("data/checkpointer.db") as checkpointer:
+    async with get_checkpointer() as checkpointer:
         compiled = graph.compile(checkpointer=checkpointer)
-        config = {"configurable": {"thread_id": _DEFAULT_THREAD}}
+        # Unique thread_id per request to prevent checkpoint state leaking between runs
+        thread_id = f"analyze-{uuid.uuid4().hex[:12]}"
+        config = {"configurable": {"thread_id": thread_id}}
         initial_state: dict = {
             "messages": [HumanMessage(content=message)],
             "tickers_to_analyze": tickers_upper,

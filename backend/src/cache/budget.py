@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from src.api.db import fetchrow
+from src.db import fetchrow
 
 # Conservative daily limits (leave headroom for manual use)
 DAILY_LIMITS: dict[str, int] = {

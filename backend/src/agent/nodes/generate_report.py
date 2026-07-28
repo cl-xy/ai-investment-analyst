@@ -48,8 +48,8 @@ async def generate_report_node(state: InvestmentAnalystState) -> dict:
     )
 
     try:
-        from ..rate_limiter import groq_limiter
-        await groq_limiter.acquire(timeout=30.0)
+        from ..rate_limiter import acquire_or_raise
+        await acquire_or_raise()
 
         response = await _get_llm().ainvoke(
             [

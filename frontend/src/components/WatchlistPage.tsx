@@ -1,6 +1,9 @@
-import { useState, type KeyboardEvent } from 'react'
+import { useState, useRef, useMemo, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, Sparkles, X } from 'lucide-react'
+import { Plus, Search, Sparkles, X, AlertCircle } from 'lucide-react'
+import { useRecentTickers } from '../hooks/useRecentTickers'
+import { useContextualHints } from '../hooks/useContextualHints'
+import { getTickerError, normalizeTicker } from '../utils/tickerValidation'
 
 interface Props {
   tickers: string[]
@@ -14,16 +17,45 @@ const DEMO_TICKERS = ['NVDA', 'AAPL', 'TSLA', 'MSFT', 'GOOGL', 'AMZN', 'META', '
 
 export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loading }: Props) {
   const [input, setInput] = useState('')
+  // #29: Inline validation error
+  const [inputError, setInputError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
+  // #23: Frequency-weighted recents
+  const { getSuggestions } = useRecentTickers()
+  const recentSuggestions = getSuggestions(tickers)
+  const suggestions = recentSuggestions.length > 0 ? recentSuggestions : DEMO_TICKERS
+
+  // Contextual hints for first-time users
+  const hintDefs = useMemo(() => [
+    {
+      id: 'watchlist-first-ticker',
+      target: '[data-hint-target="ticker-input"]',
+      message: 'Type a stock ticker like AAPL or NVDA to get started',
+      condition: () => tickers.length === 0,
+    },
+  ], [tickers.length])
+  const { activeHint, dismiss } = useContextualHints(hintDefs)
 
   const handleAdd = () => {
-    const value = input.trim().toUpperCase()
+    const value = normalizeTicker(input)
+    const error = getTickerError(input)
+    if (error) {
+      setInputError(error)
+      return
+    }
     if (value && !tickers.includes(value)) onAdd(value)
     setInput('')
+    setInputError(null)
+    // Dismiss onboarding hint on first add
+    if (activeHint?.id === 'watchlist-first-ticker') dismiss('watchlist-first-ticker')
+    // Return focus to input after adding
+    inputRef.current?.focus()
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') handleAdd()
+    if (inputError) setInputError(null)
   }
 
   const handleDemoAnalyze = () => {
@@ -57,25 +89,53 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
           <div className="relative flex-1">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
             <input
+              ref={inputRef}
               type="text"
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => { setInput(e.target.value); if (inputError) setInputError(null) }}
               onKeyDown={handleKeyDown}
               placeholder="Enter ticker symbol, e.g. NVDA"
               aria-label="Ticker symbol input"
-              className="w-full border border-[var(--border)] bg-[var(--surface)] rounded-lg pl-10 pr-4 py-3 text-sm font-mono uppercase text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] focus:border-transparent transition-shadow"
+              data-hint-target="ticker-input"
+              aria-describedby={inputError ? 'ticker-error' : undefined}
+              aria-invalid={!!inputError}
+              className={`w-full border bg-[var(--surface)] rounded-lg pl-10 pr-4 py-3 text-sm font-mono uppercase text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] focus:border-transparent transition-shadow ${
+                inputError ? 'border-red-500/50' : 'border-[var(--border)]'
+              }`}
               maxLength={10}
               autoFocus
             />
           </div>
           <button
             onClick={handleAdd}
-            className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white px-4 py-3 rounded-lg text-sm font-medium transition-colors focus-ring flex items-center gap-1.5"
+            className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white px-4 py-3 rounded-lg text-sm font-medium transition-colors focus-ring flex items-center gap-1.5 min-h-[44px] active:scale-[0.98]"
           >
             <Plus className="w-4 h-4" />
             Add
           </button>
         </div>
+        {/* #29: Inline validation error */}
+        {inputError && (
+          <p id="ticker-error" className="flex items-center gap-1.5 text-xs text-red-500 mt-2" role="alert">
+            <AlertCircle className="w-3 h-3" />
+            {inputError}
+          </p>
+        )}
+        {/* Contextual hint for first-time users */}
+        {activeHint && !inputError && (
+          <div className="mt-2.5 flex items-start gap-2 animate-fade-in">
+            <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+              💡 {activeHint.message}
+            </p>
+            <button
+              onClick={() => dismiss(activeHint.id)}
+              className="shrink-0 text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
+              aria-label="Dismiss hint"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Watchlist pills */}
@@ -93,7 +153,7 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
                 {ticker}
                 <button
                   onClick={() => onRemove(ticker)}
-                  className="text-[var(--text-muted)] hover:text-[var(--bearish)] transition-colors"
+                  className="text-[var(--text-muted)] hover:text-[var(--bearish)] transition-colors min-w-[28px] min-h-[28px] flex items-center justify-center rounded"
                   aria-label={`Remove ${ticker}`}
                 >
                   <X className="w-3.5 h-3.5" />
@@ -109,24 +169,24 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
         <button
           onClick={onAnalyze}
           disabled={loading}
-          className="w-full bg-[var(--bullish)] hover:bg-[var(--bullish)]/90 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-3 rounded-lg transition-colors text-sm focus-ring"
+          className="w-full bg-[var(--bullish)] hover:bg-[var(--bullish)]/90 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-3 rounded-lg transition-[colors,transform] duration-100 text-sm focus-ring active:scale-[0.97]"
         >
           Analyze {tickers.length} stock{tickers.length > 1 ? 's' : ''}
         </button>
       )}
 
-      {/* Quick add suggestions */}
+      {/* Quick add suggestions - #23: frequency-weighted recents */}
       {tickers.length === 0 && (
         <div className="w-full">
           <p className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-3">
-            Popular tickers
+            {recentSuggestions.length > 0 ? 'Recent tickers' : 'Popular tickers'}
           </p>
           <div className="flex flex-wrap gap-2">
-            {DEMO_TICKERS.map((ticker) => (
+            {suggestions.map((ticker) => (
               <button
                 key={ticker}
                 onClick={() => onAdd(ticker)}
-                className="text-xs font-mono font-medium px-2.5 py-1.5 rounded-md bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent)] transition-colors focus-ring"
+                className="text-xs font-mono font-medium px-2.5 py-1.5 rounded-md bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent)] transition-colors focus-ring min-h-[36px]"
               >
                 {ticker}
               </button>

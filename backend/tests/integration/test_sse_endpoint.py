@@ -9,8 +9,6 @@ import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 
 def _mock_astream_events(delay: float = 0.0):
     """Generate fake LangGraph stream events with optional delay per event."""

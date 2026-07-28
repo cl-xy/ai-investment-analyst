@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BarChart3, Trash2, Loader2 } from 'lucide-react'
 import { deleteAnalysis, getDashboardResult, getDashboardResults } from '../api/analyzeService'
 import type { AnalysisListItem, AnalyzeResponse } from '../types/analysis'
 import AnalysisCard from './AnalysisCard'
 import LoadingSpinner from './LoadingSpinner'
+import { toastUndo, toastError, toastSuccess } from '../stores/toastStore'
 
 export default function DashboardPage() {
   const navigate = useNavigate()
@@ -15,6 +16,20 @@ export default function DashboardPage() {
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mountedRef = useRef(true)
+
+  // Cleanup pending delete timer on unmount
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      if (deleteTimerRef.current) {
+        clearTimeout(deleteTimerRef.current)
+        deleteTimerRef.current = null
+      }
+    }
+  }, [])
 
   // Derive unique tickers sorted alphabetically, with their most recent session
   const tickerSessionMap = useMemo(() => {
@@ -71,18 +86,58 @@ export default function DashboardPage() {
 
   async function handleDelete() {
     if (!sessionDetail || !selectedTicker) return
-    setDeletingId(sessionDetail.id)
-    try {
-      await deleteAnalysis(sessionDetail.id)
-      const updatedSessions = sessions.filter((s) => s.id !== sessionDetail.id)
-      setSessions(updatedSessions)
-      setSessionDetail(null)
-      setSelectedTicker(null)
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to delete analysis')
-    } finally {
-      setDeletingId(null)
+
+    // Capture immutable snapshot at delete time
+    const deletedId = sessionDetail.id
+    const deletedTicker = selectedTicker
+    const snapshotSessions = sessions
+    const snapshotDetail = sessionDetail
+
+    // #4: Optimistic remove with undo toast
+    setSessions((prev) => prev.filter((s) => s.id !== deletedId))
+    setSessionDetail(null)
+    setSelectedTicker(null)
+
+    let undone = false
+
+    // Clear any previous pending delete timer
+    if (deleteTimerRef.current) {
+      clearTimeout(deleteTimerRef.current)
+      deleteTimerRef.current = null
     }
+
+    toastUndo(`Deleted analysis for ${deletedTicker}`, () => {
+      undone = true
+      // Cancel the pending deletion
+      if (deleteTimerRef.current) {
+        clearTimeout(deleteTimerRef.current)
+        deleteTimerRef.current = null
+      }
+      // Restore from snapshot (uses captured values, not stale closure)
+      setSessions(snapshotSessions)
+      setSessionDetail(snapshotDetail)
+      setSelectedTicker(deletedTicker)
+    })
+
+    // Delay actual deletion to allow undo
+    deleteTimerRef.current = setTimeout(async () => {
+      deleteTimerRef.current = null
+      if (undone || !mountedRef.current) return
+      setDeletingId(deletedId)
+      try {
+        await deleteAnalysis(deletedId)
+        if (mountedRef.current) toastSuccess('Analysis deleted')
+      } catch (err: unknown) {
+        if (!mountedRef.current) return
+        // Rollback on failure using snapshot
+        setSessions(snapshotSessions)
+        setSessionDetail(snapshotDetail)
+        setSelectedTicker(deletedTicker)
+        toastError(err instanceof Error ? err.message : 'Failed to delete analysis')
+      } finally {
+        if (mountedRef.current) setDeletingId(null)
+      }
+    }, 5200)
   }
 
   if (loadingList) return <LoadingSpinner />
@@ -120,19 +175,19 @@ export default function DashboardPage() {
   const sessionDate = tickerSessionMap.get(selectedTicker ?? '')?.created_at
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8 flex gap-6">
-      {/* Sidebar: one button per stock */}
-      <aside className="w-48 shrink-0">
-        <h2 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-3">
+    <div className="max-w-6xl mx-auto px-4 py-8 flex flex-col md:flex-row gap-6">
+      {/* Sidebar: horizontal scrollable pills on mobile, vertical list on desktop */}
+      <aside className="md:w-48 shrink-0">
+        <h2 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-3 hidden md:block">
           Stocks
         </h2>
-        <ul className="space-y-2">
+        <ul className="flex md:flex-col gap-2 overflow-x-auto pb-2 md:pb-0 md:overflow-x-visible">
           {uniqueTickers.map((ticker) => (
-            <li key={ticker}>
+            <li key={ticker} className="shrink-0">
               <button
                 onClick={() => selectTicker(ticker)}
                 className={[
-                  'w-full text-left rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                  'whitespace-nowrap md:w-full md:text-left rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
                   selectedTicker === ticker
                     ? 'bg-[var(--accent-bg)] border border-[var(--accent)]/20 text-[var(--accent)]'
                     : 'bg-[var(--surface-elevated)] border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface)]',

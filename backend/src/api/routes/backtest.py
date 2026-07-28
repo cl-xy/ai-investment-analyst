@@ -8,12 +8,13 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter
 
-from src.api.db import fetch
+from src.api.schemas import BacktestResponse
+from src.db import fetch
 
 router = APIRouter(tags=["backtest"])
 
 
-@router.get("/backtest")
+@router.get("/backtest", response_model=BacktestResponse)
 async def get_backtest_data():
     """
     Fetch historical analyses and compute performance vs SPY.
@@ -33,7 +34,7 @@ async def get_backtest_data():
     )
 
     if not rows:
-        return {"signals": [], "summary": {"total": 0, "accuracy": 0}}
+        return {"signals": [], "summary": {"total": 0, "buy_count": 0, "hold_count": 0, "sell_count": 0}}
 
     # For a portfolio piece, we compute simulated returns
     # In production this would fetch real price data

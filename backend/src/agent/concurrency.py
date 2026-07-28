@@ -2,9 +2,9 @@
 
 import asyncio
 
-import structlog
+from src.logging_config import get_logger
 
-log = structlog.get_logger("concurrency")
+log = get_logger("concurrency")
 
 # Max concurrent full analysis pipelines per instance
 _analysis_semaphore = asyncio.Semaphore(3)

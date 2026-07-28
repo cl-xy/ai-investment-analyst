@@ -4,16 +4,16 @@ Chat endpoint. Multi-turn conversational interface with tool access via SSE.
 
 import asyncio
 import re
-from pathlib import Path
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_core.messages import HumanMessage
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
+from src.agent.checkpointer import get_checkpointer
 from src.agent.events import EventEmitter
 from src.agent.graph import build_graph
 from src.api.shutdown import shutdown_coordinator
+from src.middleware.auth import limiter
 
 router = APIRouter(tags=["chat"])
 
@@ -27,9 +27,7 @@ async def _chat_stream_generator(message: str, thread_id: str, request: Request)
     mcp_tools = request.app.state.mcp_tools
     graph = build_graph(mcp_tools)
 
-    Path("data").mkdir(exist_ok=True)
-
-    async with AsyncSqliteSaver.from_conn_string("data/checkpointer.db") as checkpointer:
+    async with get_checkpointer() as checkpointer:
         compiled = graph.compile(checkpointer=checkpointer)
         config = {"configurable": {"thread_id": thread_id}}
 
@@ -76,6 +74,7 @@ async def _chat_stream_generator(message: str, thread_id: str, request: Request)
 
 
 @router.get("/chat/stream")
+@limiter.limit("15/minute")
 async def chat_stream(
     request: Request,
     message: str = "",

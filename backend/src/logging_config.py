@@ -8,10 +8,7 @@ Uses structlog for consistent structured output across the application.
 import logging
 import re
 import sys
-import time
-from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any
 
 import structlog
 
@@ -27,33 +24,6 @@ _SENSITIVE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _REDACTED = "[REDACTED]"
-
-
-def get_request_id() -> str:
-    """Get the current request's correlation ID."""
-    return request_id_ctx.get()
-
-
-def bind_context(
-    *,
-    ticker: str | None = None,
-    run_id: str | None = None,
-    node_name: str | None = None,
-) -> None:
-    """Bind domain correlation fields to the current async context."""
-    if ticker is not None:
-        ticker_ctx.set(ticker)
-    if run_id is not None:
-        run_id_ctx.set(run_id)
-    if node_name is not None:
-        node_name_ctx.set(node_name)
-
-
-def clear_context() -> None:
-    """Clear all domain correlation fields."""
-    ticker_ctx.set("")
-    run_id_ctx.set("")
-    node_name_ctx.set("")
 
 
 def _add_correlation_fields(logger, method_name, event_dict):
@@ -84,7 +54,6 @@ def _redact_sensitive(logger, method_name, event_dict):
             event_dict[key] = _REDACTED
         elif isinstance(event_dict[key], str) and len(event_dict[key]) > 20:
             # Redact values that look like tokens/keys (long strings in known patterns)
-            val = event_dict[key]
             if key in ("value", "header") and _SENSITIVE_PATTERN.search(str(event_dict.get("event", ""))):
                 event_dict[key] = _REDACTED
     return event_dict
@@ -131,44 +100,3 @@ def get_logger(name: str = ""):
     """Get a structured logger instance."""
     return structlog.get_logger(name)
 
-
-def log_event(event: str, **fields: Any) -> None:
-    """
-    Log a structured domain event with automatic correlation context.
-
-    Usage:
-        log_event("tool_call_completed", tool="get_quote", ticker="NVDA", cached=True, duration_ms=45)
-    """
-    logger = structlog.get_logger("domain")
-    logger.info(event, **fields)
-
-
-@contextmanager
-def timed(operation: str, **extra_fields: Any):
-    """
-    Context manager that measures and logs operation duration.
-
-    Usage:
-        with timed("fetch_quote", ticker="AAPL"):
-            result = await get_quote("AAPL")
-    """
-    logger = structlog.get_logger("timing")
-    start = time.monotonic()
-    try:
-        yield
-    except Exception as exc:
-        duration_ms = round((time.monotonic() - start) * 1000, 1)
-        logger.error(
-            f"{operation}_failed",
-            duration_ms=duration_ms,
-            error=str(exc),
-            **extra_fields,
-        )
-        raise
-    else:
-        duration_ms = round((time.monotonic() - start) * 1000, 1)
-        logger.info(
-            f"{operation}_completed",
-            duration_ms=duration_ms,
-            **extra_fields,
-        )

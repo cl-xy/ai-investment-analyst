@@ -1,5 +1,8 @@
-import { useState, useRef, useEffect, type KeyboardEvent } from 'react'
-import { Send, Bot, User, Loader2, Wrench } from 'lucide-react'
+import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 'react'
+import { Send, Bot, User, Wrench, Square } from 'lucide-react'
+import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
+import { useRestorableState } from '../hooks/useRestorableState'
+import { API_BASE, authParam } from '../api/config'
 
 interface ChatMessage {
   id: string
@@ -9,21 +12,54 @@ interface ChatMessage {
   isStreaming?: boolean
 }
 
-import { API_BASE, authParam } from '../api/config'
-
 export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [input, setInput] = useState('')
+  // #22: Persist chat input draft across refresh
+  const [input, setInput] = useRestorableState('chat-input', '')
   const [isStreaming, setIsStreaming] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const threadId = useRef(`chat-${Date.now()}`)
+  // #2: Store EventSource ref for cleanup on unmount
+  const esRef = useRef<EventSource | null>(null)
+  const mountedRef = useRef(true)
+  const inputRef = useRef(input)
+  const reducedMotion = usePrefersReducedMotion()
+
+  // Keep input ref current for stable sendMessage
+  inputRef.current = input
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      // #2: Clean up on unmount
+      esRef.current?.close()
+      esRef.current = null
+    }
+  }, [])
 
-  const sendMessage = () => {
-    const text = input.trim()
+  useEffect(() => {
+    // #7: Respect reduced motion for scroll behavior
+    messagesEndRef.current?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth' })
+  }, [messages, reducedMotion])
+
+  // #26: Stop streaming control
+  const stopStreaming = useCallback(() => {
+    esRef.current?.close()
+    esRef.current = null
+    setIsStreaming(false)
+    setMessages((prev) => {
+      const updated = [...prev]
+      const last = updated[updated.length - 1]
+      if (last?.role === 'assistant' && last.isStreaming) {
+        updated[updated.length - 1] = { ...last, isStreaming: false }
+      }
+      return updated
+    })
+  }, [])
+
+  const sendMessage = useCallback(() => {
+    const text = inputRef.current.trim()
     if (!text || isStreaming) return
 
     const userMsg: ChatMessage = { id: `user-${Date.now()}`, role: 'user', content: text }
@@ -33,11 +69,16 @@ export default function ChatPage() {
     setInput('')
     setIsStreaming(true)
 
+    // Close previous connection if any
+    esRef.current?.close()
+
     const auth = authParam()
     const url = `${API_BASE}/api/chat/stream?message=${encodeURIComponent(text)}&thread_id=${threadId.current}${auth ? '&' + auth : ''}`
     const es = new EventSource(url)
+    esRef.current = es
 
     es.addEventListener('llm_token', (e) => {
+      if (!mountedRef.current) return
       const data = JSON.parse(e.data)
       const token = data.payload?.text || ''
       setMessages((prev) => {
@@ -51,6 +92,7 @@ export default function ChatPage() {
     })
 
     es.addEventListener('tool_call', (e) => {
+      if (!mountedRef.current) return
       const data = JSON.parse(e.data)
       const toolName = data.payload?.tool_name || ''
       setMessages((prev) => {
@@ -65,6 +107,7 @@ export default function ChatPage() {
     })
 
     es.addEventListener('run_completed', () => {
+      if (!mountedRef.current) return
       setMessages((prev) => {
         const updated = [...prev]
         const last = updated[updated.length - 1]
@@ -75,9 +118,11 @@ export default function ChatPage() {
       })
       setIsStreaming(false)
       es.close()
+      esRef.current = null
     })
 
     es.onerror = () => {
+      if (!mountedRef.current) return
       setIsStreaming(false)
       setMessages((prev) => {
         const updated = [...prev]
@@ -88,8 +133,10 @@ export default function ChatPage() {
         return updated
       })
       es.close()
+      esRef.current = null
     }
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- setInput is identity-stable (useState setter)
+  }, [isStreaming])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -99,7 +146,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-6 py-6 flex flex-col h-[calc(100vh-8rem)]">
+    <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 flex flex-col h-[calc(100vh-8rem)]">
       <div className="mb-4">
         <h1 className="text-xl font-semibold text-[var(--text-primary)]">Chat</h1>
         <p className="text-sm text-[var(--text-muted)]">
@@ -107,8 +154,8 @@ export default function ChatPage() {
         </p>
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto space-y-4 pb-4">
+      {/* #26: Messages with aria-live for streaming */}
+      <div className="flex-1 overflow-y-auto space-y-4 pb-4" role="log" aria-label="Chat messages" aria-live="polite">
         {messages.length === 0 && (
           <div className="text-center py-12">
             <Bot className="w-10 h-10 text-[var(--text-muted)] mx-auto mb-3" />
@@ -117,8 +164,8 @@ export default function ChatPage() {
               {['What is NVDA trading at?', 'Compare AAPL vs MSFT', 'Show my portfolio'].map((q) => (
                 <button
                   key={q}
-                  onClick={() => { setInput(q); }}
-                  className="text-xs px-3 py-1.5 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent)] transition-colors focus-ring"
+                  onClick={() => { setInput(q) }}
+                  className="text-xs px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent)] transition-colors focus-ring min-h-[44px]"
                 >
                   {q}
                 </button>
@@ -151,7 +198,11 @@ export default function ChatPage() {
               )}
               <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
               {msg.isStreaming && !msg.content && (
-                <Loader2 className="w-4 h-4 animate-spin text-[var(--text-muted)]" />
+                <span className="inline-flex items-center gap-1">
+                  <span className="typing-dot" style={{ animationDelay: '0ms' }} />
+                  <span className="typing-dot" style={{ animationDelay: '150ms' }} />
+                  <span className="typing-dot" style={{ animationDelay: '300ms' }} />
+                </span>
               )}
             </div>
             {msg.role === 'user' && (
@@ -164,15 +215,25 @@ export default function ChatPage() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
+      {/* Input with stop control */}
       <div className="border-t border-[var(--border)] pt-4">
+        {/* #26: Stop generating button */}
+        {isStreaming && (
+          <button
+            onClick={stopStreaming}
+            className="flex items-center gap-1.5 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] mb-2 focus-ring rounded px-2 py-1 min-h-[32px]"
+          >
+            <Square className="w-3 h-3" />
+            Stop generating
+          </button>
+        )}
         <div className="flex gap-2 items-end">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Ask about stocks, portfolio, or market conditions..."
-            className="flex-1 resize-none border border-[var(--border)] bg-[var(--surface)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] focus:border-transparent transition-shadow"
+            className="flex-1 resize-none border border-[var(--border)] bg-[var(--surface)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] focus:border-transparent transition-shadow min-h-[48px] max-h-40"
             rows={1}
             disabled={isStreaming}
             aria-label="Chat message input"
@@ -180,7 +241,7 @@ export default function ChatPage() {
           <button
             onClick={sendMessage}
             disabled={!input.trim() || isStreaming}
-            className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 disabled:opacity-50 disabled:cursor-not-allowed text-white p-3 rounded-lg transition-colors focus-ring"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg bg-[var(--accent)] hover:bg-[var(--accent)]/90 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors focus-ring active:scale-[0.98]"
             aria-label="Send message"
           >
             <Send className="w-4 h-4" />

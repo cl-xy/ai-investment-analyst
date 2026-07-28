@@ -35,6 +35,8 @@ def _get_llm() -> ChatOpenAI:
 
 
 async def chat_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> dict:
+    from ..rate_limiter import acquire_or_raise
+
     tools = list(mcp_tools.values()) if mcp_tools else []
     llm = _get_llm()
     llm_with_tools = llm.bind_tools(tools) if tools else llm
@@ -42,6 +44,7 @@ async def chat_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> dict:
     messages = [SystemMessage(content=CHAT_SYSTEM)] + list(state["messages"])
 
     for _ in range(MAX_TOOL_ROUNDS):
+        await acquire_or_raise()
         response = await llm_with_tools.ainvoke(messages)
         messages.append(response)
 

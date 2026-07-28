@@ -56,24 +56,3 @@ class RouterOutput(BaseModel):
     reasoning: str = Field(default="", description="Brief explanation of classification")
 
 
-class ReportOutput(BaseModel):
-    """Structured output from the report generation node."""
-
-    title: str
-    summary: str = Field(description="Executive summary paragraph")
-    sections: list[ReportSection] = Field(default_factory=list)
-    disclaimer: str = Field(
-        default="This analysis is for educational purposes only. Not investment advice."
-    )
-
-
-class ReportSection(BaseModel):
-    """A section within the generated report."""
-
-    heading: str
-    content: str
-    tickers_referenced: list[str] = Field(default_factory=list)
-
-
-# Fix forward reference
-ReportOutput.model_rebuild()
