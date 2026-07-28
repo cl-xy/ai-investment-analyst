@@ -137,18 +137,16 @@ export function useAnalysisStream() {
         // Close explicitly to prevent native EventSource auto-reconnect
         es.close()
 
-        if (es.readyState === EventSource.CLOSED || true) {
-          const delay = Math.min(
-            INITIAL_RETRY_DELAY * 2 ** retryCountRef.current,
-            MAX_RETRY_DELAY,
-          )
+        // Each reconnect starts a NEW analysis run on the backend, which wastes
+        // Groq rate-limit budget and causes CORS failures when Fly's proxy
+        // returns errors without CORS headers. Only retry once for transient
+        // network blips; after that, surface the error to the user.
+        if (retryCountRef.current < 1) {
+          const delay = INITIAL_RETRY_DELAY
           retryCountRef.current += 1
-
-          if (retryCountRef.current <= 5) {
-            retryTimeoutRef.current = setTimeout(() => connect(tickers, true), delay)
-          } else {
-            setError('Connection lost. Please try again.')
-          }
+          retryTimeoutRef.current = setTimeout(() => connect(tickers, true), delay)
+        } else {
+          setError('Connection lost. Please try again.')
         }
       }
     },
