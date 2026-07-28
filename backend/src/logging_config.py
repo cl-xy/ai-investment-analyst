@@ -85,7 +85,7 @@ def setup_logging(json_output: bool = True, level: str = "INFO"):
 
     structlog.configure(
         processors=[
-            *shared_processors,
+            *shared_processors,  # type: ignore[list-item]
             structlog.processors.format_exc_info,
             renderer,
         ],

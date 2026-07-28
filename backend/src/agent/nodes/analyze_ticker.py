@@ -163,7 +163,7 @@ async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
 
     # Try Pydantic validation first (structured output path)
     try:
-        output = AnalysisOutput.model_validate_json(response.content)
+        output = AnalysisOutput.model_validate_json(response.content)  # type: ignore[arg-type]
     except (ValidationError, ValueError) as first_error:
         # Single retry: send validation errors back to model
         try:
@@ -175,7 +175,7 @@ async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
             retry_response = await _invoke_llm_with_retry(
                 messages + [HumanMessage(content=retry_prompt)]
             )
-            output = AnalysisOutput.model_validate_json(retry_response.content)
+            output = AnalysisOutput.model_validate_json(retry_response.content)  # type: ignore[arg-type]
         except (ValidationError, ValueError, Exception):
             # Fallback: use legacy extract_json for resilience
             try:

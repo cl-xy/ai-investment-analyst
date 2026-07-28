@@ -27,10 +27,10 @@ def _get_llm() -> ChatOpenAI:
     return ChatOpenAI(
         model="openai/gpt-oss-120b",
         temperature=0,
-        max_tokens=4096,
+        max_tokens=4096,  # type: ignore[call-arg]
         base_url="https://api.groq.com/openai/v1",
-        api_key=api_key,
-        request_timeout=60,
+        api_key=api_key,  # type: ignore[arg-type]
+        request_timeout=60,  # type: ignore[call-arg]
     )
 
 

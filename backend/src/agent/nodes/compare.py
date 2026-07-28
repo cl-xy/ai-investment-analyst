@@ -65,11 +65,11 @@ def _get_llm() -> ChatOpenAI:
     return ChatOpenAI(
         model="openai/gpt-oss-120b",
         temperature=0,
-        max_tokens=2048,
+        max_tokens=2048,  # type: ignore[call-arg]
         base_url="https://api.groq.com/openai/v1",
-        api_key=os.environ.get("GROQ_API_KEY", ""),
+        api_key=os.environ.get("GROQ_API_KEY", ""),  # type: ignore[arg-type]
         model_kwargs={"response_format": {"type": "json_object"}},
-        request_timeout=60,
+        request_timeout=60,  # type: ignore[call-arg]
     )
 
 
@@ -106,7 +106,9 @@ async def compare_node(state: InvestmentAnalystState) -> dict:
             ]
         )
 
-        comparison = ComparisonOutput.model_validate_json(response.content)
+        comparison = ComparisonOutput.model_validate_json(
+            str(response.content)  # type: ignore[arg-type]
+        )
         return {"comparison": comparison.model_dump()}
     except (ValidationError, Exception) as e:
         # Non-critical, comparison is supplementary
