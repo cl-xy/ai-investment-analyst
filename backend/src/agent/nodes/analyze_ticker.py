@@ -107,10 +107,10 @@ async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
     # DEBUG: print to stdout (structlog may swallow standard logger)
     print(f"[DEBUG] analyze_ticker: ticker={ticker}", flush=True)
     print(f"[DEBUG] analyze_ticker: raw_prices keys={list(state.get('raw_prices', {}).keys())}", flush=True)
-    print(f"[DEBUG] analyze_ticker: price_data keys={list(price_data.keys()) if isinstance(price_data, dict) else type(price_data)}", flush=True)
-    print(f"[DEBUG] analyze_ticker: price_data.get('quote')={str(price_data.get('quote', 'MISSING'))[:100]}", flush=True)
-    print(f"[DEBUG] analyze_ticker: news count={len(news) if isinstance(news, list) else type(news)}", flush=True)
-    print(f"[DEBUG] analyze_ticker: sec_text len={len(sec_text)}", flush=True)
+    print(f"[DEBUG] analyze_ticker: price_data type={type(price_data).__name__} keys={list(price_data.keys()) if isinstance(price_data, dict) else 'N/A'}", flush=True)
+    print(f"[DEBUG] analyze_ticker: price_data.get('quote') type={type(price_data.get('quote', 'MISSING')).__name__} val={str(price_data.get('quote', 'MISSING'))[:200]}", flush=True)
+    print(f"[DEBUG] analyze_ticker: news type={type(news).__name__} count={len(news) if isinstance(news, list) else 'N/A'} val={str(news)[:200]}", flush=True)
+    print(f"[DEBUG] analyze_ticker: sec_text len={len(sec_text)} val={sec_text[:100]}", flush=True)
 
     # Generate source IDs for citation tracking
     price_source_id = _make_source_id("yfinance", ticker)

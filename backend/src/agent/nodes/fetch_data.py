@@ -209,6 +209,13 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
         filing_data, filing_ok, _, _ = results[3]
         indicators_data, indicators_ok, _, _ = results[4]
 
+        # DEBUG
+        print(f"[DEBUG] fetch_one {ticker}: quote type={type(quote_data).__name__} ok={quote_ok} val={str(quote_data)[:150]}", flush=True)
+        print(f"[DEBUG] fetch_one {ticker}: news type={type(news_data).__name__} ok={news_ok} len={len(news_data) if isinstance(news_data, list) else 'N/A'}", flush=True)
+        print(f"[DEBUG] fetch_one {ticker}: fund type={type(fundamentals_data).__name__} ok={fundamentals_ok}", flush=True)
+        print(f"[DEBUG] fetch_one {ticker}: indicators type={type(indicators_data).__name__} ok={indicators_ok}", flush=True)
+        print(f"[DEBUG] fetch_one {ticker}: filing type={type(filing_data).__name__} ok={filing_ok}", flush=True)
+
         # Track gaps for failed sources
         if not news_ok:
             gaps.append(f"News data unavailable for {ticker}")
