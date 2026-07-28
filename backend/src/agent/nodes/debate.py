@@ -74,11 +74,11 @@ def _get_llm() -> ChatOpenAI:
     return ChatOpenAI(
         model=settings.llm_model,
         temperature=0.3,  # slightly higher than 0 for diverse debate perspectives
-        max_tokens=4096,
+        max_tokens=8192,
         base_url=settings.llm_base_url,
         api_key=api_key,
         model_kwargs={"response_format": {"type": "json_object"}},
-        request_timeout=60,
+        request_timeout=120,
     )
 
 
