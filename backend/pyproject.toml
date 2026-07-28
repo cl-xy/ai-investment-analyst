@@ -39,7 +39,7 @@ dependencies = [
     # Rate limiting
     "slowapi>=0.1.10",
     # Logging
-    "structlog>=24.0.0",
+    "structlog>=26.1.0",
 ]
 
 [project.optional-dependencies]
