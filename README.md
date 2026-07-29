@@ -5,8 +5,7 @@
 
 > Not a wrapper: observable, degradable, traceable multi-agent LLM pipeline with adversarial debate.
 
-<!-- TODO: Replace with actual recording -->
-![Demo](docs/assets/demo-placeholder.gif)
+![Demo](docs/assets/demo.gif)
 
 **[Live Demo](https://ai-investment-analyst-iota.vercel.app)** · Password: `investor2026` · [90s Video Walkthrough](#walkthrough)
 
@@ -316,15 +315,9 @@ DEMO_PASSWORD         # Optional: gate the demo
 <a id="walkthrough"></a>
 ## Video Walkthrough
 
-<!-- TODO: Record and embed 90s Loom/YouTube walkthrough showing:
-  1. Instant pre-cached demo loading
-  2. Ops dashboard with live metrics
-  3. Chaos mode triggering graceful degradation
-  4. Trace replay stepping through a recorded analysis
-  5. Live analysis streaming in real-time
--->
+https://github.com/user-attachments/assets/walkthrough.mp4
 
-*90-second walkthrough coming soon.*
+*75-second tour: trace replay, ops dashboard, chaos mode, recovery.*
 
 ---
 
