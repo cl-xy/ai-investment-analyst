@@ -77,7 +77,7 @@ class OpsCollector:
 
         # LLM call tracking
         self._llm_durations: deque[float] = deque(maxlen=500)
-        self._llm_token_counts: deque[dict[str, int]] = deque(maxlen=500)
+        self._llm_token_counts: deque[dict[str, int | str]] = deque(maxlen=500)
         self._llm_call_count: int = 0
 
         # Circuit breaker events

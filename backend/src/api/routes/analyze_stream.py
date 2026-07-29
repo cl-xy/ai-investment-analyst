@@ -431,7 +431,7 @@ async def _run_agent(
             # Determine final signal from first ticker analysis
             final_signal = None
             if ticker_analyses:
-                first_analysis = next(iter(ticker_analyses.values()), {})
+                first_analysis: dict = next(iter(ticker_analyses.values()), {})
                 final_signal = first_analysis.get("signal")
 
             status = "success" if _run_succeeded else "failed"
