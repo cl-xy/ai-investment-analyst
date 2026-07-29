@@ -102,7 +102,9 @@ def _build_data_context(ticker: str, state: InvestmentAnalystState) -> dict[str,
         "fundamentals_source_id": _make_source_id("yfinance", ticker),
         "indicators": json.dumps(price_data.get("indicators", {}), indent=2),
         "indicators_source_id": _make_source_id("yfinance", ticker),
-        "earnings": json.dumps(earnings, indent=2) if earnings else "No confirmed upcoming earnings date.",
+        "earnings": json.dumps(earnings, indent=2)
+        if earnings
+        else "No confirmed upcoming earnings date.",
         "earnings_source_id": _make_source_id("yfinance", ticker),
         "article_count": len(news),
         "news_text": _format_news(news),
@@ -119,7 +121,13 @@ def _build_data_context(ticker: str, state: InvestmentAnalystState) -> dict[str,
 
 async def _run_bull_agent(ctx: dict[str, Any]) -> BullCaseOutput:
     """Run the bull analyst agent."""
-    prompt = BULL_HUMAN.format(**{k: v for k, v in ctx.items() if k not in ("raw_price_data", "raw_earnings", "raw_sentiment")})
+    prompt = BULL_HUMAN.format(
+        **{
+            k: v
+            for k, v in ctx.items()
+            if k not in ("raw_price_data", "raw_earnings", "raw_sentiment")
+        }
+    )
     messages = [SystemMessage(content=BULL_SYSTEM), HumanMessage(content=prompt)]
 
     response = await _invoke_with_retry(messages)
@@ -156,7 +164,11 @@ async def _run_bear_agent(ctx: dict[str, Any], bull: BullCaseOutput) -> BearCase
     prompt = BEAR_HUMAN.format(
         bull_thesis=bull.thesis,
         bull_arguments=json.dumps(bull.key_arguments, indent=2),
-        **{k: v for k, v in ctx.items() if k not in ("raw_price_data", "raw_earnings", "raw_sentiment")},
+        **{
+            k: v
+            for k, v in ctx.items()
+            if k not in ("raw_price_data", "raw_earnings", "raw_sentiment")
+        },
     )
     messages = [SystemMessage(content=BEAR_SYSTEM), HumanMessage(content=prompt)]
 
@@ -205,7 +217,11 @@ async def _run_moderator(
         bear_risk_flags=json.dumps(bear.risk_flags, indent=2),
         bear_evidence=json.dumps([e.model_dump() for e in bear.evidence], indent=2),
         bear_concessions=json.dumps(bear.conceded_strengths, indent=2),
-        **{k: v for k, v in ctx.items() if k not in ("raw_price_data", "raw_earnings", "raw_sentiment")},
+        **{
+            k: v
+            for k, v in ctx.items()
+            if k not in ("raw_price_data", "raw_earnings", "raw_sentiment")
+        },
     )
     messages = [SystemMessage(content=MODERATOR_SYSTEM), HumanMessage(content=prompt)]
 
