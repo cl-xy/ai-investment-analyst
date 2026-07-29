@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from src.middleware.auth import limiter
-from src.ops.trace_recorder import get_featured_trace, get_trace, list_traces
+from src.ops.trace_recorder import get_featured_trace, get_trace, list_traces, set_featured_trace
 
 router = APIRouter()
 log = structlog.get_logger("replay")
@@ -51,6 +51,19 @@ async def get_featured_replay(request: Request):
     if not trace:
         raise HTTPException(status_code=404, detail="No featured trace available")
     return trace
+
+
+@router.post("/replay/{trace_id}/feature")
+@limiter.limit("10/minute")
+async def mark_trace_featured(request: Request, trace_id: str):
+    """Mark a trace as the featured demo trace (auth required)."""
+    try:
+        tid = uuid.UUID(trace_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid trace ID format")
+
+    await set_featured_trace(tid)
+    return {"status": "ok", "trace_id": trace_id, "is_featured": True}
 
 
 @router.get("/replay/{trace_id}")
