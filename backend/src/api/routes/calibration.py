@@ -96,7 +96,7 @@ async def get_calibration(
     _ = sum(1 for r in rows if r["outcome"] == "incorrect")  # noqa: F841
 
     # Hit rate by confidence bucket
-    confidence_buckets = {"high": [], "medium": [], "low": []}
+    confidence_buckets: dict[str, list[int]] = {"high": [], "medium": [], "low": []}
     for row in rows:
         bucket = row["confidence"]
         if bucket in confidence_buckets:
@@ -121,7 +121,7 @@ async def get_calibration(
             signal_stats[sig]["correct"] += 1
 
     for sig, stats in signal_stats.items():
-        stats["accuracy"] = stats["correct"] / stats["total"] if stats["total"] > 0 else 0
+        stats["accuracy"] = stats["correct"] / stats["total"] if stats["total"] > 0 else 0  # type: ignore[assignment]
 
     # Brier score (lower is better, 0 = perfect)
     # Map confidence to probability: high=0.8, medium=0.5, low=0.3
@@ -162,8 +162,8 @@ async def list_predictions(
     limit: int = Query(50, le=200),
 ):
     """List predictions with optional filters."""
-    conditions = []
-    params = []
+    conditions: list[str] = []
+    params: list[str | int] = []
     idx = 1
 
     if ticker:

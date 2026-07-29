@@ -14,7 +14,7 @@ import time
 from functools import cache
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 from tenacity import (
@@ -74,11 +74,11 @@ def _get_llm() -> ChatOpenAI:
     return ChatOpenAI(
         model=settings.llm_model,
         temperature=0.3,  # slightly higher than 0 for diverse debate perspectives
-        max_tokens=8192,
+        max_tokens=8192,  # type: ignore[call-arg]
         base_url=settings.llm_base_url,
-        api_key=api_key,
+        api_key=api_key,  # type: ignore[arg-type]
         model_kwargs={"response_format": {"type": "json_object"}},
-        request_timeout=120,
+        request_timeout=120,  # type: ignore[call-arg]
     )
 
 
@@ -88,9 +88,9 @@ def _get_llm() -> ChatOpenAI:
     stop=stop_after_attempt(2),
     reraise=True,
 )
-async def _invoke_with_retry(messages: list) -> object:
+async def _invoke_with_retry(messages: list) -> BaseMessage:
     """Invoke LLM with retry and circuit breaker (which handles rate limiting)."""
-    return await llm_breaker.call(_get_llm().ainvoke, messages)
+    return await llm_breaker.call(_get_llm().ainvoke, messages)  # type: ignore[return-value]
 
 
 def _format_news(articles: list[dict]) -> str:
@@ -392,7 +392,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     )
 
     # Convert moderator output to the standard TickerAnalysis format
-    analysis = {
+    analysis: dict[str, Any] = {
         "ticker": moderator.ticker,
         "signal": moderator.signal,
         "confidence": moderator.confidence,

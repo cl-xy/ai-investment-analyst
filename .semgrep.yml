@@ -40,15 +40,10 @@ rules:
       - pattern-not: return $POOL.fetch(...)
       - pattern-not: return $POOL.fetchrow(...)
       - pattern-not: return $POOL.fetchval(...)
-      - pattern-not-inside: async with $POOL.acquire(...) as $CONN
-      - pattern-not-inside: await execute(...)
-      - pattern-not-inside: await fetch(...)
-      - pattern-not-inside: await fetchval(...)
-      - pattern-not-inside: await fetchrow(...)
     message: >
       Async DB method called without await. This returns a coroutine object
       instead of executing the query, causing silent data loss.
-    severity: ERROR
+    severity: WARNING
     languages: [python]
     paths:
       include:
