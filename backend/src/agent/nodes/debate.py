@@ -16,7 +16,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import ValidationError
 
 from ..circuit_breaker import CircuitBreakerOpen
-from ..llm_fallback import invoke_with_fallback
 from ..debate_schemas import (
     BearCaseOutput,
     BullCaseOutput,
@@ -24,6 +23,7 @@ from ..debate_schemas import (
     ModeratorOutput,
 )
 from ..json_utils import extract_json
+from ..llm_fallback import invoke_with_fallback
 from ..prompts.debate_prompts import (
     BEAR_HUMAN,
     BEAR_SYSTEM,
