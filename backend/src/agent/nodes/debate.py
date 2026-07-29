@@ -67,6 +67,7 @@ def _is_retryable_error(exc: BaseException) -> bool:
 @cache
 def _get_llm() -> ChatOpenAI:
     from ...config import settings
+
     api_key = settings.openrouter_api_key or os.environ.get("OPENROUTER_API_KEY", "")
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY environment variable is not set")
@@ -283,7 +284,9 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     try:
         bull = await _run_bull_agent(ctx)
         bull_duration = int((time.monotonic() - bull_start) * 1000)
-        log.info("bull_complete ticker=%s confidence=%s ms=%d", ticker, bull.confidence, bull_duration)
+        log.info(
+            "bull_complete ticker=%s confidence=%s ms=%d", ticker, bull.confidence, bull_duration
+        )
     except (CircuitBreakerOpen, Exception) as e:
         log.warning("bull_failed ticker=%s error=%s", ticker, e)
         # Fallback: create minimal analysis without debate
@@ -315,7 +318,9 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     try:
         bear = await _run_bear_agent(ctx, bull)
         bear_duration = int((time.monotonic() - bear_start) * 1000)
-        log.info("bear_complete ticker=%s confidence=%s ms=%d", ticker, bear.confidence, bear_duration)
+        log.info(
+            "bear_complete ticker=%s confidence=%s ms=%d", ticker, bear.confidence, bear_duration
+        )
     except (CircuitBreakerOpen, Exception) as e:
         log.warning("bear_failed ticker=%s error=%s", ticker, e)
         # Degrade: use bull-only analysis
@@ -347,7 +352,13 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     try:
         moderator = await _run_moderator(ctx, bull, bear)
         mod_duration = int((time.monotonic() - mod_start) * 1000)
-        log.info("moderator_complete ticker=%s signal=%s confidence=%s ms=%d", ticker, moderator.signal, moderator.confidence, mod_duration)
+        log.info(
+            "moderator_complete ticker=%s signal=%s confidence=%s ms=%d",
+            ticker,
+            moderator.signal,
+            moderator.confidence,
+            mod_duration,
+        )
     except (CircuitBreakerOpen, Exception) as e:
         log.warning("moderator_failed ticker=%s error=%s", ticker, e)
         # Degrade: synthesize from bull + bear without moderator

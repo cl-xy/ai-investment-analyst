@@ -63,6 +63,7 @@ Be concise, evidence-based, and acknowledge when differences are marginal."""
 @cache
 def _get_llm() -> ChatOpenAI:
     from ...config import settings
+
     api_key = settings.openrouter_api_key or os.environ.get("OPENROUTER_API_KEY", "")
     return ChatOpenAI(
         model=settings.llm_model,

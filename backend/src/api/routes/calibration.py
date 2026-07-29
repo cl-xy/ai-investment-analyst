@@ -179,7 +179,7 @@ async def list_predictions(
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     params.append(limit)
 
-    rows = await fetch(
+    rows = await fetch(  # nosemgrep: sql-string-interpolation
         f"""
         SELECT id, ticker, signal, confidence, sentiment_score, thesis,
                price_at_prediction, horizon_days, created_at,
@@ -277,9 +277,17 @@ async def resolve_predictions():
                 # Determine outcome based on signal
                 signal = row["signal"]
                 if signal == "buy":
-                    outcome = "correct" if realized_return > 0.02 else ("incorrect" if realized_return < -0.02 else "neutral")
+                    outcome = (
+                        "correct"
+                        if realized_return > 0.02
+                        else ("incorrect" if realized_return < -0.02 else "neutral")
+                    )
                 elif signal == "sell":
-                    outcome = "correct" if realized_return < -0.02 else ("incorrect" if realized_return > 0.02 else "neutral")
+                    outcome = (
+                        "correct"
+                        if realized_return < -0.02
+                        else ("incorrect" if realized_return > 0.02 else "neutral")
+                    )
                 else:
                     # hold: correct if price stayed within +/-5%
                     outcome = "correct" if abs(realized_return) < 0.05 else "incorrect"

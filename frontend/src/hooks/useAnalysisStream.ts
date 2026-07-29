@@ -9,7 +9,6 @@ import type {
   StreamEvent,
 } from '../types/stream'
 
-const MAX_RETRY_DELAY = 30_000
 const INITIAL_RETRY_DELAY = 1_000
 
 /**

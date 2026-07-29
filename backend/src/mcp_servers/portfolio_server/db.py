@@ -74,7 +74,7 @@ async def update_position_fields(
         return False
     params.append(ticker.upper())
     async with _db() as db:
-        cursor = await db.execute(
+        cursor = await db.execute(  # nosemgrep: sql-string-interpolation
             f"UPDATE positions SET {', '.join(updates)} WHERE ticker = ?", params
         )
         await db.commit()

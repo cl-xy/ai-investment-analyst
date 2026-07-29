@@ -144,8 +144,17 @@ async def analyze_tickers(
             raw_for_persist[ticker] = raw_analyses[ticker]
         else:
             dumped = ta.model_dump(
-                include={"ticker", "signal", "confidence", "sentiment_score",
-                         "news_summary", "risk_flags", "price_data", "fundamentals", "sec_notes"}
+                include={
+                    "ticker",
+                    "signal",
+                    "confidence",
+                    "sentiment_score",
+                    "news_summary",
+                    "risk_flags",
+                    "price_data",
+                    "fundamentals",
+                    "sec_notes",
+                }
             )
             dumped.setdefault("thesis", "")
             dumped.setdefault("bull_case", [])
@@ -155,9 +164,7 @@ async def analyze_tickers(
     created_at = datetime.now(timezone.utc)
 
     try:
-        analysis_id = await persist_full_run(
-            normalised_tickers, raw_for_persist, report_markdown
-        )
+        analysis_id = await persist_full_run(normalised_tickers, raw_for_persist, report_markdown)
     except Exception:
         # Persistence failure should not block the response; the analysis
         # itself succeeded. Use a generated id so the client still gets a

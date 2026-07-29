@@ -176,7 +176,12 @@ async def _run_agent(
                         # Distinguish "no data available" from genuine errors
                         no_data = not success and any(
                             phrase in output_str
-                            for phrase in ("no filings found", "not found", "no data", "unavailable")
+                            for phrase in (
+                                "no filings found",
+                                "not found",
+                                "no data",
+                                "unavailable",
+                            )
                         )
 
                         # Heuristic: sub-50ms responses are cache hits
@@ -257,7 +262,8 @@ async def _run_agent(
                                 # Find the ticker currently being debated: first one
                                 # that hasn't completed all expected debate turns yet.
                                 analyzed_tickers = [
-                                    t for t in tickers_upper
+                                    t
+                                    for t in tickers_upper
                                     if debate_llm_count[t] >= _num_debate_turns
                                 ]
                                 for t in tickers_upper:
@@ -278,7 +284,13 @@ async def _run_agent(
                                 debate_llm_start.pop("_pending", None)
                                 continue
                             debate_llm_count[_current_ticker] = count + 1
-                            duration_ms = int((time.monotonic() - debate_llm_start.pop("_pending", time.monotonic())) * 1000)
+                            duration_ms = int(
+                                (
+                                    time.monotonic()
+                                    - debate_llm_start.pop("_pending", time.monotonic())
+                                )
+                                * 1000
+                            )
 
                             try:
                                 turn_data = extract_json(output.content)
@@ -321,7 +333,9 @@ async def _run_agent(
                                 await queue.put(ev.to_sse())
 
             # Scale timeout with ticker count: each ticker's debate takes ~100s
-            execution_timeout = EXECUTION_TIMEOUT_BASE + (len(tickers_upper) * EXECUTION_TIMEOUT_PER_TICKER)
+            execution_timeout = EXECUTION_TIMEOUT_BASE + (
+                len(tickers_upper) * EXECUTION_TIMEOUT_PER_TICKER
+            )
 
             try:
                 await asyncio.wait_for(_execute(), timeout=execution_timeout)
@@ -345,9 +359,7 @@ async def _run_agent(
 
             for ticker, analysis in ticker_analyses.items():
                 # Strip internal debate fields from SSE payload
-                clean_analysis = {
-                    k: v for k, v in analysis.items() if not k.startswith("_")
-                }
+                clean_analysis = {k: v for k, v in analysis.items() if not k.startswith("_")}
                 ev = emitter.analysis_complete(ticker, clean_analysis)
                 await queue.put(ev.to_sse())
 

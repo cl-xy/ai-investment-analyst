@@ -137,7 +137,12 @@ class CacheManager:
                     data = _normalize(row["data"])
                     expires_at = row["expires_at"]
                     if not (expires_at and expires_at < datetime.now(timezone.utc)):
-                        if not (isinstance(data, dict) and "error" in data) and data not in ({}, [], "", None):
+                        if not (isinstance(data, dict) and "error" in data) and data not in (
+                            {},
+                            [],
+                            "",
+                            None,
+                        ):
                             return data, row["source_id"], True
 
                 data = _normalize(await fetch_fn())

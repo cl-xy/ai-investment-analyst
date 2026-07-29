@@ -162,7 +162,9 @@ async def _record_prediction(
             price_at_prediction,
             horizon_days,
         )
-        log.info("prediction_recorded ticker=%s signal=%s price=%s", ticker, signal, price_at_prediction)
+        log.info(
+            "prediction_recorded ticker=%s signal=%s price=%s", ticker, signal, price_at_prediction
+        )
         return pred_id
     except Exception as e:
         log.warning("Failed to record prediction for %s: %s", ticker, e)

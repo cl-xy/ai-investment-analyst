@@ -54,6 +54,7 @@ def _is_retryable_error(exc: BaseException) -> bool:
 @cache
 def _get_llm() -> ChatOpenAI:
     from ...config import settings
+
     api_key = settings.openrouter_api_key or os.environ.get("OPENROUTER_API_KEY", "")
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY environment variable is not set")
