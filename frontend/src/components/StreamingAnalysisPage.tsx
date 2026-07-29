@@ -7,8 +7,8 @@ import DataFreshness from './DataFreshness'
 import DebatePanel from './DebatePanel'
 import EvidenceDrawer from './EvidenceDrawer'
 import InvestmentDisclaimer from './InvestmentDisclaimer'
-import { ArrowLeft, AlertCircle, Play, Clock } from 'lucide-react'
-import type { AnalysisOutput, Citation } from '../types/stream'
+import { ArrowLeft, AlertCircle, Play, Clock, Layers } from 'lucide-react'
+import type { AnalysisOutput, Citation, PeerComparisonPayload } from '../types/stream'
 
 /**
  * Streaming analysis page. The centerpiece demo experience.
@@ -18,7 +18,7 @@ export default function StreamingAnalysisPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { connect, disconnect } = useAnalysisStream()
-  const { analyses, isStreaming, error, events, debates } = useAnalysisStore()
+  const { analyses, isStreaming, error, events, debates, peerComparison } = useAnalysisStore()
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null)
   const [confirmed, setConfirmed] = useState(false)
   const hasConnectedRef = useRef(false)
@@ -158,6 +158,9 @@ export default function StreamingAnalysisPage() {
               onCitationClick={setActiveCitation}
             />
           ))}
+
+          {/* Sector peers (single-ticker analyses only) */}
+          {peerComparison && <SectorPeersCard peerComparison={peerComparison} />}
 
           {/* Skeleton cards for pending tickers */}
           {tickers
@@ -363,6 +366,52 @@ function StreamAnalysisCard({ analysis, onCitationClick }: { analysis: AnalysisO
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function SectorPeersCard({ peerComparison }: { peerComparison: PeerComparisonPayload }) {
+  if (peerComparison.peers.length === 0) return null
+
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-5 animate-fade-in">
+      <div className="flex items-center gap-2 mb-3">
+        <Layers className="w-4 h-4 text-[var(--text-muted)]" />
+        <h3 className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">
+          Sector Peers &middot; {peerComparison.sector}
+        </h3>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {peerComparison.peers.map((peer) => (
+          <Link
+            key={peer.ticker}
+            to={`/analyze?tickers=${peer.ticker}`}
+            className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 hover:border-[var(--accent)] transition-colors focus-ring"
+          >
+            <div>
+              <span className="font-mono text-sm font-semibold text-[var(--text-primary)]">
+                {peer.ticker}
+              </span>
+              {peer.current_price != null && (
+                <span className="ml-2 text-xs font-mono text-[var(--text-muted)]">
+                  ${peer.current_price.toFixed(2)}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {peer.signal ? (
+                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-[var(--accent-bg)] text-[var(--accent)] capitalize">
+                  {peer.signal}
+                </span>
+              ) : (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--surface)] text-[var(--text-muted)]">
+                  Fundamentals only
+                </span>
+              )}
+            </div>
+          </Link>
+        ))}
+      </div>
     </div>
   )
 }

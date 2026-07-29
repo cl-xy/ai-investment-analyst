@@ -38,6 +38,8 @@ class EventType(str, Enum):
     DEBATE_STARTED = "debate_started"
     DEBATE_TURN = "debate_turn"
     DEBATE_VERDICT = "debate_verdict"
+    # Auto sector-peer comparison
+    PEER_COMPARISON_READY = "peer_comparison_ready"
 
 
 class StreamEvent(BaseModel):
@@ -248,4 +250,11 @@ class EventEmitter:
                 "key_disagreements": key_disagreements,
                 "duration_ms": duration_ms,
             },
+        )
+
+    def peer_comparison_ready(self, peer_comparison: dict) -> StreamEvent:
+        return self._emit(
+            EventType.PEER_COMPARISON_READY,
+            node="peer_compare",
+            payload=peer_comparison,
         )

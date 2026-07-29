@@ -24,6 +24,7 @@ from .nodes.compare import compare_node
 from .nodes.debate import debate_ticker_node
 from .nodes.fetch_data import fetch_data_node
 from .nodes.generate_report import generate_report_node
+from .nodes.peer_compare import peer_compare_node
 from .nodes.portfolio_ops import portfolio_ops_node
 from .nodes.router import router_node
 from .state import InvestmentAnalystState
@@ -42,11 +43,14 @@ def _route_after_router(
 
 def _route_after_debate(
     state: InvestmentAnalystState,
-) -> Literal["debate", "generate_report"]:
+) -> Literal["debate", "peer_compare", "generate_report"]:
     analyzed = set(state.get("ticker_analyses", {}).keys())
     remaining = [t for t in state.get("tickers_to_analyze", []) if t not in analyzed]
     if remaining:
         return "debate"
+    # Auto sector-peer comparison only makes sense for a single analyzed ticker.
+    if len(state.get("tickers_to_analyze", [])) == 1:
+        return "peer_compare"
     return "generate_report"
 
 
@@ -61,6 +65,7 @@ def build_graph(mcp_tools: dict) -> StateGraph:
     graph.add_node("router", router_node)
     graph.add_node("fetch_data", fetch_node)
     graph.add_node("debate", debate_ticker_node)
+    graph.add_node("peer_compare", peer_compare_node)
     graph.add_node("generate_report", generate_report_node)
     graph.add_node("compare", compare_node)
     graph.add_node("chat", chat_node_bound)
@@ -85,9 +90,11 @@ def build_graph(mcp_tools: dict) -> StateGraph:
         _route_after_debate,
         {
             "debate": "debate",
+            "peer_compare": "peer_compare",
             "generate_report": "generate_report",
         },
     )
+    graph.add_edge("peer_compare", "generate_report")
 
     def _route_after_report(state: InvestmentAnalystState) -> Literal["compare", "__end__"]:
         """Run comparison when multiple tickers were analyzed."""

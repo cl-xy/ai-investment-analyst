@@ -5,6 +5,7 @@ import type {
   AnalysisCompletePayload,
   DebateTurnPayload,
   DebateVerdictPayload,
+  PeerComparisonPayload,
   RunCompletedPayload,
   StreamEvent,
 } from '../types/stream'
@@ -22,8 +23,17 @@ export function useAnalysisStream() {
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const generationRef = useRef(0)
 
-  const { startStream, addEvent, setAnalysis, setComplete, setError, addDebateTurn, setDebateVerdict, reset } =
-    useAnalysisStore()
+  const {
+    startStream,
+    addEvent,
+    setAnalysis,
+    setComplete,
+    setError,
+    addDebateTurn,
+    setDebateVerdict,
+    setPeerComparison,
+    reset,
+  } = useAnalysisStore()
 
   const disconnect = useCallback(() => {
     if (retryTimeoutRef.current) {
@@ -86,6 +96,12 @@ export function useAnalysisStream() {
             setDebateVerdict(payload.ticker, payload)
           }
 
+          // Auto sector-peer comparison (single-ticker analyses only)
+          if (event.type === 'peer_comparison_ready') {
+            const payload = event.payload as unknown as PeerComparisonPayload
+            setPeerComparison(payload)
+          }
+
           // Stream complete
           if (event.type === 'run_completed') {
             const payload = event.payload as unknown as RunCompletedPayload
@@ -124,6 +140,7 @@ export function useAnalysisStream() {
         'debate_started',
         'debate_turn',
         'debate_verdict',
+        'peer_comparison_ready',
       ]
       for (const type of eventTypes) {
         es.addEventListener(type, handleEvent)
@@ -149,7 +166,18 @@ export function useAnalysisStream() {
         }
       }
     },
-    [disconnect, reset, startStream, addEvent, setAnalysis, setComplete, setError, addDebateTurn, setDebateVerdict],
+    [
+      disconnect,
+      reset,
+      startStream,
+      addEvent,
+      setAnalysis,
+      setComplete,
+      setError,
+      addDebateTurn,
+      setDebateVerdict,
+      setPeerComparison,
+    ],
   )
 
   return { connect, disconnect }

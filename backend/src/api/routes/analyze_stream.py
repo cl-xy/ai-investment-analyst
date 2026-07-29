@@ -136,6 +136,7 @@ async def _run_agent(
                         "router",
                         "fetch_data",
                         "debate",
+                        "peer_compare",
                         "generate_report",
                         "compare",
                         "chat",
@@ -368,6 +369,11 @@ async def _run_agent(
                 tracker.record_schema_result(
                     valid=True, citations=citations_count, data_gaps=data_gaps_count
                 )
+
+            peer_comparison = state_values.get("peer_comparison")
+            if peer_comparison:
+                ev = emitter.peer_comparison_ready(peer_comparison)
+                await queue.put(ev.to_sse())
 
             # Persist analyses + record predictions (non-blocking)
             if ticker_analyses:

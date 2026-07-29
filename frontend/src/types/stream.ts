@@ -19,6 +19,8 @@ export type EventType =
   | 'debate_started'
   | 'debate_turn'
   | 'debate_verdict'
+  // Auto sector-peer comparison
+  | 'peer_comparison_ready'
 
 export interface StreamEvent {
   run_id: string
@@ -98,4 +100,23 @@ export interface DebateVerdictPayload {
   verdict_rationale: string
   key_disagreements: string[]
   duration_ms: number
+}
+
+// Auto sector-peer comparison payload
+
+export interface PeerSnapshot {
+  ticker: string
+  source: 'cached_analysis' | 'fundamentals_only'
+  signal?: string | null
+  confidence?: string | null
+  current_price?: number | null
+  pe_ratio?: number | null
+  revenue_growth_yoy?: number | null
+  profit_margin?: number | null
+}
+
+export interface PeerComparisonPayload {
+  primary: string
+  sector: string
+  peers: PeerSnapshot[]
 }

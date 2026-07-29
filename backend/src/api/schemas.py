@@ -35,6 +35,7 @@ class AnalyzeResponse(BaseModel):
     analyses: dict[str, TickerAnalysis]
     created_at: datetime
     comparison: dict | None = None
+    peer_comparison: dict | None = None
 
 
 class AnalysisListItem(BaseModel):

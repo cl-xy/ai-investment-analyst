@@ -3,6 +3,7 @@ import type {
   AnalysisOutput,
   DebateTurnPayload,
   DebateVerdictPayload,
+  PeerComparisonPayload,
   RunCompletedPayload,
   StreamEvent,
 } from '../types/stream'
@@ -50,6 +51,9 @@ interface AnalysisStore {
   // Debate state
   debates: Record<string, DebateState>
 
+  // Auto sector-peer comparison (single-ticker analyses only)
+  peerComparison: PeerComparisonPayload | null
+
   // Actions
   startStream: (runId: string) => void
   addEvent: (event: StreamEvent) => void
@@ -58,6 +62,7 @@ interface AnalysisStore {
   setError: (error: string) => void
   addDebateTurn: (ticker: string, turn: DebateTurnPayload) => void
   setDebateVerdict: (ticker: string, verdict: DebateVerdictPayload) => void
+  setPeerComparison: (peerComparison: PeerComparisonPayload) => void
   reset: () => void
 }
 
@@ -69,6 +74,7 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
   analyses: {},
   runMeta: null,
   debates: {},
+  peerComparison: null,
 
   startStream: (runId: string) =>
     set({
@@ -79,6 +85,7 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
       analyses: {},
       runMeta: { run_id: runId, startedAt: new Date().toISOString() },
       debates: {},
+      peerComparison: null,
     }),
 
   addEvent: (event: StreamEvent) =>
@@ -158,6 +165,8 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
       }
     }),
 
+  setPeerComparison: (peerComparison: PeerComparisonPayload) => set({ peerComparison }),
+
   reset: () =>
     set({
       events: [],
@@ -167,5 +176,6 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
       analyses: {},
       runMeta: null,
       debates: {},
+      peerComparison: null,
     }),
 }))

@@ -58,5 +58,6 @@ class InvestmentAnalystState(TypedDict):
 
     report_markdown: str
     comparison: dict  # Optional comparative analysis (populated when 2+ tickers)
+    peer_comparison: dict | None  # Auto sector-peer context (populated for single-ticker runs)
     current_ticker: str | None
     error: str | None

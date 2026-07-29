@@ -117,6 +117,7 @@ async def analyze_tickers(
     # cache, so the graph never ran compare_node) — distinct from a comparison
     # that ran and failed, which carries {"status": "failed", ...}.
     comparison: dict | None = None
+    peer_comparison: dict | None = None
 
     if new_tickers:
         try:
@@ -139,6 +140,7 @@ async def analyze_tickers(
             )
         report_markdown = result.get("report_markdown", "")
         comparison = result.get("comparison")
+        peer_comparison = result.get("peer_comparison")
 
     # Persist to PostgreSQL with debate fields + predictions
     raw_for_persist = {}
@@ -183,6 +185,7 @@ async def analyze_tickers(
         analyses=analyses,
         created_at=created_at,
         comparison=comparison,
+        peer_comparison=peer_comparison,
     )
 
 
