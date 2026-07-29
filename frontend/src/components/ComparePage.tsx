@@ -283,7 +283,7 @@ export default function ComparePage() {
       {/* Comparative narrative */}
       {result?.comparison?.status === 'failed' && (
         <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--text-muted)]">
-          Comparison narrative unavailable — the metrics table above is still accurate.
+          Comparison narrative unavailable, but the metrics table above is still accurate.
         </div>
       )}
 
@@ -307,7 +307,7 @@ export default function ComparePage() {
                     <li key={r.ticker} className="text-sm text-[var(--text-primary)]">
                       <span className="font-mono font-semibold">{r.rank}. {r.ticker}</span>
                       {r.reasoning && (
-                        <span className="text-[var(--text-muted)]"> — {r.reasoning}</span>
+                        <span className="text-[var(--text-muted)]">: {r.reasoning}</span>
                       )}
                     </li>
                   ))}
