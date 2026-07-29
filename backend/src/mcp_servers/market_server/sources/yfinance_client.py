@@ -7,7 +7,7 @@ import yfinance as yf
 # Create a session with a reasonable timeout to prevent zombie threads in the
 # ThreadPoolExecutor when Yahoo Finance is unresponsive.
 _SESSION = requests.Session()
-_SESSION.request = lambda *args, **kwargs: requests.Session.request(  # type: ignore[method-assign]
+_SESSION.request = lambda *args, **kwargs: requests.Session.request(  # type: ignore[method-assign, misc]
     _SESSION, *args, timeout=kwargs.pop("timeout", 20), **kwargs
 )
 
