@@ -186,7 +186,20 @@ CREATE INDEX IF NOT EXISTS idx_cache_expires_at ON cache(expires_at) WHERE expir
 """
 
 
+MIGRATIONS_SQL = """
+-- Columns added after initial ticker_analyses table creation.
+-- ADD COLUMN IF NOT EXISTS is idempotent, safe to run every startup.
+ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS thesis TEXT NOT NULL DEFAULT '';
+ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS bull_case JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS bear_case JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS debate JSONB;
+ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS verdict_rationale TEXT NOT NULL DEFAULT '';
+ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS key_disagreements JSONB NOT NULL DEFAULT '[]';
+"""
+
+
 async def init_schema() -> None:
-    """Create tables if they don't exist. Called on app startup."""
+    """Create tables if they don't exist, then apply column migrations."""
     pool = await get_pool()
     await pool.execute(SCHEMA_SQL)
+    await pool.execute(MIGRATIONS_SQL)
