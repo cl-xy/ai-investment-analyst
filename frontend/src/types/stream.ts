@@ -72,6 +72,11 @@ export interface AnalysisOutput {
   data_gaps?: string[]
   price_data: Record<string, unknown>
   fundamentals: Record<string, unknown>
+  earnings?: {
+    next_earnings_date?: string
+    days_until_earnings?: number
+    eps_estimate?: number | null
+  }
   sec_notes: string
   news_summary?: string
 }

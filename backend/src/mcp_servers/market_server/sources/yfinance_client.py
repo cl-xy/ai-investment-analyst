@@ -1,3 +1,5 @@
+from datetime import date as _date
+
 import yfinance as yf
 
 
@@ -39,6 +41,42 @@ def get_fundamentals(ticker: str) -> dict:
         "sector": info.get("sector"),
         "industry": info.get("industry"),
         "description": info.get("longBusinessSummary", "")[:500],
+    }
+
+
+def get_earnings_calendar(ticker: str) -> dict:
+    """Next earnings date + EPS estimate.
+
+    Uses `.calendar` rather than `.get_earnings_dates()` — the latter requires
+    an optional `lxml` dependency this project doesn't otherwise need, and
+    yfinance's earnings-calendar surfaces have historically changed shape
+    across releases, so this is deliberately defensive.
+    """
+    t = yf.Ticker(ticker)
+    try:
+        cal = t.calendar
+    except Exception:
+        return {}
+    if not isinstance(cal, dict):
+        return {}
+
+    raw_dates = cal.get("Earnings Date")
+    if not raw_dates:
+        return {}
+    dates = raw_dates if isinstance(raw_dates, (list, tuple)) else [raw_dates]
+    if not dates:
+        return {}
+
+    try:
+        next_date = min(dates)
+        days_until = (next_date - _date.today()).days
+    except (TypeError, ValueError):
+        return {}
+
+    return {
+        "next_earnings_date": str(next_date),
+        "days_until_earnings": days_until,
+        "eps_estimate": cal.get("Earnings Average"),
     }
 
 

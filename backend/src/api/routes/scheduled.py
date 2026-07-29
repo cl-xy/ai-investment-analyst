@@ -1,6 +1,7 @@
 import asyncio
+import json
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from secrets import compare_digest
 from time import perf_counter
 
@@ -8,6 +9,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 
 from src.agent.concurrency import acquire_analysis_slot, release_analysis_slot
 from src.config import settings
+from src.db import fetchrow
 from src.mcp_servers.portfolio_server import fetch_all_positions
 
 from ..schemas import ScheduledRefreshResponse
@@ -18,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 _RUN_LOCK = asyncio.Lock()
 _LAST_REFRESH_STARTED_AT: datetime | None = None
+
+_EARNINGS_RUN_LOCK = asyncio.Lock()
 
 
 def _get_unique_portfolio_tickers(positions: list[dict]) -> list[str]:
@@ -110,6 +114,137 @@ async def refresh_portfolio_analyses(
             status="success",
             message="Portfolio analysis refreshed",
             tickers=tickers,
+            analysis_id=analysis.id,
+            created_at=analysis.created_at,
+            duration_ms=int((perf_counter() - started) * 1000),
+        )
+
+
+async def _ticker_due_for_earnings_refresh(ticker: str) -> bool:
+    """A ticker is due if its last known earnings date has already passed
+    without a subsequent analysis (a fresh analysis would carry a future
+    next_earnings_date instead)."""
+    row = await fetchrow(
+        """
+        SELECT ta.earnings
+        FROM ticker_analyses ta
+        JOIN analyses a ON ta.analysis_id = a.id
+        WHERE ta.ticker = $1
+        ORDER BY a.created_at DESC
+        LIMIT 1
+        """,
+        ticker,
+    )
+    if not row:
+        return False
+
+    earnings = row["earnings"]
+    if isinstance(earnings, str):
+        try:
+            earnings = json.loads(earnings)
+        except (json.JSONDecodeError, ValueError):
+            return False
+    if not isinstance(earnings, dict):
+        return False
+
+    next_date_str = earnings.get("next_earnings_date")
+    if not next_date_str:
+        return False
+    try:
+        next_date = date.fromisoformat(next_date_str)
+    except ValueError:
+        return False
+
+    return next_date < date.today()
+
+
+@router.post("/scheduled/refresh-earnings", response_model=ScheduledRefreshResponse)
+async def refresh_earnings_tickers(
+    request: Request,
+    x_scheduler_token: str | None = Header(default=None),
+) -> ScheduledRefreshResponse:
+    """
+    Lightweight, frequent check: force-refresh only portfolio tickers whose
+    last known earnings date has passed since their last analysis.
+
+    Deliberately decoupled from the once-daily refresh-portfolio job above —
+    the whole point is faster reaction than a fixed daily cadence, so this is
+    meant to be polled more often (e.g. every few hours) by its own workflow.
+    """
+    now = datetime.now(timezone.utc)
+    started = perf_counter()
+
+    expected_token = settings.scheduler_secret_token
+    if not expected_token:
+        raise HTTPException(status_code=503, detail="Scheduler token is not configured")
+    if not x_scheduler_token or not compare_digest(x_scheduler_token, expected_token):
+        raise HTTPException(status_code=401, detail="Unauthorized scheduler request")
+
+    if _EARNINGS_RUN_LOCK.locked():
+        return ScheduledRefreshResponse(
+            status="skipped",
+            message="Earnings refresh check is already running",
+            tickers=[],
+            created_at=now,
+            duration_ms=int((perf_counter() - started) * 1000),
+        )
+
+    async with _EARNINGS_RUN_LOCK:
+        positions = await fetch_all_positions()
+        all_tickers = _get_unique_portfolio_tickers(positions)
+
+        if not all_tickers:
+            return ScheduledRefreshResponse(
+                status="skipped",
+                message="Portfolio is empty; no tickers to check",
+                tickers=[],
+                created_at=datetime.now(timezone.utc),
+                duration_ms=int((perf_counter() - started) * 1000),
+            )
+
+        due_flags = await asyncio.gather(
+            *[_ticker_due_for_earnings_refresh(t) for t in all_tickers]
+        )
+        due_tickers = [t for t, due in zip(all_tickers, due_flags) if due]
+
+        if not due_tickers:
+            logger.info("earnings_refresh_check_none_due tickers_checked=%s", all_tickers)
+            return ScheduledRefreshResponse(
+                status="skipped",
+                message="No tickers have a passed earnings date since their last analysis",
+                tickers=[],
+                created_at=datetime.now(timezone.utc),
+                duration_ms=int((perf_counter() - started) * 1000),
+            )
+
+        slot_acquired = await acquire_analysis_slot()
+        if not slot_acquired:
+            logger.warning("earnings_refresh_skipped_no_slot")
+            return ScheduledRefreshResponse(
+                status="skipped",
+                message="Server at capacity; earnings refresh deferred",
+                tickers=due_tickers,
+                created_at=datetime.now(timezone.utc),
+                duration_ms=int((perf_counter() - started) * 1000),
+            )
+
+        try:
+            logger.info("earnings_refresh_started tickers=%s", due_tickers)
+            mcp_tools = request.app.state.mcp_tools
+            analysis = await analyze_tickers(due_tickers, mcp_tools, force_refresh=True)
+        finally:
+            release_analysis_slot()
+
+        logger.info(
+            "earnings_refresh_finished tickers=%s analysis_id=%s duration_ms=%s",
+            due_tickers,
+            analysis.id,
+            int((perf_counter() - started) * 1000),
+        )
+        return ScheduledRefreshResponse(
+            status="success",
+            message="Post-earnings analysis refreshed",
+            tickers=due_tickers,
             analysis_id=analysis.id,
             created_at=analysis.created_at,
             duration_ms=int((perf_counter() - started) * 1000),

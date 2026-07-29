@@ -68,6 +68,7 @@ async def test_fetch_data_populates_all_fields(mock_use, mock_check, mock_cache,
     mock_fundamentals = {"eps_ttm": 12.5, "sector": "Technology"}
     mock_filing = {"text_excerpt": "Risk factors include..."}
     mock_indicators = {"rsi_14": 65.0, "sma_50": 480.0, "sma_200": 420.0, "macd": None}
+    mock_earnings = {"next_earnings_date": "2026-08-15", "days_until_earnings": 17}
 
     mcp_tools = {
         "get_ticker_news": _make_tool(_text_block(mock_news)),
@@ -75,6 +76,7 @@ async def test_fetch_data_populates_all_fields(mock_use, mock_check, mock_cache,
         "get_fundamentals": _make_tool(_text_block(mock_fundamentals)),
         "get_latest_filing_summary": _make_tool(_text_block(mock_filing)),
         "get_technical_indicators": _make_tool(_text_block(mock_indicators)),
+        "get_earnings_calendar": _make_tool(_text_block(mock_earnings)),
     }
 
     result = await fetch_data_node(base_state, mcp_tools=mcp_tools)
@@ -88,6 +90,37 @@ async def test_fetch_data_populates_all_fields(mock_use, mock_check, mock_cache,
     assert result["raw_prices"]["NVDA"]["indicators"]["rsi_14"] == 65.0
 
     assert result["raw_filings"]["NVDA"] == "Risk factors include..."
+
+    assert result["raw_earnings"]["NVDA"]["next_earnings_date"] == "2026-08-15"
+    assert result["raw_earnings"]["NVDA"]["days_until_earnings"] == 17
+
+
+@pytest.mark.asyncio
+@patch("src.agent.nodes.fetch_data.cache_manager")
+@patch("src.cache.budget.check_budget", new_callable=AsyncMock, return_value=True)
+@patch("src.cache.budget.use_budget", new_callable=AsyncMock, return_value=True)
+async def test_fetch_data_missing_earnings_tool_is_not_a_data_gap(
+    mock_use, mock_check, mock_cache, base_state
+):
+    """Most tickers have no confirmed upcoming earnings date — that's not
+    a failure worth surfacing to the user as a data gap."""
+    mock_cache.get_or_fetch = AsyncMock(side_effect=_mock_cache_passthrough())
+
+    from src.agent.nodes.fetch_data import fetch_data_node
+
+    mcp_tools = {
+        "get_ticker_news": _make_tool(_text_block([])),
+        "get_quote": _make_tool(_text_block({})),
+        "get_fundamentals": _make_tool(_text_block({})),
+        "get_latest_filing_summary": _make_tool(_text_block({})),
+        "get_technical_indicators": _make_tool(_text_block({})),
+        # Note: no "get_earnings_calendar" tool registered at all.
+    }
+
+    result = await fetch_data_node(base_state, mcp_tools=mcp_tools)
+
+    assert result["raw_earnings"]["NVDA"] == {}
+    assert not any("earnings" in gap.lower() for gap in result["data_gaps"])
 
 
 @pytest.mark.asyncio

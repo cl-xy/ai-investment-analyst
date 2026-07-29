@@ -6,7 +6,7 @@ import logging
 
 from fastmcp import FastMCP
 
-from .cache import _fundamentals_cache, _history_cache, _quote_cache
+from .cache import _earnings_cache, _fundamentals_cache, _history_cache, _quote_cache
 from .indicators import compute_indicators
 from .sources import alpha_vantage_market as av
 from .sources import yfinance_client as yf_client
@@ -59,6 +59,19 @@ def _get_fundamentals_cached(ticker: str) -> dict:
     return data
 
 
+def _get_earnings_calendar_cached(ticker: str) -> dict:
+    key = ticker.upper()
+    if key in _earnings_cache:
+        return _earnings_cache[key]
+    try:
+        data = _call_with_timeout(yf_client.get_earnings_calendar, key)
+    except Exception:
+        data = {}
+    if data:
+        _earnings_cache[key] = data
+    return data
+
+
 def _get_history_cached(ticker: str, period: str) -> list[dict]:
     cache_key = f"{ticker.upper()}:{period}"
     if cache_key in _history_cache:
@@ -89,6 +102,16 @@ def get_fundamentals(ticker: str) -> dict:
     analyst_target, dividend_yield, beta, sector, industry, description.
     """
     return _get_fundamentals_cached(ticker)
+
+
+@mcp.tool()
+def get_earnings_calendar(ticker: str) -> dict:
+    """
+    Get the next earnings date for a ticker.
+    Returns next_earnings_date, days_until_earnings, eps_estimate.
+    Returns {} if no upcoming earnings date is known.
+    """
+    return _get_earnings_calendar_cached(ticker)
 
 
 @mcp.tool()

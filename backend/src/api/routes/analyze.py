@@ -80,6 +80,9 @@ async def _fetch_cached_analyses(tickers: list[str]) -> dict[str, TickerAnalysis
                 fundamentals=row["fundamentals"]
                 if isinstance(row["fundamentals"], dict)
                 else json.loads(row["fundamentals"]),
+                earnings=row["earnings"]
+                if isinstance(row["earnings"], dict)
+                else json.loads(row["earnings"] or "{}"),
                 sec_notes=row["sec_notes"],
             )
     return cached
@@ -136,6 +139,7 @@ async def analyze_tickers(
                 risk_flags=data.get("risk_flags", []),
                 price_data=data.get("price_data", {}),
                 fundamentals=data.get("fundamentals", {}),
+                earnings=data.get("earnings", {}),
                 sec_notes=data.get("sec_notes", ""),
             )
         report_markdown = result.get("report_markdown", "")
@@ -160,6 +164,7 @@ async def analyze_tickers(
                     "risk_flags",
                     "price_data",
                     "fundamentals",
+                    "earnings",
                     "sec_notes",
                 }
             )

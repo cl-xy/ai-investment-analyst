@@ -238,6 +238,13 @@ function StreamAnalysisCard({ analysis, onCitationClick }: { analysis: AnalysisO
           <h2 className="text-lg font-semibold font-mono text-[var(--text-primary)]">
             {analysis.ticker}
           </h2>
+          {analysis.earnings?.next_earnings_date && (
+            <p className="text-xs text-[var(--text-muted)] mt-1">
+              Next earnings: {analysis.earnings.next_earnings_date}
+              {typeof analysis.earnings.days_until_earnings === 'number' &&
+                ` (${analysis.earnings.days_until_earnings} days)`}
+            </p>
+          )}
           {analysis.thesis && (
             <p className="text-sm text-[var(--text-secondary)] mt-1 max-w-lg">
               {analysis.thesis}

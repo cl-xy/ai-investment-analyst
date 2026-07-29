@@ -195,6 +195,7 @@ ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS bear_case JSONB NOT NULL DE
 ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS debate JSONB;
 ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS verdict_rationale TEXT NOT NULL DEFAULT '';
 ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS key_disagreements JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS earnings JSONB NOT NULL DEFAULT '{}';
 """
 
 

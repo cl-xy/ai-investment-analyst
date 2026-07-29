@@ -155,6 +155,7 @@ def load_direct_tools() -> dict:
     # --- Market tools ---
     try:
         from src.mcp_servers.market_server.server import (
+            get_earnings_calendar,
             get_fundamentals,
             get_price_history,
             get_quote,
@@ -183,6 +184,12 @@ def load_direct_tools() -> dict:
             get_technical_indicators,
             name="get_technical_indicators",
             description="Get technical indicators (RSI, MACD, moving averages) for a ticker.",
+            args_schema=TickerInput,
+        )
+        tools["get_earnings_calendar"] = _make_sync_tool(
+            get_earnings_calendar,
+            name="get_earnings_calendar",
+            description="Get the next earnings date for a ticker. Returns next_earnings_date, days_until_earnings, eps_estimate.",
             args_schema=TickerInput,
         )
     except Exception as e:

@@ -23,6 +23,8 @@ TTL_CONFIG: dict[str, dict[str, int]] = {
     "yfinance:get_quote": {"fresh": 900, "stale": 3600, "expire": 14400},
     "yfinance:get_fundamentals": {"fresh": 86400, "stale": 172800, "expire": 604800},
     "yfinance:get_technical_indicators": {"fresh": 900, "stale": 3600, "expire": 14400},
+    # Earnings dates rarely change day to day, so a long fresh window is fine.
+    "yfinance:get_earnings_calendar": {"fresh": 86400, "stale": 259200, "expire": 604800},
     "newsapi:get_ticker_news": {"fresh": 21600, "stale": 43200, "expire": 86400},
     "sec_edgar:get_latest_filing_summary": {"fresh": 604800, "stale": 2592000, "expire": 0},
     "alpha_vantage:default": {"fresh": 86400, "stale": 172800, "expire": 604800},

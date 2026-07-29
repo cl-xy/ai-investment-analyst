@@ -92,6 +92,7 @@ async def _persist_analysis_with_debate(
     risk_flags = analysis.get("risk_flags", [])
     price_data = analysis.get("price_data", {})
     fundamentals = analysis.get("fundamentals", {})
+    earnings = analysis.get("earnings", {})
     sec_notes = analysis.get("sec_notes", "")
 
     await conn.execute(
@@ -99,9 +100,9 @@ async def _persist_analysis_with_debate(
         INSERT INTO ticker_analyses (
             analysis_id, ticker, signal, confidence, sentiment_score,
             thesis, bull_case, bear_case, news_summary, risk_flags,
-            price_data, fundamentals, sec_notes,
+            price_data, fundamentals, earnings, sec_notes,
             debate, verdict_rationale, key_disagreements
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
         """,
         analysis_id,
         ticker,
@@ -115,6 +116,7 @@ async def _persist_analysis_with_debate(
         json.dumps(risk_flags),
         json.dumps(price_data),
         json.dumps(fundamentals),
+        json.dumps(earnings),
         sec_notes,
         debate_json,
         verdict_rationale,

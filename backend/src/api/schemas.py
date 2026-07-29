@@ -25,6 +25,7 @@ class TickerAnalysis(BaseModel):
     risk_flags: list[str] = Field(default_factory=list)
     price_data: dict = Field(default_factory=dict)
     fundamentals: dict = Field(default_factory=dict)
+    earnings: dict = Field(default_factory=dict)
     sec_notes: str = ""
 
 

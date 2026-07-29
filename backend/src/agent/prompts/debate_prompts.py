@@ -26,6 +26,7 @@ Rules:
 3. Acknowledge 1-2 risks but explain why they are manageable or already priced in.
 4. Never fabricate data. If information is missing, work with what you have.
 5. Provide 3-5 key arguments and 1-3 catalysts.
+6. If an earnings date is imminent (within ~2 weeks), treat it as a near-term catalyst worth naming explicitly.
 
 Return ONLY valid JSON."""
 
@@ -39,6 +40,9 @@ FUNDAMENTALS (source_id: {fundamentals_source_id}):
 
 TECHNICAL INDICATORS (source_id: {indicators_source_id}):
 {indicators}
+
+EARNINGS (source_id: {earnings_source_id}):
+{earnings}
 
 RECENT NEWS ({article_count} articles, source_id: {news_source_id}):
 {news_text}
@@ -67,6 +71,7 @@ Rules:
 4. Concede 1-2 bull points that you cannot honestly counter.
 5. Never fabricate data. If information is missing, that itself may be a risk flag.
 6. Provide 3-5 key arguments and 2-4 rebuttals.
+7. If an earnings date is imminent, treat the uncertainty as event risk worth flagging.
 
 Return ONLY valid JSON."""
 
@@ -90,6 +95,9 @@ FUNDAMENTALS (source_id: {fundamentals_source_id}):
 
 TECHNICAL INDICATORS (source_id: {indicators_source_id}):
 {indicators}
+
+EARNINGS (source_id: {earnings_source_id}):
+{earnings}
 
 RECENT NEWS ({article_count} articles, source_id: {news_source_id}):
 {news_text}
@@ -164,6 +172,9 @@ FUNDAMENTALS (source_id: {fundamentals_source_id}):
 
 TECHNICAL INDICATORS (source_id: {indicators_source_id}):
 {indicators}
+
+EARNINGS (source_id: {earnings_source_id}):
+{earnings}
 
 RECENT NEWS ({article_count} articles, source_id: {news_source_id}):
 {news_text}

@@ -21,6 +21,7 @@ class TickerAnalysis(TypedDict):
     data_gaps: list[str]
     price_data: dict
     fundamentals: dict
+    earnings: dict
     sec_notes: str
 
 
@@ -52,6 +53,7 @@ class InvestmentAnalystState(TypedDict):
     raw_news: dict[str, list[dict]]
     raw_prices: dict[str, dict]
     raw_filings: dict[str, str]
+    raw_earnings: dict[str, dict]
 
     # Graceful degradation: tracks what data was unavailable
     data_gaps: list[str]
