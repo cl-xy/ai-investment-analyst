@@ -12,6 +12,7 @@ class FakeEmitter:
 
     def __init__(self):
         self.run_id = "test-run-123"
+        self.correlation_id = "test-corr-456"
         self.events = []
 
     def _make_event(self, type_name, **kwargs):
