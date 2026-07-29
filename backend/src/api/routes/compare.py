@@ -2,6 +2,8 @@
 Comparison endpoint. Compares 2-3 tickers using existing analyses or running fresh ones.
 """
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from src.api.schemas import VALID_TICKER_RE, CompareResponse
@@ -10,6 +12,12 @@ from src.middleware.auth import limiter
 from .analyze import analyze_tickers
 
 router = APIRouter()
+
+# Compare must return within HTTP timeout. Each ticker's debate can take 2+ min
+# on free-tier LLMs, so cap total wall time at 90s (Fly.io proxy timeout is 60s
+# for non-streaming, but we set a generous internal cap and let the proxy kill
+# truly stuck requests).
+COMPARE_TIMEOUT = 90  # seconds
 
 
 @router.get("/compare", response_model=CompareResponse)
@@ -33,9 +41,22 @@ async def compare_tickers(
     if invalid:
         raise HTTPException(status_code=400, detail=f"Invalid ticker symbols: {', '.join(invalid)}")
 
-    # Run analysis (will use cache if available)
+    # Run analysis with timeout (will use cache if available)
     mcp_tools = request.app.state.mcp_tools
-    result = await analyze_tickers(ticker_list, mcp_tools, force_refresh=False)
+    try:
+        result = await asyncio.wait_for(
+            analyze_tickers(ticker_list, mcp_tools, force_refresh=False),
+            timeout=COMPARE_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                f"Comparison timed out after {COMPARE_TIMEOUT}s. "
+                "Try again later when models are less congested, "
+                "or run individual analyses first to populate the cache."
+            ),
+        )
 
     return {
         "tickers": ticker_list,
