@@ -53,7 +53,7 @@ async def _run_graph(
     tools_list = await client.get_tools()
     mcp_tools = {t.name: t for t in tools_list}
     graph = build_graph(mcp_tools)
-    async with get_checkpointer() as checkpointer:
+    async with get_checkpointer() as checkpointer:  # type: ignore[attr-defined]
         compiled = graph.compile(checkpointer=checkpointer)
         config = {"configurable": {"thread_id": thread_id}}
         initial_state: dict = {"messages": [HumanMessage(content=user_message)]}

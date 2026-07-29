@@ -165,7 +165,7 @@ async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
 
     # Try Pydantic validation first (structured output path)
     try:
-        output = AnalysisOutput.model_validate_json(response.content)  # type: ignore[union-attr, arg-type]
+        output = AnalysisOutput.model_validate_json(response.content)  # type: ignore[union-attr, arg-type, attr-defined]
     except (ValidationError, ValueError) as first_error:
         # Single retry: send validation errors back to model
         try:
@@ -177,11 +177,11 @@ async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
             retry_response = await _invoke_llm_with_retry(
                 messages + [HumanMessage(content=retry_prompt)]
             )
-            output = AnalysisOutput.model_validate_json(retry_response.content)  # type: ignore[union-attr, arg-type]
+            output = AnalysisOutput.model_validate_json(retry_response.content)  # type: ignore[union-attr, arg-type, attr-defined]
         except (ValidationError, ValueError, Exception):
             # Fallback: use legacy extract_json for resilience
             try:
-                parsed_raw = extract_json(response.content)
+                parsed_raw = extract_json(response.content)  # type: ignore[arg-type]
                 parsed = parsed_raw if isinstance(parsed_raw, dict) else {}
                 output = AnalysisOutput(
                     ticker=ticker,
@@ -226,7 +226,7 @@ async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
         "risk_flags": output.risk_flags,
         "citations": [
             c.model_dump() if hasattr(c, "model_dump") else c for c in (output.citations or [])
-        ],
+        ],  # type: ignore[misc]
         "data_gaps": output.data_gaps or [],
         "price_data": output.price_data or price_data.get("quote", {}),
         "fundamentals": output.fundamentals or price_data.get("fundamentals", {}),

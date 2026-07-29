@@ -140,7 +140,7 @@ async def _run_bull_agent(ctx: dict[str, Any]) -> BullCaseOutput:
     response = await _invoke_with_retry(messages)
 
     try:
-        return BullCaseOutput.model_validate_json(response.content)
+        return BullCaseOutput.model_validate_json(response.content)  # type: ignore[arg-type]
     except (ValidationError, ValueError):
         # Retry with error feedback
         retry_msg = HumanMessage(
@@ -148,10 +148,10 @@ async def _run_bull_agent(ctx: dict[str, Any]) -> BullCaseOutput:
         )
         retry_response = await _invoke_with_retry(messages + [retry_msg])
         try:
-            return BullCaseOutput.model_validate_json(retry_response.content)
+            return BullCaseOutput.model_validate_json(retry_response.content)  # type: ignore[arg-type]
         except (ValidationError, ValueError):
             # Fallback: extract what we can
-            parsed = extract_json(response.content)
+            parsed = extract_json(response.content)  # type: ignore[arg-type]
             if isinstance(parsed, dict):
                 return BullCaseOutput(
                     ticker=ctx["ticker"],
@@ -178,16 +178,16 @@ async def _run_bear_agent(ctx: dict[str, Any], bull: BullCaseOutput) -> BearCase
     response = await _invoke_with_retry(messages)
 
     try:
-        return BearCaseOutput.model_validate_json(response.content)
+        return BearCaseOutput.model_validate_json(response.content)  # type: ignore[arg-type]
     except (ValidationError, ValueError):
         retry_msg = HumanMessage(
             content="Your JSON was invalid. Return valid JSON matching the schema exactly."
         )
         retry_response = await _invoke_with_retry(messages + [retry_msg])
         try:
-            return BearCaseOutput.model_validate_json(retry_response.content)
+            return BearCaseOutput.model_validate_json(retry_response.content)  # type: ignore[arg-type]
         except (ValidationError, ValueError):
-            parsed = extract_json(response.content)
+            parsed = extract_json(response.content)  # type: ignore[arg-type]
             if isinstance(parsed, dict):
                 return BearCaseOutput(
                     ticker=ctx["ticker"],
@@ -227,16 +227,16 @@ async def _run_moderator(
     response = await _invoke_with_retry(messages)
 
     try:
-        return ModeratorOutput.model_validate_json(response.content)
+        return ModeratorOutput.model_validate_json(response.content)  # type: ignore[arg-type]
     except (ValidationError, ValueError):
         retry_msg = HumanMessage(
             content="Your JSON was invalid. Return valid JSON matching the schema exactly."
         )
         retry_response = await _invoke_with_retry(messages + [retry_msg])
         try:
-            return ModeratorOutput.model_validate_json(retry_response.content)
+            return ModeratorOutput.model_validate_json(retry_response.content)  # type: ignore[arg-type]
         except (ValidationError, ValueError):
-            parsed = extract_json(response.content)
+            parsed = extract_json(response.content)  # type: ignore[arg-type]
             if isinstance(parsed, dict):
                 return ModeratorOutput(
                     ticker=ctx["ticker"],
@@ -392,7 +392,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     )
 
     # Convert moderator output to the standard TickerAnalysis format
-    analysis: dict[str, Any] = {
+    analysis_result: dict[str, Any] = {
         "ticker": moderator.ticker,
         "signal": moderator.signal,
         "confidence": moderator.confidence,
@@ -414,5 +414,5 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     }
 
     existing = dict(state.get("ticker_analyses", {}))
-    existing[ticker] = analysis
+    existing[ticker] = analysis_result
     return {"ticker_analyses": existing, "current_ticker": ticker}
