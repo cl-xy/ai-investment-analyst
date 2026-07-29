@@ -23,3 +23,12 @@ frontend/dist/
 analyze-complete.png
 test-results/
 frontend/test-results/
+
+# AI tooling (local only)
+CLAUDE.md
+.ai/
+.claude/
+
+# IDE
+.vscode/
+.idea/
