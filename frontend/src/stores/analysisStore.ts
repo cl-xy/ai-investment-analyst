@@ -43,6 +43,7 @@ interface AnalysisStore {
   runMeta: {
     run_id: string
     startedAt: string
+    correlationId?: string | null
     totalDurationMs?: number
     totalTokens?: number
     costUsd?: number
@@ -55,7 +56,7 @@ interface AnalysisStore {
   peerComparison: PeerComparisonPayload | null
 
   // Actions
-  startStream: (runId: string) => void
+  startStream: (runId: string, correlationId?: string | null) => void
   addEvent: (event: StreamEvent) => void
   setAnalysis: (ticker: string, analysis: AnalysisOutput) => void
   setComplete: (meta: RunCompletedPayload) => void
@@ -76,14 +77,14 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
   debates: {},
   peerComparison: null,
 
-  startStream: (runId: string) =>
+  startStream: (runId: string, correlationId?: string | null) =>
     set({
       events: [],
       currentNode: null,
       isStreaming: true,
       error: null,
       analyses: {},
-      runMeta: { run_id: runId, startedAt: new Date().toISOString() },
+      runMeta: { run_id: runId, startedAt: new Date().toISOString(), correlationId },
       debates: {},
       peerComparison: null,
     }),

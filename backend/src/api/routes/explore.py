@@ -10,7 +10,9 @@ from datetime import datetime, timezone
 import httpx
 import yfinance as yf
 from cachetools import TTLCache
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+
+from src.middleware.auth import limiter
 
 from ..schemas import ExploreResponse, NewsItem, PricePoint, StockDetail, TrendingStock
 
@@ -134,7 +136,8 @@ async def _fetch_yf_news(ticker: str) -> list[NewsItem]:
 
 
 @router.get("/explore", response_model=ExploreResponse)
-async def get_explore() -> ExploreResponse:
+@limiter.limit("30/minute")
+async def get_explore(request: Request) -> ExploreResponse:
     cached = _CACHE.get(_CACHE_KEY)
     if cached is not None:
         return cached
@@ -174,7 +177,8 @@ async def get_explore() -> ExploreResponse:
 
 
 @router.get("/explore/{ticker}/detail", response_model=StockDetail)
-async def get_stock_detail(ticker: str) -> StockDetail:
+@limiter.limit("20/minute")
+async def get_stock_detail(request: Request, ticker: str) -> StockDetail:
     ticker = ticker.upper()
 
     from src.api.schemas import VALID_TICKER_RE

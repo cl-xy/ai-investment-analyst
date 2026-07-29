@@ -30,6 +30,7 @@ export interface StreamEvent {
   node: string | null
   tool: string | null
   payload: Record<string, unknown>
+  correlation_id: string | null
 }
 
 export interface ToolResultPayload {

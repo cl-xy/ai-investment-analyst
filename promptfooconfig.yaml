@@ -22,3 +22,6 @@ prompts:
 tests:
   - evals/investment-analyst.yaml
   - evals/safety.yaml
+  - evals/edge-cases.yaml
+  - evals/reasoning-quality.yaml
+  - evals/degradation.yaml

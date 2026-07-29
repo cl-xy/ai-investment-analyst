@@ -1,6 +1,7 @@
 import { useAnalysisStore } from '../stores/analysisStore'
 import { TraceEvent } from './TraceEvent'
-import { Activity, CheckCircle2, XCircle, Clock } from 'lucide-react'
+import { Activity, CheckCircle2, XCircle, Clock, Copy, Check } from 'lucide-react'
+import { useState, useCallback } from 'react'
 
 /**
  * Real-time agent execution trace panel.
@@ -39,6 +40,13 @@ export default function AgentTracePanel() {
           hasError={hasError}
         />
       </div>
+
+      {/* Correlation ID badge */}
+      {runMeta?.correlationId && (
+        <div className="px-5 py-2 border-b border-[var(--border)]">
+          <CorrelationIdBadge correlationId={runMeta.correlationId} />
+        </div>
+      )}
 
       {/* Timeline */}
       <div className="px-5 py-4 space-y-1 max-h-[600px] overflow-y-auto" role="log" aria-label="Agent execution trace" aria-live="polite">
@@ -118,4 +126,33 @@ function StatusBadge({
     )
   }
   return null
+}
+
+function CorrelationIdBadge({ correlationId }: { correlationId: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(correlationId).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }, [correlationId])
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--accent)] transition-colors cursor-pointer"
+      title="Click to copy correlation ID"
+      aria-label={`Copy correlation ID: ${correlationId}`}
+    >
+      <span className="text-[10px] font-mono text-[var(--text-muted)] select-all">
+        {correlationId}
+      </span>
+      {copied ? (
+        <Check className="w-3 h-3 text-emerald-500 shrink-0" />
+      ) : (
+        <Copy className="w-3 h-3 text-[var(--text-muted)] shrink-0" />
+      )}
+    </button>
+  )
 }

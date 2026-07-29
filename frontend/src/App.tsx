@@ -21,6 +21,8 @@ const ComparePage = lazyRetry(() => import('./components/ComparePage'))
 const BacktestPage = lazyRetry(() => import('./components/BacktestPage'))
 const ChatPage = lazyRetry(() => import('./components/ChatPage'))
 const CalibrationPage = lazyRetry(() => import('./components/CalibrationPage'))
+const OpsPage = lazyRetry(() => import('./components/OpsPage'))
+const ReplayPage = lazyRetry(() => import('./components/ReplayPage'))
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -112,6 +114,8 @@ export default function App() {
               <Route path="/backtest" element={<BacktestPage />} />
               <Route path="/chat" element={<ChatPage />} />
               <Route path="/calibration" element={<CalibrationPage />} />
+              <Route path="/ops" element={<OpsPage />} />
+              <Route path="/replay" element={<ReplayPage />} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>

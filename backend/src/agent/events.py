@@ -52,6 +52,9 @@ class StreamEvent(BaseModel):
     node: str | None = None
     tool: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
+    correlation_id: str | None = Field(
+        default=None, description="Request correlation ID for end-to-end tracing"
+    )
 
     def to_sse(self) -> str:
         """Format as an SSE message with id, event, and data fields."""
@@ -68,8 +71,9 @@ class StreamEvent(BaseModel):
 class EventEmitter:
     """Tracks sequence numbering and emits typed events for a single run."""
 
-    def __init__(self, run_id: str | None = None):
+    def __init__(self, run_id: str | None = None, correlation_id: str | None = None):
         self.run_id = run_id or str(uuid.uuid4())
+        self.correlation_id = correlation_id
         self._seq = 0
         self._events: deque[StreamEvent] = deque(maxlen=_MAX_EVENTS_PER_RUN)
         self._node_start_times: dict[str, float] = {}
@@ -100,6 +104,7 @@ class EventEmitter:
             node=node,
             tool=tool,
             payload=payload or {},
+            correlation_id=self.correlation_id,
         )
         self._events.append(event)
         return event

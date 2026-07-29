@@ -8,12 +8,13 @@ Falls back to single-shot analysis if debate fails or rate budget is exhausted.
 
 import asyncio
 import json
-import logging
 import time
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import ValidationError
+
+from src.logging_config import get_logger
 
 from ..circuit_breaker import CircuitBreakerOpen
 from ..debate_schemas import (
@@ -34,7 +35,7 @@ from ..prompts.debate_prompts import (
 )
 from ..state import InvestmentAnalystState, TickerAnalysis
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 # Minimum delay between sequential LLM calls to reduce burst contention
 # on free-tier provider workers (Nvidia ResourceExhausted threshold)
@@ -278,18 +279,20 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     ctx = _build_data_context(ticker, state)
     price_data = ctx["raw_price_data"]
 
-    log.info("debate_starting ticker=%s", ticker)
+    correlation_id = state.get("correlation_id")
+    _log = log.bind(correlation_id=correlation_id, node="debate", ticker=ticker) if correlation_id else log
+    _log.info("debate_starting")
 
     # Run bull agent
     bull_start = time.monotonic()
     try:
         bull = await _run_bull_agent(ctx)
         bull_duration = int((time.monotonic() - bull_start) * 1000)
-        log.info(
-            "bull_complete ticker=%s confidence=%s ms=%d", ticker, bull.confidence, bull_duration
+        _log.info(
+            "bull_complete", confidence=bull.confidence, duration_ms=bull_duration
         )
     except (CircuitBreakerOpen, Exception) as e:
-        log.warning("bull_failed ticker=%s error=%s", ticker, e)
+        _log.warning("bull_failed", error=str(e))
         # Fallback: create minimal analysis without debate
         analysis: TickerAnalysis = {
             "ticker": ticker,
@@ -320,11 +323,11 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     try:
         bear = await _run_bear_agent(ctx, bull)
         bear_duration = int((time.monotonic() - bear_start) * 1000)
-        log.info(
-            "bear_complete ticker=%s confidence=%s ms=%d", ticker, bear.confidence, bear_duration
+        _log.info(
+            "bear_complete", confidence=bear.confidence, duration_ms=bear_duration
         )
     except (CircuitBreakerOpen, Exception) as e:
-        log.warning("bear_failed ticker=%s error=%s", ticker, e)
+        _log.warning("bear_failed", error=str(e))
         # Degrade: use bull-only analysis
         analysis = {
             "ticker": ticker,
@@ -355,15 +358,14 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     try:
         moderator = await _run_moderator(ctx, bull, bear)
         mod_duration = int((time.monotonic() - mod_start) * 1000)
-        log.info(
-            "moderator_complete ticker=%s signal=%s confidence=%s ms=%d",
-            ticker,
-            moderator.signal,
-            moderator.confidence,
-            mod_duration,
+        _log.info(
+            "moderator_complete",
+            signal=moderator.signal,
+            confidence=moderator.confidence,
+            duration_ms=mod_duration,
         )
     except (CircuitBreakerOpen, Exception) as e:
-        log.warning("moderator_failed ticker=%s error=%s", ticker, e)
+        _log.warning("moderator_failed", error=str(e))
         # Degrade: synthesize from bull + bear without moderator
         analysis = {
             "ticker": ticker,

@@ -1,0 +1,227 @@
+# Edge Cases and Robustness Evaluation
+# Tests unusual tickers, extreme values, partial data, and boundary conditions.
+
+tests:
+  # --- Extreme Valuations ---
+
+  - description: "Extremely high P/E stock handled without over-confidence"
+    vars:
+      ticker: RIVN
+      price_source_id: "yfinance:RIVN:1706140800"
+      price_data: '{"price": 18.50, "change_pct": -3.2, "volume": 25000000, "market_cap": 17500000000, "pe_ratio": -25.0, "52w_high": 28.06, "52w_low": 11.68}'
+      fundamentals_source_id: "yfinance:RIVN:1706140800"
+      fundamentals: '{"revenue_growth": 167.0, "gross_margin": -44.0, "operating_margin": -120.0, "eps": -5.72}'
+      indicators_source_id: "yfinance:RIVN:1706140800"
+      indicators: '{"rsi_14": 38.0, "sma_50": 20.0, "sma_200": 18.5, "macd_histogram": -0.8}'
+      news_source_id: "newsapi:RIVN:1706140800"
+      article_count: "2"
+      news_text: "1. Rivian secures $5B manufacturing deal with Volkswagen. 2. Cash burn rate exceeds $1.5B per quarter."
+      sec_source_id: "sec_edgar:RIVN:1706140800"
+      sec_notes: "10-K: Net loss $5.4B. Cash and equivalents $7.9B. Production ramp to 57K vehicles."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).risk_flags.length >= 1"
+      - type: javascript
+        value: "JSON.parse(output).confidence !== 'high'"
+      - type: llm-rubric
+        value: "The analysis identifies that this is a pre-profit company with significant cash burn and does not assign high confidence to any directional signal."
+
+  - description: "Penny stock with minimal data gets appropriate skepticism"
+    vars:
+      ticker: SNDL
+      price_source_id: "yfinance:SNDL:1706140800"
+      price_data: '{"price": 1.82, "change_pct": 12.5, "volume": 180000000, "market_cap": 450000000}'
+      fundamentals_source_id: "yfinance:SNDL:1706140800"
+      fundamentals: '{"revenue_growth": -5.0, "gross_margin": 22.0, "operating_margin": -8.0}'
+      indicators_source_id: "yfinance:SNDL:1706140800"
+      indicators: '{"rsi_14": 82.0, "sma_50": 1.50, "sma_200": 1.60}'
+      news_source_id: ""
+      article_count: "0"
+      news_text: "[NO NEWS AVAILABLE]"
+      sec_source_id: ""
+      sec_notes: "[NO SEC DATA]"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).risk_flags.length >= 1"
+      - type: javascript
+        value: "JSON.parse(output).confidence !== 'high'"
+
+  - description: "Zero volume / halted stock handled gracefully"
+    vars:
+      ticker: DWAC
+      price_source_id: "yfinance:DWAC:1706140800"
+      price_data: '{"price": 0.00, "change_pct": 0.0, "volume": 0, "note": "Trading halted pending merger"}'
+      fundamentals_source_id: ""
+      fundamentals: "[UNAVAILABLE - no recent filings]"
+      indicators_source_id: ""
+      indicators: "[UNAVAILABLE - insufficient price history]"
+      news_source_id: "newsapi:DWAC:1706140800"
+      article_count: "1"
+      news_text: "1. DWAC trading suspended pending regulatory review of merger."
+      sec_source_id: ""
+      sec_notes: "[UNAVAILABLE]"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).signal === 'insufficient_data' || JSON.parse(output).data_gaps.length >= 2"
+
+  # --- Data Staleness ---
+
+  - description: "Very stale data (30 days old) flagged in output"
+    vars:
+      ticker: AMD
+      price_source_id: "yfinance:AMD:1703462400"
+      price_data: '{"price": 147.00, "change_pct": 1.2, "volume": 50000000, "pe_ratio": 250.0, "note": "Data from 30 days ago"}'
+      fundamentals_source_id: "yfinance:AMD:1703462400"
+      fundamentals: '{"revenue_growth": 4.0, "gross_margin": 51.0, "operating_margin": 5.0, "eps": 0.77, "note": "30 days stale"}'
+      indicators_source_id: "yfinance:AMD:1703462400"
+      indicators: '{"rsi_14": 55.0, "sma_50": 140.0, "sma_200": 115.0, "note": "30 days stale"}'
+      news_source_id: ""
+      article_count: "0"
+      news_text: "[NEWS UNAVAILABLE - API key expired]"
+      sec_source_id: "sec_edgar:AMD:1703462400"
+      sec_notes: "10-K from 6 months ago: Datacenter GPU revenue growing rapidly."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).data_gaps.length >= 1"
+      - type: javascript
+        value: "JSON.parse(output).confidence !== 'high'"
+
+  # --- Boundary Values ---
+
+  - description: "RSI at extreme overbought (>90) flagged as risk"
+    vars:
+      ticker: GME
+      price_source_id: "yfinance:GME:1706140800"
+      price_data: '{"price": 48.50, "change_pct": 25.0, "volume": 300000000, "pe_ratio": -50.0, "52w_high": 64.83, "52w_low": 10.01}'
+      fundamentals_source_id: "yfinance:GME:1706140800"
+      fundamentals: '{"revenue_growth": -10.0, "gross_margin": 25.0, "operating_margin": -3.0, "eps": -0.35}'
+      indicators_source_id: "yfinance:GME:1706140800"
+      indicators: '{"rsi_14": 92.0, "sma_50": 22.0, "sma_200": 18.0, "macd_histogram": 12.0, "bollinger_upper": 35.0}'
+      news_source_id: "newsapi:GME:1706140800"
+      article_count: "2"
+      news_text: "1. GameStop shares surge on renewed retail investor interest. 2. Company announces surprise stock offering."
+      sec_source_id: ""
+      sec_notes: ""
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).risk_flags.length >= 1"
+      - type: llm-rubric
+        value: "The analysis flags the extreme RSI (92) and/or unusual price action as a risk. It recognizes this is likely momentum-driven rather than fundamentally justified."
+
+  - description: "Negative EPS company still gets valid analysis"
+    vars:
+      ticker: SNAP
+      price_source_id: "yfinance:SNAP:1706140800"
+      price_data: '{"price": 17.20, "change_pct": -1.5, "volume": 20000000, "market_cap": 27000000000}'
+      fundamentals_source_id: "yfinance:SNAP:1706140800"
+      fundamentals: '{"revenue_growth": 5.0, "gross_margin": 53.0, "operating_margin": -22.0, "eps": -0.65, "debt_to_equity": 1.8}'
+      indicators_source_id: "yfinance:SNAP:1706140800"
+      indicators: '{"rsi_14": 42.0, "sma_50": 18.0, "sma_200": 14.0, "macd_histogram": -0.5}'
+      news_source_id: "newsapi:SNAP:1706140800"
+      article_count: "1"
+      news_text: "1. Snapchat daily active users grow 10% YoY to 414M."
+      sec_source_id: "sec_edgar:SNAP:1706140800"
+      sec_notes: "10-K: Stock-based compensation $1.3B. Headcount reduced by 20%."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "['buy','hold','sell','insufficient_data'].includes(JSON.parse(output).signal)"
+      - type: javascript
+        value: "JSON.parse(output).bull_case.length >= 1 && JSON.parse(output).bear_case.length >= 1"
+
+  # --- Sector Diversity ---
+
+  - description: "REIT with high dividend yield analyzed correctly"
+    vars:
+      ticker: O
+      price_source_id: "yfinance:O:1706140800"
+      price_data: '{"price": 52.80, "change_pct": -0.3, "volume": 5000000, "market_cap": 43000000000, "dividend_yield": 5.8}'
+      fundamentals_source_id: "yfinance:O:1706140800"
+      fundamentals: '{"revenue_growth": 18.0, "gross_margin": 92.0, "operating_margin": 28.0, "ffo_per_share": 4.01, "payout_ratio": 75.0}'
+      indicators_source_id: "yfinance:O:1706140800"
+      indicators: '{"rsi_14": 35.0, "sma_50": 55.0, "sma_200": 58.0, "macd_histogram": -1.0}'
+      news_source_id: "newsapi:O:1706140800"
+      article_count: "1"
+      news_text: "1. Realty Income completes $9.3B Spirit Realty merger, becomes largest net lease REIT."
+      sec_source_id: "sec_edgar:O:1706140800"
+      sec_notes: "10-K: 15,450 properties. 98.8% occupancy rate. 29 consecutive years of dividend increases."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).ticker === 'O'"
+      - type: javascript
+        value: "JSON.parse(output).bull_case.length >= 1"
+
+  - description: "Biotech with binary outcome handled appropriately"
+    vars:
+      ticker: MRNA
+      price_source_id: "yfinance:MRNA:1706140800"
+      price_data: '{"price": 98.50, "change_pct": -2.1, "volume": 8000000, "market_cap": 37000000000, "pe_ratio": -12.0, "52w_high": 170.47, "52w_low": 62.55}'
+      fundamentals_source_id: "yfinance:MRNA:1706140800"
+      fundamentals: '{"revenue_growth": -64.0, "gross_margin": 30.0, "operating_margin": -45.0, "eps": -8.30, "cash": 13000000000}'
+      indicators_source_id: "yfinance:MRNA:1706140800"
+      indicators: '{"rsi_14": 40.0, "sma_50": 105.0, "sma_200": 120.0, "macd_histogram": -3.0}'
+      news_source_id: "newsapi:MRNA:1706140800"
+      article_count: "2"
+      news_text: "1. Moderna RSV vaccine shows 83.7% efficacy in Phase 3 trial. 2. COVID booster demand drops 60% year-over-year."
+      sec_source_id: "sec_edgar:MRNA:1706140800"
+      sec_notes: "10-K: Pipeline of 45 mRNA candidates. COVID-19 vaccine revenue fell from $18.4B to $6.7B."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).risk_flags.length >= 1"
+      - type: javascript
+        value: "JSON.parse(output).bull_case.length >= 1 && JSON.parse(output).bear_case.length >= 1"
+
+  # --- ETF vs Individual Stock ---
+
+  - description: "ETF treated as analyzable security"
+    vars:
+      ticker: QQQ
+      price_source_id: "yfinance:QQQ:1706140800"
+      price_data: '{"price": 425.50, "change_pct": 0.8, "volume": 45000000, "52w_high": 440.00, "52w_low": 340.00}'
+      fundamentals_source_id: "yfinance:QQQ:1706140800"
+      fundamentals: '{"pe_ratio": 32.0, "dividend_yield": 0.5, "expense_ratio": 0.20}'
+      indicators_source_id: "yfinance:QQQ:1706140800"
+      indicators: '{"rsi_14": 62.0, "sma_50": 410.0, "sma_200": 385.0, "macd_histogram": 3.5}'
+      news_source_id: "newsapi:QQQ:1706140800"
+      article_count: "2"
+      news_text: "1. Nasdaq 100 rebalancing reduces Magnificent 7 concentration. 2. Tech earnings season begins next week."
+      sec_source_id: ""
+      sec_notes: "[NOT APPLICABLE - ETF]"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).ticker === 'QQQ'"
+      - type: javascript
+        value: "['buy','hold','sell','insufficient_data'].includes(JSON.parse(output).signal)"
+
+  # --- Conflicting Sources ---
+
+  - description: "News contradicts fundamentals - produces nuanced analysis"
+    vars:
+      ticker: BABA
+      price_source_id: "yfinance:BABA:1706140800"
+      price_data: '{"price": 78.50, "change_pct": -4.2, "volume": 20000000, "market_cap": 195000000000, "pe_ratio": 9.5}'
+      fundamentals_source_id: "yfinance:BABA:1706140800"
+      fundamentals: '{"revenue_growth": 8.0, "gross_margin": 38.0, "operating_margin": 15.0, "eps": 8.25, "forward_pe": 8.0}'
+      indicators_source_id: "yfinance:BABA:1706140800"
+      indicators: '{"rsi_14": 30.0, "sma_50": 85.0, "sma_200": 90.0, "macd_histogram": -2.5}'
+      news_source_id: "newsapi:BABA:1706140800"
+      article_count: "3"
+      news_text: "1. China announces new tech regulation crackdown affecting Alibaba cloud division. 2. Alibaba Cloud revenue grows 3% but margin improves. 3. US considering expanding China investment restrictions."
+      sec_source_id: "sec_edgar:BABA:1706140800"
+      sec_notes: "20-F: Free cash flow $22B. Share buyback of $9.5B in FY2024. Geopolitical risk disclosed."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).bull_case.length >= 2 && JSON.parse(output).bear_case.length >= 2"
+      - type: javascript
+        value: "JSON.parse(output).risk_flags.length >= 1"
+      - type: llm-rubric
+        value: "The analysis recognizes the tension between strong fundamentals (low PE, growing revenue, buybacks) and geopolitical/regulatory risks (China crackdown, US restrictions). Both sides are presented without dismissing either."

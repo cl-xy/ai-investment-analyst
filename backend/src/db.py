@@ -196,6 +196,44 @@ ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS debate JSONB;
 ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS verdict_rationale TEXT NOT NULL DEFAULT '';
 ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS key_disagreements JSONB NOT NULL DEFAULT '[]';
 ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS earnings JSONB NOT NULL DEFAULT '{}';
+
+-- Traces table for replay system
+CREATE TABLE IF NOT EXISTS traces (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id          TEXT NOT NULL,
+    tickers         TEXT[] NOT NULL,
+    events          JSONB NOT NULL,
+    duration_ms     INTEGER NOT NULL DEFAULT 0,
+    status          TEXT NOT NULL DEFAULT 'success',
+    signal          TEXT,
+    is_featured     BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_traces_created_at ON traces(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_traces_tickers ON traces USING GIN(tickers);
+CREATE INDEX IF NOT EXISTS idx_traces_featured ON traces(is_featured) WHERE is_featured = TRUE;
+
+-- Ops dashboard: detailed traces with correlation IDs and per-stage breakdowns
+CREATE TABLE IF NOT EXISTS ops_traces (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    correlation_id  TEXT NOT NULL,
+    ticker          TEXT NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    duration_ms     INTEGER NOT NULL DEFAULT 0,
+    status          TEXT NOT NULL DEFAULT 'success',
+    events          JSONB NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_ops_traces_correlation_id ON ops_traces(correlation_id);
+CREATE INDEX IF NOT EXISTS idx_ops_traces_ticker ON ops_traces(ticker);
+CREATE INDEX IF NOT EXISTS idx_ops_traces_created_at ON ops_traces(created_at DESC);
+
+-- Ops dashboard: periodic metrics snapshots for SLO computation
+CREATE TABLE IF NOT EXISTS ops_metrics_snapshots (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    metrics     JSONB NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_ops_metrics_snapshots_recorded_at ON ops_metrics_snapshots(recorded_at DESC);
 """
 
 

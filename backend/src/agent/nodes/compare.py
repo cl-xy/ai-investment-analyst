@@ -5,15 +5,15 @@ Takes completed ticker_analyses from state and produces a structured comparison
 including relative valuation, normalized metrics, and a brief AI-generated narrative.
 """
 
-import logging
-
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, ValidationError
+
+from src.logging_config import get_logger
 
 from ..llm_fallback import invoke_with_fallback
 from ..state import InvestmentAnalystState
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 
 class ComparisonOutput(BaseModel):
@@ -63,6 +63,8 @@ Be concise, evidence-based, and acknowledge when differences are marginal."""
 async def compare_node(state: InvestmentAnalystState) -> dict:
     """Compare all analyzed tickers and produce a structured comparison."""
     analyses = state.get("ticker_analyses", {})
+    correlation_id = state.get("correlation_id")
+    _log = log.bind(correlation_id=correlation_id, node="compare") if correlation_id else log
 
     if len(analyses) < 2:
         return {}
@@ -100,6 +102,6 @@ async def compare_node(state: InvestmentAnalystState) -> dict:
         # Non-critical, comparison is supplementary — surface the failure instead
         # of silently dropping it so the API/UI can show "unavailable" rather
         # than nothing at all.
-        log.warning("compare_node failed: %s", e)
+        _log.warning("compare_node_failed", error=str(e))
         failed = ComparisonOutput(status="failed", error=str(e)[:200])
         return {"comparison": failed.model_dump()}

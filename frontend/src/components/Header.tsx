@@ -17,6 +17,11 @@ const HISTORY_NAV = [
   { to: '/evals', label: 'Quality Metrics' },
 ] as const
 
+const OPS_NAV = [
+  { to: '/ops', label: 'Ops Dashboard' },
+  { to: '/replay', label: 'Trace Replay' },
+] as const
+
 export default function Header() {
   const [mobileOpen, setMobileOpen] = useState(false)
 
@@ -42,6 +47,7 @@ export default function Header() {
               <NavLink key={item.to} to={item.to} label={item.label} />
             ))}
             <NavDropdown label="History" items={HISTORY_NAV} />
+            <NavDropdown label="Ops" items={OPS_NAV} />
           </nav>
 
           <ThemeSwitcher />
@@ -67,6 +73,10 @@ export default function Header() {
           ))}
           <p className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider px-3 pt-4 pb-2">History</p>
           {HISTORY_NAV.map((item) => (
+            <NavLink key={item.to} to={item.to} label={item.label} mobile onClick={() => setMobileOpen(false)} />
+          ))}
+          <p className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider px-3 pt-4 pb-2">Ops</p>
+          {OPS_NAV.map((item) => (
             <NavLink key={item.to} to={item.to} label={item.label} mobile onClick={() => setMobileOpen(false)} />
           ))}
         </nav>

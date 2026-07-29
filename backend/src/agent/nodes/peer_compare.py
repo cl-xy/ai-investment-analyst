@@ -19,16 +19,16 @@ row produced a signal.
 
 import asyncio
 import json
-import logging
 
 from src.db import fetchrow
+from src.logging_config import get_logger
 from src.mcp_servers.market_server.sources import yfinance_client as yf_client
 
 from ..peer_map import get_sector_peers
 from ..peer_schemas import PeerComparisonResult, PeerSnapshot
 from ..state import InvestmentAnalystState
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 _RECENT_ANALYSIS_DAYS = 3
 _MAX_PEERS = 2
@@ -117,6 +117,9 @@ async def peer_compare_node(state: InvestmentAnalystState) -> dict:
     if not primary_analysis:
         return {}
 
+    correlation_id = state.get("correlation_id")
+    _log = log.bind(correlation_id=correlation_id, node="peer_compare", ticker=primary) if correlation_id else log
+
     sector = (primary_analysis.get("fundamentals") or {}).get("sector")
     if not sector:
         return {}
@@ -129,7 +132,7 @@ async def peer_compare_node(state: InvestmentAnalystState) -> dict:
         results = await asyncio.gather(*[_get_peer_snapshot(t) for t in peer_tickers])
     except Exception as e:
         # Supplementary only — never block the analysis on peer enrichment.
-        log.warning("peer_compare_node failed ticker=%s error=%s", primary, e)
+        _log.warning("peer_compare_failed", error=str(e))
         return {}
 
     peers = [p for p in results if p is not None]

@@ -97,10 +97,29 @@ async def refresh_portfolio_analyses(
                 duration_ms=int((perf_counter() - started) * 1000),
             )
 
+        # Hard timeout: same rationale as earnings refresh. Without this, a slow
+        # LLM run holds _RUN_LOCK + analysis slot indefinitely.
+        _PORTFOLIO_TIMEOUT = 300  # seconds — generous for multi-ticker portfolio
         try:
             logger.info("scheduled_refresh_started tickers=%s", tickers)
             mcp_tools = request.app.state.mcp_tools
-            analysis = await analyze_tickers(tickers, mcp_tools, force_refresh=True)
+            analysis = await asyncio.wait_for(
+                analyze_tickers(tickers, mcp_tools, force_refresh=True),
+                timeout=_PORTFOLIO_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                "scheduled_refresh_timeout tickers=%s timeout=%ds",
+                tickers,
+                _PORTFOLIO_TIMEOUT,
+            )
+            return ScheduledRefreshResponse(
+                status="failed",
+                message=f"Portfolio refresh timed out after {_PORTFOLIO_TIMEOUT}s",
+                tickers=tickers,
+                created_at=datetime.now(timezone.utc),
+                duration_ms=int((perf_counter() - started) * 1000),
+            )
         finally:
             release_analysis_slot()
 
@@ -228,10 +247,31 @@ async def refresh_earnings_tickers(
                 duration_ms=int((perf_counter() - started) * 1000),
             )
 
+        # Hard timeout: must complete before GitHub Actions curl --max-time (120s)
+        # and before Fly.io proxy drops the connection. Without this, a slow LLM
+        # run orphans the coroutine (Uvicorn does NOT cancel on client disconnect)
+        # and holds the analysis slot + lock indefinitely.
+        _EARNINGS_TIMEOUT = 100  # seconds — below GHA's 120s curl limit
         try:
             logger.info("earnings_refresh_started tickers=%s", due_tickers)
             mcp_tools = request.app.state.mcp_tools
-            analysis = await analyze_tickers(due_tickers, mcp_tools, force_refresh=True)
+            analysis = await asyncio.wait_for(
+                analyze_tickers(due_tickers, mcp_tools, force_refresh=True),
+                timeout=_EARNINGS_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                "earnings_refresh_timeout tickers=%s timeout=%ds",
+                due_tickers,
+                _EARNINGS_TIMEOUT,
+            )
+            return ScheduledRefreshResponse(
+                status="failed",
+                message=f"Earnings refresh timed out after {_EARNINGS_TIMEOUT}s",
+                tickers=due_tickers,
+                created_at=datetime.now(timezone.utc),
+                duration_ms=int((perf_counter() - started) * 1000),
+            )
         finally:
             release_analysis_slot()
 

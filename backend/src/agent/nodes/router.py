@@ -1,9 +1,7 @@
-import logging
-
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import ValidationError
 
-log = logging.getLogger(__name__)
+from src.logging_config import get_logger
 
 from ..json_utils import extract_json
 from ..llm_fallback import invoke_with_fallback
@@ -11,11 +9,16 @@ from ..prompts.router_prompt import ROUTER_HUMAN, ROUTER_SYSTEM
 from ..state import InvestmentAnalystState
 from ..structured_output import RouterOutput
 
+log = get_logger(__name__)
+
 
 async def router_node(state: InvestmentAnalystState) -> dict:
     # If intent was pre-set by the caller (e.g. CLI with known command), skip LLM routing
     if state.get("intent"):
         return {}
+
+    correlation_id = state.get("correlation_id")
+    _log = log.bind(correlation_id=correlation_id, node="router") if correlation_id else log
 
     from ...config import settings
 
@@ -36,7 +39,7 @@ async def router_node(state: InvestmentAnalystState) -> dict:
             request_timeout=30,
         )
     except Exception as e:
-        log.warning("router_node LLM call failed: %s", e)
+        _log.warning("router_llm_failed", error=str(e))
         return {"intent": "conversational", "tickers_to_analyze": []}
 
     # Try structured validation first

@@ -1,11 +1,11 @@
-import logging
-
 from langchain_core.messages import SystemMessage, ToolMessage
+
+from src.logging_config import get_logger
 
 from ..llm_fallback import invoke_with_fallback
 from ..state import InvestmentAnalystState
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 MAX_TOOL_ROUNDS = 10
 
@@ -19,6 +19,8 @@ Be concise and actionable. When citing data, note the source."""
 
 async def chat_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> dict:
     tools = list(mcp_tools.values()) if mcp_tools else []
+    correlation_id = state.get("correlation_id")
+    _log = log.bind(correlation_id=correlation_id, node="chat") if correlation_id else log
 
     messages = [SystemMessage(content=CHAT_SYSTEM)] + list(state["messages"])
 
@@ -59,7 +61,7 @@ async def chat_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> dict:
                     )
     else:
         # Tool loop hit the limit without a natural break
-        log.warning("chat_node hit MAX_TOOL_ROUNDS (%d)", MAX_TOOL_ROUNDS)
+        _log.warning("chat_node_max_tool_rounds", max_rounds=MAX_TOOL_ROUNDS)
         from langchain_core.messages import AIMessage
 
         messages.append(

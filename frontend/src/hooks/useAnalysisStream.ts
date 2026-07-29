@@ -75,7 +75,7 @@ export function useAnalysisStream() {
 
           // First event initializes the stream
           if (event.type === 'run_started') {
-            startStream(event.run_id)
+            startStream(event.run_id, event.correlation_id)
           }
 
           addEvent(event)

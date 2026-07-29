@@ -26,6 +26,7 @@ from src.agent.graph import build_graph
 from src.agent.json_utils import extract_json
 from src.api.schemas import VALID_TICKER_RE
 from src.api.shutdown import shutdown_coordinator
+from src.logging_config import request_id_ctx
 from src.metrics import metrics
 from src.middleware.auth import limiter
 from src.middleware.cost_tracker import CostTracker
@@ -102,6 +103,7 @@ async def _run_agent(
     # Track debate LLM calls within the debate node
     debate_llm_count: dict[str, int] = defaultdict(int)
     debate_llm_start: dict[str, float] = {}  # per-ticker start times
+    correlation_id = emitter.correlation_id
 
     event = emitter.run_started(tickers_upper)
     await queue.put(event.to_sse())
@@ -118,6 +120,7 @@ async def _run_agent(
                 "messages": [HumanMessage(content=message)],
                 "tickers_to_analyze": tickers_upper,
                 "intent": "single_ticker" if len(tickers_upper) == 1 else "full_report",
+                "correlation_id": correlation_id,
             }
 
             current_node = None
@@ -420,6 +423,34 @@ async def _run_agent(
             await tracker.persist()
         except Exception:
             pass  # Non-critical, don't break the stream for persistence failure
+
+        # Record trace for replay system (non-blocking)
+        try:
+            from src.ops.trace_recorder import record_trace
+
+            # Determine final signal from first ticker analysis
+            final_signal = None
+            if ticker_analyses:
+                first_analysis = next(iter(ticker_analyses.values()), {})
+                final_signal = first_analysis.get("signal")
+
+            status = "success" if _run_succeeded else "failed"
+            # Check for degraded state (some tools failed but analysis completed)
+            if _run_succeeded and any(
+                e.payload.get("no_data") for e in emitter.events if e.type.value == "tool_result"
+            ):
+                status = "degraded"
+
+            await record_trace(
+                run_id=emitter.run_id,
+                tickers=tickers_upper,
+                events=[e.model_dump() for e in emitter.events],
+                duration_ms=summary["total_duration_ms"],
+                status=status,
+                signal=final_signal,
+            )
+        except Exception:
+            pass  # Trace recording is non-critical
     except Exception:
         pass  # Don't let summary/emit failures prevent stream termination
     finally:
@@ -460,8 +491,29 @@ async def _stream_generator(
                 release_analysis_slot()
                 slot_released = True
                 return  # Run finished, nothing to stream
+        else:
+            # Run exists on this instance but client already has all events.
+            # Check if the run completed (emit terminal) or is still in-progress
+            # (emit completed event). Either way, do NOT start a duplicate task.
+            _, stored = _recent_runs.get(resume_run_id, (0, []))
+            if any("run_completed" in ev for ev in stored):
+                # Run already finished, client is caught up
+                release_analysis_slot()
+                slot_released = True
+                return
+            # Run still in progress but no new events yet — tell client to wait
+            # rather than spawning a duplicate analysis
+            yield (
+                "event: heartbeat\ndata: "
+                '{"type":"heartbeat","message":"Reconnected, waiting for new events"}\n\n'
+            )
+            release_analysis_slot()
+            slot_released = True
+            return
 
-    emitter = EventEmitter()
+    # Capture correlation_id from request middleware context var
+    correlation_id = request_id_ctx.get() or None
+    emitter = EventEmitter(correlation_id=correlation_id)
     queue: asyncio.Queue = asyncio.Queue()
     stop_heartbeat = asyncio.Event()
     tracker = CostTracker(run_id=emitter.run_id, tickers=tickers)

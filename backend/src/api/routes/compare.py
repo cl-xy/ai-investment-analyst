@@ -6,6 +6,7 @@ import asyncio
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from src.agent.concurrency import acquire_analysis_slot, release_analysis_slot
 from src.api.schemas import VALID_TICKER_RE, CompareResponse
 from src.middleware.auth import limiter
 
@@ -13,11 +14,12 @@ from .analyze import analyze_tickers
 
 router = APIRouter()
 
-# Compare must return within HTTP timeout. Each ticker's debate can take 2+ min
-# on free-tier LLMs, so cap total wall time at 90s (Fly.io proxy timeout is 60s
-# for non-streaming, but we set a generous internal cap and let the proxy kill
-# truly stuck requests).
-COMPARE_TIMEOUT = 90  # seconds
+# Compare must return within Fly.io proxy timeout. The proxy kills non-streaming
+# connections after ~60s of idle time, so the app must fail fast before that.
+# Each ticker's debate can take 2+ min on free-tier LLMs; if analyses aren't
+# cached, this route will likely timeout. The 504 response guides users to
+# run individual analyses first (which use SSE streaming, bypassing the limit).
+COMPARE_TIMEOUT = 55  # seconds — must be < Fly.io's ~60s proxy idle timeout
 
 
 @router.get("/compare", response_model=CompareResponse)
@@ -41,6 +43,14 @@ async def compare_tickers(
     if invalid:
         raise HTTPException(status_code=400, detail=f"Invalid ticker symbols: {', '.join(invalid)}")
 
+    # Acquire concurrency slot to respect the global 3-slot limit
+    slot_acquired = await acquire_analysis_slot()
+    if not slot_acquired:
+        raise HTTPException(
+            status_code=503,
+            detail="Server at capacity; try again shortly.",
+        )
+
     # Run analysis with timeout (will use cache if available)
     mcp_tools = request.app.state.mcp_tools
     try:
@@ -53,10 +63,12 @@ async def compare_tickers(
             status_code=504,
             detail=(
                 f"Comparison timed out after {COMPARE_TIMEOUT}s. "
-                "Try again later when models are less congested, "
-                "or run individual analyses first to populate the cache."
+                "Free-tier LLM models are slow; run individual analyses first "
+                "(streaming bypasses this limit) to populate the cache, then compare."
             ),
         )
+    finally:
+        release_analysis_slot()
 
     return {
         "tickers": ticker_list,

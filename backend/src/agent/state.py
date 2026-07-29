@@ -64,3 +64,6 @@ class InvestmentAnalystState(TypedDict):
     peer_comparison: dict | None  # Auto sector-peer context (populated for single-ticker runs)
     current_ticker: str | None
     error: str | None
+
+    # Correlation ID propagated from the request middleware for end-to-end tracing
+    correlation_id: str | None

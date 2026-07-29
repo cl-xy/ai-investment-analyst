@@ -1,10 +1,24 @@
 from datetime import date as _date
 
+import requests
 import yfinance as yf
+
+# yfinance uses requests internally but does not set a timeout by default.
+# Create a session with a reasonable timeout to prevent zombie threads in the
+# ThreadPoolExecutor when Yahoo Finance is unresponsive.
+_SESSION = requests.Session()
+_SESSION.request = lambda *args, **kwargs: requests.Session.request(  # type: ignore[method-assign]
+    _SESSION, *args, timeout=kwargs.pop("timeout", 20), **kwargs
+)
+
+
+def _ticker(symbol: str) -> yf.Ticker:
+    """Create a Ticker with a timeout-enforcing session."""
+    return yf.Ticker(symbol, session=_SESSION)
 
 
 def get_quote(ticker: str) -> dict:
-    t = yf.Ticker(ticker)
+    t = _ticker(ticker)
     info = t.fast_info
     full = t.info
     price = getattr(info, "last_price", None)
@@ -26,7 +40,7 @@ def get_quote(ticker: str) -> dict:
 
 
 def get_fundamentals(ticker: str) -> dict:
-    t = yf.Ticker(ticker)
+    t = _ticker(ticker)
     info = t.info
     return {
         "ticker": ticker.upper(),
@@ -52,7 +66,7 @@ def get_earnings_calendar(ticker: str) -> dict:
     yfinance's earnings-calendar surfaces have historically changed shape
     across releases, so this is deliberately defensive.
     """
-    t = yf.Ticker(ticker)
+    t = _ticker(ticker)
     try:
         cal = t.calendar
     except Exception:
@@ -81,7 +95,7 @@ def get_earnings_calendar(ticker: str) -> dict:
 
 
 def get_price_history(ticker: str, period: str = "3mo") -> list[dict]:
-    t = yf.Ticker(ticker)
+    t = _ticker(ticker)
     hist = t.history(period=period)
     records = []
     for date, row in hist.iterrows():

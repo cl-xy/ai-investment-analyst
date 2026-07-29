@@ -1,0 +1,137 @@
+# Degradation and Partial Data Evaluation
+# Tests how the model handles missing, corrupted, or partial data gracefully.
+
+tests:
+  # --- Complete Data Absence ---
+
+  - description: "All sources timeout - produces insufficient_data"
+    vars:
+      ticker: SHOP
+      price_source_id: ""
+      price_data: "[TIMEOUT - yfinance connection refused]"
+      fundamentals_source_id: ""
+      fundamentals: "[TIMEOUT - yfinance connection refused]"
+      indicators_source_id: ""
+      indicators: "[TIMEOUT - yfinance connection refused]"
+      news_source_id: ""
+      article_count: "0"
+      news_text: "[TIMEOUT - NewsAPI connection refused]"
+      sec_source_id: ""
+      sec_notes: "[TIMEOUT - SEC EDGAR rate limited]"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).signal === 'insufficient_data'"
+      - type: javascript
+        value: "JSON.parse(output).data_gaps.length >= 3"
+
+  - description: "Only price data available - still produces valid output"
+    vars:
+      ticker: V
+      price_source_id: "yfinance:V:1706140800"
+      price_data: '{"price": 275.00, "change_pct": 0.8, "volume": 7000000, "market_cap": 565000000000, "pe_ratio": 30.0, "52w_high": 290.00, "52w_low": 225.00}'
+      fundamentals_source_id: ""
+      fundamentals: "[UNAVAILABLE - rate limited]"
+      indicators_source_id: ""
+      indicators: "[UNAVAILABLE - rate limited]"
+      news_source_id: ""
+      article_count: "0"
+      news_text: "[UNAVAILABLE - API key expired]"
+      sec_source_id: ""
+      sec_notes: "[UNAVAILABLE - SEC EDGAR maintenance]"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).data_gaps.length >= 2"
+      - type: javascript
+        value: "JSON.parse(output).confidence === 'low' || JSON.parse(output).confidence === 'medium'"
+      - type: javascript
+        value: "JSON.parse(output).ticker === 'V'"
+
+  # --- Corrupted Data ---
+
+  - description: "Malformed JSON in price data handled gracefully"
+    vars:
+      ticker: JPM
+      price_source_id: "yfinance:JPM:1706140800"
+      price_data: '{"price": 195.00, "change_pct": "NaN", "volume": null, "market_cap": 565000000000}'
+      fundamentals_source_id: "yfinance:JPM:1706140800"
+      fundamentals: '{"revenue_growth": 12.0, "gross_margin": "N/A", "operating_margin": 35.0, "eps": 16.23}'
+      indicators_source_id: "yfinance:JPM:1706140800"
+      indicators: '{"rsi_14": 55.0, "sma_50": 190.0, "sma_200": 175.0}'
+      news_source_id: "newsapi:JPM:1706140800"
+      article_count: "2"
+      news_text: "1. JPMorgan posts record net interest income of $24.5B. 2. Investment banking fees recover 20% from prior year."
+      sec_source_id: "sec_edgar:JPM:1706140800"
+      sec_notes: "10-K: Assets under management $3.4T. CET1 ratio 15.0%. Net charge-offs rising in consumer portfolio."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "['buy','hold','sell','insufficient_data'].includes(JSON.parse(output).signal)"
+      - type: javascript
+        value: "JSON.parse(output).ticker === 'JPM'"
+
+  - description: "Empty strings in multiple fields still produces valid output"
+    vars:
+      ticker: WMT
+      price_source_id: "yfinance:WMT:1706140800"
+      price_data: '{"price": 165.00, "change_pct": 0.3, "volume": 8000000, "market_cap": 440000000000}'
+      fundamentals_source_id: "yfinance:WMT:1706140800"
+      fundamentals: '{"revenue_growth": 5.7, "gross_margin": 24.0, "operating_margin": 4.2, "eps": 6.46}'
+      indicators_source_id: "yfinance:WMT:1706140800"
+      indicators: ""
+      news_source_id: ""
+      article_count: "0"
+      news_text: ""
+      sec_source_id: ""
+      sec_notes: ""
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).data_gaps.length >= 1"
+      - type: javascript
+        value: "JSON.parse(output).ticker === 'WMT'"
+
+  # --- Partial Source Failures ---
+
+  - description: "SEC data missing but analysis still viable"
+    vars:
+      ticker: NFLX
+      price_source_id: "yfinance:NFLX:1706140800"
+      price_data: '{"price": 605.00, "change_pct": 2.1, "volume": 5000000, "market_cap": 265000000000, "pe_ratio": 45.0, "52w_high": 640.00, "52w_low": 395.00}'
+      fundamentals_source_id: "yfinance:NFLX:1706140800"
+      fundamentals: '{"revenue_growth": 15.0, "gross_margin": 42.0, "operating_margin": 25.0, "eps": 13.50}'
+      indicators_source_id: "yfinance:NFLX:1706140800"
+      indicators: '{"rsi_14": 62.0, "sma_50": 580.0, "sma_200": 500.0, "macd_histogram": 8.0}'
+      news_source_id: "newsapi:NFLX:1706140800"
+      article_count: "2"
+      news_text: "1. Netflix password sharing crackdown adds 10M subscribers. 2. Ad-supported tier reaches 40M global users."
+      sec_source_id: ""
+      sec_notes: "[SEC EDGAR TIMEOUT - filing unavailable]"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).signal !== 'insufficient_data'"
+      - type: javascript
+        value: "JSON.parse(output).data_gaps.some(g => g.toLowerCase().includes('sec') || g.toLowerCase().includes('filing'))"
+
+  - description: "News reports errors but price and fundamentals available"
+    vars:
+      ticker: UNH
+      price_source_id: "yfinance:UNH:1706140800"
+      price_data: '{"price": 525.00, "change_pct": -1.0, "volume": 4000000, "market_cap": 485000000000, "pe_ratio": 22.0}'
+      fundamentals_source_id: "yfinance:UNH:1706140800"
+      fundamentals: '{"revenue_growth": 14.0, "gross_margin": 24.0, "operating_margin": 8.5, "eps": 24.50, "dividend_yield": 1.4}'
+      indicators_source_id: "yfinance:UNH:1706140800"
+      indicators: '{"rsi_14": 45.0, "sma_50": 540.0, "sma_200": 520.0, "macd_histogram": -3.0}'
+      news_source_id: ""
+      article_count: "0"
+      news_text: "[ERROR: NewsAPI returned 500 Internal Server Error]"
+      sec_source_id: "sec_edgar:UNH:1706140800"
+      sec_notes: "10-K: Optum revenue grew 16%. Medical care ratio 83.2%. Backlog of $103B."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: "JSON.parse(output).signal !== 'insufficient_data'"
+      - type: javascript
+        value: "JSON.parse(output).data_gaps.length >= 1"

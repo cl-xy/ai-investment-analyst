@@ -8,14 +8,14 @@ Partial failures produce data_gaps rather than crashing the analysis.
 
 import asyncio
 import json
-import logging
 import time
 
 from src.cache.manager import cache_manager
+from src.logging_config import get_logger
 
 from ..state import InvestmentAnalystState
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 TOOL_TIMEOUT = 30  # seconds per tool call
 
@@ -117,7 +117,9 @@ async def _call_tool_cached(
 
 async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> dict:
     tickers = state.get("tickers_to_analyze", [])
-    log.info("fetch_data_node: tickers=%s, tools_count=%d", tickers, len(mcp_tools))
+    correlation_id = state.get("correlation_id")
+    _log = log.bind(correlation_id=correlation_id, node="fetch_data") if correlation_id else log
+    _log.info("fetch_data_node_start", tickers=tickers, tools_count=len(mcp_tools))
     if not tickers:
         return {}
 
@@ -134,12 +136,12 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
             budget_exhausted.add("newsapi")
         if not llm_ok:
             budget_exhausted.add("openrouter")
-        log.info(
-            "fetch_data_node: budget_exhausted=%s",
-            budget_exhausted or "none",
+        _log.info(
+            "fetch_data_budget_check",
+            budget_exhausted=list(budget_exhausted) or "none",
         )
     except Exception as e:
-        log.warning("budget_check_failed: %s", e)
+        _log.warning("budget_check_failed", error=str(e))
 
     # Bound concurrent tool calls across all tickers (global limit across analyses)
     async def _bounded_tool_cached(

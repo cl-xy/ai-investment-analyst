@@ -11,7 +11,7 @@ import httpx
 
 _TIMEOUT = 15  # seconds
 _BASE_URL = "https://api.stocktwits.com/api/2/streams/symbol"
-_HEADERS = {"User-Agent": "mcp-investment-analyst contact@example.com"}
+_HEADERS = {"User-Agent": "ai-investment-analyst/1.0 (github.com/cl-xy/ai-investment-analyst)"}
 
 
 def get_ticker_sentiment(ticker: str, max_messages: int = 30) -> dict:

@@ -232,7 +232,7 @@ async def resolve_predictions():
         """Fetch current price via yfinance (sync, runs in thread pool)."""
         try:
             stock = yf.Ticker(ticker)
-            hist = stock.history(period="1d")
+            hist = stock.history(period="1d", timeout=15)
             if hist.empty:
                 return None
             return float(hist["Close"].iloc[-1])
@@ -266,8 +266,15 @@ async def resolve_predictions():
                 if prediction_price is None:
                     continue
 
-                # Run sync yfinance in thread pool to avoid blocking the event loop
-                current_price = await asyncio.to_thread(_fetch_price, ticker)
+                # Run sync yfinance in thread pool with a timeout to avoid
+                # holding row locks indefinitely on a hung upstream call
+                try:
+                    current_price = await asyncio.wait_for(
+                        asyncio.to_thread(_fetch_price, ticker), timeout=20
+                    )
+                except asyncio.TimeoutError:
+                    log.warning("resolve_price_timeout ticker=%s", ticker)
+                    current_price = None
                 if current_price is None:
                     continue
 

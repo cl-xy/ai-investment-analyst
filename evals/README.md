@@ -4,6 +4,8 @@ Automated evaluation of the investment analyst's LLM behavior using [promptfoo](
 
 ## What it tests
 
+**39 total test cases** across 5 evaluation files:
+
 **evals/investment-analyst.yaml** (13 cases):
 - Structured output compliance: valid JSON schema, correct ticker, bounded fields
 - Factual grounding: references actual provided numbers, acknowledges contradictions, flags stale data
@@ -17,6 +19,25 @@ Automated evaluation of the investment analyst's LLM behavior using [promptfoo](
 - System prompt disclosure resistance
 - No absolute future price predictions
 
+**evals/edge-cases.yaml** (10 cases):
+- Extreme valuations (pre-profit, penny stocks, halted trading)
+- Data staleness detection (30-day-old data flagged)
+- Boundary values (RSI >90, negative EPS)
+- Sector diversity (REITs, biotech, ETFs)
+- Conflicting sources (news vs fundamentals disagreement)
+
+**evals/reasoning-quality.yaml** (7 cases):
+- Confidence calibration (consensus data = high confidence, conflicting = not high)
+- Logical consistency (sell signal aligns with bear case strength, sentiment matches signal)
+- Risk flag quality (debt, concentration risk identified)
+- No recency bias (single-day drop doesn't override strong fundamentals)
+
+**evals/degradation.yaml** (6 cases):
+- Complete data absence (all sources timeout)
+- Single source available (only price data)
+- Corrupted/malformed data (NaN, null, empty strings)
+- Partial source failures (SEC missing, news errors)
+
 ## Running locally
 
 ```bash
@@ -28,6 +49,7 @@ npx promptfoo view
 
 # Run specific test file only
 npx promptfoo eval --config promptfooconfig.yaml --tests evals/safety.yaml
+npx promptfoo eval --config promptfooconfig.yaml --tests evals/edge-cases.yaml
 ```
 
 Or via Makefile:
@@ -37,13 +59,13 @@ make eval-llm
 
 ## Cost and rate limits
 
-Each full run makes ~18 API calls to OpenRouter (one per test case). At current OpenRouter free tier limits:
-- Token usage: ~100K tokens per run
-- Request count: 18 requests (within 20 req/min limit)
+Each full run makes ~39 API calls to OpenRouter (one per test case). At current OpenRouter free tier limits:
+- Token usage: ~200K tokens per run
+- Request count: 39 requests (may need 2 minutes to stay within 20 req/min limit)
 - Cost: $0 (OpenRouter free tier)
-- Duration: ~30-60 seconds
+- Duration: ~2-4 minutes (rate-limited pacing)
 
-Safe to run multiple times locally. No risk of hitting rate limits unless you're simultaneously running the app with heavy traffic.
+Safe to run locally. If running the app simultaneously, space out requests to avoid hitting the 20 req/min ceiling.
 
 ## CI integration
 
@@ -69,3 +91,16 @@ Use `llm-rubric` sparingly (for qualitative checks). Prefer deterministic `javas
 - `is-json` failure: model returned non-JSON (check if max_tokens is set)
 - `javascript` failure: schema field missing or out of bounds
 - `llm-rubric` failure: qualitative check disagreement (review manually, may be false positive)
+
+## Test categories and what they catch
+
+| Category | Catches | Example failure |
+|----------|---------|-----------------|
+| Structured output | Schema violations, missing fields | Model returns markdown instead of JSON |
+| Factual grounding | Hallucinated numbers, ignored data | Price cited as $200 when data says $192 |
+| Citations | Fabricated sources, wrong source_ids | Citation to "yfinance" for a news claim |
+| Balanced reasoning | One-sided analysis, overconfidence | All-bullish data with zero bear_case |
+| Safety | Prompt injection, guarantee language | Injection in news causes "buy" signal |
+| Edge cases | Crashes on unusual inputs | Negative EPS throws validation error |
+| Reasoning quality | Logical inconsistencies | Sell signal with positive sentiment_score |
+| Degradation | Crashes on missing data | Empty indicators field causes invalid JSON |

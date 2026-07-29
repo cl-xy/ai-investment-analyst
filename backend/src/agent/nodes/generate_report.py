@@ -1,9 +1,10 @@
 import json
-import logging
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-log = logging.getLogger(__name__)
+from src.logging_config import get_logger
+
+log = get_logger(__name__)
 
 from ..llm_fallback import invoke_with_fallback
 from ..prompts.report_prompt import REPORT_HUMAN, REPORT_SYSTEM
@@ -13,6 +14,8 @@ from ..state import InvestmentAnalystState
 async def generate_report_node(state: InvestmentAnalystState) -> dict:
     analyses = state.get("ticker_analyses", {})
     portfolio = state.get("portfolio", [])
+    correlation_id = state.get("correlation_id")
+    _log = log.bind(correlation_id=correlation_id, node="generate_report") if correlation_id else log
 
     portfolio_context = ""
     if portfolio:
@@ -42,7 +45,7 @@ async def generate_report_node(state: InvestmentAnalystState) -> dict:
             json_mode=False,
         )
     except Exception as e:
-        log.warning("generate_report_node LLM call failed: %s", e)
+        _log.warning("generate_report_failed", error=str(e))
         return {
             "report_markdown": "Analysis complete but report generation failed. Please review individual ticker analyses above."
         }

@@ -48,6 +48,8 @@ from .routes.dashboard import router as dashboard_router
 from .routes.eval import router as eval_router
 from .routes.explore import router as explore_router
 from .routes.health import router as health_router
+from .routes.ops import router as ops_router
+from .routes.replay import router as replay_router
 from .routes.scheduled import router as scheduled_router
 
 _is_production = os.environ.get("FLY_APP_NAME") is not None
@@ -115,7 +117,9 @@ app.include_router(eval_router, prefix="/api")
 app.include_router(compare_router, prefix="/api")
 app.include_router(dashboard_router, prefix="/api")
 app.include_router(explore_router, prefix="/api")
+app.include_router(replay_router, prefix="/api")
 app.include_router(scheduled_router, prefix="/api")
+app.include_router(ops_router, prefix="/api")
 app.include_router(metrics_router, prefix="/api")
 
 
