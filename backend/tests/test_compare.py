@@ -67,3 +67,55 @@ class TestCompareEndpoint:
         assert data["tickers"] == ["NVDA", "AAPL"]
         assert "NVDA" in data["analyses"]
         assert "AAPL" in data["analyses"]
+        # No fresh graph run happened (analyze_tickers is mocked), so comparison
+        # is "not computed" rather than "failed".
+        assert data["comparison"] is None
+
+    @patch("src.api.routes.compare.analyze_tickers")
+    def test_compare_surfaces_successful_comparison_narrative(self, mock_analyze, client):
+        from datetime import datetime, timezone
+
+        from src.api.schemas import AnalyzeResponse, TickerAnalysis
+
+        mock_analysis = TickerAnalysis(ticker="NVDA", signal="buy", confidence="high")
+        mock_analyze.return_value = AnalyzeResponse(
+            id="test-id",
+            tickers=["NVDA", "AAPL"],
+            report_markdown="",
+            analyses={"NVDA": mock_analysis, "AAPL": mock_analysis},
+            created_at=datetime.now(timezone.utc),
+            comparison={
+                "status": "ok",
+                "summary": "NVDA shows stronger momentum than AAPL.",
+                "relative_ranking": [{"ticker": "NVDA", "rank": 1, "reasoning": "growth"}],
+                "key_differentiators": ["NVDA has higher growth"],
+            },
+        )
+
+        response = client.get("/api/compare?tickers=NVDA,AAPL")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["comparison"]["status"] == "ok"
+        assert "NVDA shows stronger momentum" in data["comparison"]["summary"]
+
+    @patch("src.api.routes.compare.analyze_tickers")
+    def test_compare_surfaces_failed_comparison(self, mock_analyze, client):
+        from datetime import datetime, timezone
+
+        from src.api.schemas import AnalyzeResponse, TickerAnalysis
+
+        mock_analysis = TickerAnalysis(ticker="NVDA", signal="buy", confidence="high")
+        mock_analyze.return_value = AnalyzeResponse(
+            id="test-id",
+            tickers=["NVDA", "AAPL"],
+            report_markdown="",
+            analyses={"NVDA": mock_analysis, "AAPL": mock_analysis},
+            created_at=datetime.now(timezone.utc),
+            comparison={"status": "failed", "error": "model unavailable"},
+        )
+
+        response = client.get("/api/compare?tickers=NVDA,AAPL")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["comparison"]["status"] == "failed"
+        assert data["comparison"]["error"] == "model unavailable"

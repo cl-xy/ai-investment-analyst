@@ -135,7 +135,6 @@ async def _run_agent(
                     if kind == "on_chain_start" and name in (
                         "router",
                         "fetch_data",
-                        "analyze_ticker",
                         "debate",
                         "generate_report",
                         "compare",

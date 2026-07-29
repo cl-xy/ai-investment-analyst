@@ -27,7 +27,7 @@ def _mock_astream_events(delay: float = 0.0):
                 "name": "get_quote",
                 "data": {"output": {"price": 195.0}},
             },
-            {"event": "on_chain_start", "name": "analyze_ticker", "data": {}},
+            {"event": "on_chain_start", "name": "debate", "data": {}},
             {
                 "event": "on_chat_model_stream",
                 "name": "llm",

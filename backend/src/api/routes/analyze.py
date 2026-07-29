@@ -113,6 +113,10 @@ async def analyze_tickers(
     analyses: dict[str, TickerAnalysis] = dict(cached_analyses)
     report_markdown = ""
     raw_analyses: dict = {}
+    # None means "not computed" (e.g. all requested tickers were served from
+    # cache, so the graph never ran compare_node) — distinct from a comparison
+    # that ran and failed, which carries {"status": "failed", ...}.
+    comparison: dict | None = None
 
     if new_tickers:
         try:
@@ -134,6 +138,7 @@ async def analyze_tickers(
                 sec_notes=data.get("sec_notes", ""),
             )
         report_markdown = result.get("report_markdown", "")
+        comparison = result.get("comparison")
 
     # Persist to PostgreSQL with debate fields + predictions
     raw_for_persist = {}
@@ -177,6 +182,7 @@ async def analyze_tickers(
         report_markdown=report_markdown,
         analyses=analyses,
         created_at=created_at,
+        comparison=comparison,
     )
 
 

@@ -17,9 +17,24 @@ interface CompareAnalysis {
   fundamentals: Record<string, unknown>
 }
 
+interface RankedTicker {
+  ticker: string
+  rank: number
+  reasoning: string
+}
+
+interface ComparisonNarrative {
+  status: 'ok' | 'failed'
+  error?: string | null
+  summary?: string
+  relative_ranking?: RankedTicker[]
+  key_differentiators?: string[]
+}
+
 interface CompareResult {
   tickers: string[]
   analyses: Record<string, CompareAnalysis>
+  comparison?: ComparisonNarrative | null
 }
 
 export default function ComparePage() {
@@ -262,6 +277,56 @@ export default function ComparePage() {
               </tr>
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Comparative narrative */}
+      {result?.comparison?.status === 'failed' && (
+        <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--text-muted)]">
+          Comparison narrative unavailable — the metrics table above is still accurate.
+        </div>
+      )}
+
+      {result?.comparison?.status === 'ok' && (
+        <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-5 space-y-4">
+          {result.comparison.summary && (
+            <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
+              {result.comparison.summary}
+            </p>
+          )}
+
+          {!!result.comparison.relative_ranking?.length && (
+            <div>
+              <h3 className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
+                Relative Ranking
+              </h3>
+              <ol className="space-y-1.5">
+                {[...result.comparison.relative_ranking]
+                  .sort((a, b) => a.rank - b.rank)
+                  .map((r) => (
+                    <li key={r.ticker} className="text-sm text-[var(--text-primary)]">
+                      <span className="font-mono font-semibold">{r.rank}. {r.ticker}</span>
+                      {r.reasoning && (
+                        <span className="text-[var(--text-muted)]"> — {r.reasoning}</span>
+                      )}
+                    </li>
+                  ))}
+              </ol>
+            </div>
+          )}
+
+          {!!result.comparison.key_differentiators?.length && (
+            <div>
+              <h3 className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
+                Key Differentiators
+              </h3>
+              <ul className="list-disc list-inside space-y-1">
+                {result.comparison.key_differentiators.map((d, i) => (
+                  <li key={i} className="text-sm text-[var(--text-secondary)]">{d}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 

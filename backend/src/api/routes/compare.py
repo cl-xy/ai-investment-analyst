@@ -62,4 +62,5 @@ async def compare_tickers(
         "tickers": ticker_list,
         "analyses": {k: v.model_dump() for k, v in result.analyses.items()},
         "report_markdown": result.report_markdown,
+        "comparison": result.comparison,
     }

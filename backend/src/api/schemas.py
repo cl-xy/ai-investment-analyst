@@ -34,6 +34,7 @@ class AnalyzeResponse(BaseModel):
     report_markdown: str
     analyses: dict[str, TickerAnalysis]
     created_at: datetime
+    comparison: dict | None = None
 
 
 class AnalysisListItem(BaseModel):
@@ -94,6 +95,7 @@ class CompareResponse(BaseModel):
     tickers: list[str]
     analyses: dict[str, TickerAnalysis]
     report_markdown: str
+    comparison: dict | None = None
 
 
 # --- Backtest ---

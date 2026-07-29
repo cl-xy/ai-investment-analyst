@@ -6,13 +6,11 @@ including relative valuation, normalized metrics, and a brief AI-generated narra
 """
 
 import logging
-import os
-from functools import cache
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, ValidationError
 
+from ..llm_fallback import invoke_with_fallback
 from ..state import InvestmentAnalystState
 
 log = logging.getLogger(__name__)
@@ -21,8 +19,8 @@ log = logging.getLogger(__name__)
 class ComparisonOutput(BaseModel):
     """Structured comparison output."""
 
-    tickers: list[str]
-    summary: str = Field(description="1-2 paragraph comparative narrative")
+    tickers: list[str] = Field(default_factory=list)
+    summary: str = Field(default="", description="1-2 paragraph comparative narrative")
     metrics_table: list[dict] = Field(
         default_factory=list,
         description="Normalized metrics for comparison (P/E, growth, sentiment, etc.)",
@@ -33,6 +31,8 @@ class ComparisonOutput(BaseModel):
     key_differentiators: list[str] = Field(
         default_factory=list, description="3-5 key differences between the tickers"
     )
+    status: str = Field(default="ok", description="'ok' or 'failed'")
+    error: str | None = Field(default=None, description="Failure reason when status is 'failed'")
 
 
 COMPARE_SYSTEM = """You are a professional equity research analyst comparing multiple stocks.
@@ -60,22 +60,6 @@ Return ONLY valid JSON matching this schema:
 Be concise, evidence-based, and acknowledge when differences are marginal."""
 
 
-@cache
-def _get_llm() -> ChatOpenAI:
-    from ...config import settings
-
-    api_key = settings.openrouter_api_key or os.environ.get("OPENROUTER_API_KEY", "")
-    return ChatOpenAI(
-        model=settings.llm_model,
-        temperature=0,
-        max_tokens=8192,  # type: ignore[call-arg]
-        base_url=settings.llm_base_url,
-        api_key=api_key,  # type: ignore[arg-type]
-        model_kwargs={"response_format": {"type": "json_object"}},
-        request_timeout=120,  # type: ignore[call-arg]
-    )
-
-
 async def compare_node(state: InvestmentAnalystState) -> dict:
     """Compare all analyzed tickers and produce a structured comparison."""
     analyses = state.get("ticker_analyses", {})
@@ -98,15 +82,14 @@ async def compare_node(state: InvestmentAnalystState) -> dict:
     prompt = f"Compare these {len(analyses)} stocks:\n\n" + "\n".join(analyses_text)
 
     try:
-        from ..rate_limiter import acquire_or_raise
-
-        await acquire_or_raise()
-
-        response = await _get_llm().ainvoke(
+        response = await invoke_with_fallback(
             [
                 SystemMessage(content=COMPARE_SYSTEM),
                 HumanMessage(content=prompt),
-            ]
+            ],
+            temperature=0,
+            max_tokens=8192,
+            request_timeout=120,
         )
 
         comparison = ComparisonOutput.model_validate_json(
@@ -114,6 +97,9 @@ async def compare_node(state: InvestmentAnalystState) -> dict:
         )
         return {"comparison": comparison.model_dump()}
     except (ValidationError, Exception) as e:
-        # Non-critical, comparison is supplementary
+        # Non-critical, comparison is supplementary — surface the failure instead
+        # of silently dropping it so the API/UI can show "unavailable" rather
+        # than nothing at all.
         log.warning("compare_node failed: %s", e)
-        return {}
+        failed = ComparisonOutput(status="failed", error=str(e)[:200])
+        return {"comparison": failed.model_dump()}

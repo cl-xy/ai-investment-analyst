@@ -44,7 +44,7 @@ def _mock_astream_events_normal():
                 "name": "get_quote",
                 "data": {"output": {"price": 195.0}},
             },
-            {"event": "on_chain_start", "name": "analyze_ticker", "data": {}},
+            {"event": "on_chain_start", "name": "debate", "data": {}},
             {"event": "on_chain_start", "name": "generate_report", "data": {}},
         ]
         for e in events:

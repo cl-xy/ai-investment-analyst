@@ -30,7 +30,7 @@ def _mock_astream_events():
                 "data": {"input": {"ticker": "NVDA"}},
             },
             {"event": "on_tool_end", "name": "get_ticker_news", "data": {"output": []}},
-            {"event": "on_chain_start", "name": "analyze_ticker", "data": {}},
+            {"event": "on_chain_start", "name": "debate", "data": {}},
             {
                 "event": "on_chat_model_stream",
                 "name": "llm",

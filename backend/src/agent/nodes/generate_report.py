@@ -1,32 +1,13 @@
 import json
 import logging
-import os
-from functools import cache
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 
 log = logging.getLogger(__name__)
 
+from ..llm_fallback import invoke_with_fallback
 from ..prompts.report_prompt import REPORT_HUMAN, REPORT_SYSTEM
 from ..state import InvestmentAnalystState
-
-
-@cache
-def _get_llm() -> ChatOpenAI:
-    from ...config import settings
-
-    api_key = settings.openrouter_api_key or os.environ.get("OPENROUTER_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY environment variable is not set")
-    return ChatOpenAI(
-        model=settings.llm_model,
-        temperature=0,
-        max_tokens=8192,  # type: ignore[call-arg]
-        base_url=settings.llm_base_url,
-        api_key=api_key,  # type: ignore[arg-type]
-        request_timeout=120,  # type: ignore[call-arg]
-    )
 
 
 async def generate_report_node(state: InvestmentAnalystState) -> dict:
@@ -50,15 +31,15 @@ async def generate_report_node(state: InvestmentAnalystState) -> dict:
     )
 
     try:
-        from ..rate_limiter import acquire_or_raise
-
-        await acquire_or_raise()
-
-        response = await _get_llm().ainvoke(
+        response = await invoke_with_fallback(
             [
                 SystemMessage(content=REPORT_SYSTEM),
                 HumanMessage(content=prompt),
-            ]
+            ],
+            temperature=0,
+            max_tokens=8192,
+            request_timeout=120,
+            json_mode=False,
         )
     except Exception as e:
         log.warning("generate_report_node LLM call failed: %s", e)

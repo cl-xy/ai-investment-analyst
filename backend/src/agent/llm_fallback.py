@@ -13,6 +13,7 @@ from enum import Enum
 from functools import lru_cache
 
 from langchain_core.messages import BaseMessage
+from langchain_core.runnables import Runnable
 from langchain_openai import ChatOpenAI
 from tenacity import (
     retry,
@@ -119,6 +120,7 @@ async def invoke_with_fallback(
     max_tokens: int = 16384,
     request_timeout: int = 120,
     json_mode: bool = True,
+    tools: list | None = None,
 ) -> BaseMessage:
     """
     Invoke LLM with retry + fallback chain.
@@ -135,6 +137,9 @@ async def invoke_with_fallback(
         max_tokens: Max output tokens
         request_timeout: Request timeout in seconds
         json_mode: Whether to request JSON output format
+        tools: Optional tools to bind to the model (for tool-calling loops).
+            Applied to both the primary and fallback model on every call, since
+            bound runnables aren't cacheable the same way as the bare client.
     """
     from ..config import settings
 
@@ -143,8 +148,11 @@ async def invoke_with_fallback(
 
     # Try primary model
     primary_llm = _build_llm(primary, temperature, max_tokens, request_timeout, json_mode)
+    primary_runnable: ChatOpenAI | Runnable = (
+        primary_llm.bind_tools(tools) if tools else primary_llm
+    )
     try:
-        return await _invoke_with_retry(primary_llm, messages)
+        return await _invoke_with_retry(primary_runnable, messages)
     except Exception as primary_exc:
         if not _is_fallback_worthy(primary_exc):
             raise
@@ -158,8 +166,11 @@ async def invoke_with_fallback(
 
     # Try fallback model
     fallback_llm = _build_llm(fallback, temperature, max_tokens, request_timeout, json_mode)
+    fallback_runnable: ChatOpenAI | Runnable = (
+        fallback_llm.bind_tools(tools) if tools else fallback_llm
+    )
     try:
-        result = await _invoke_with_retry(fallback_llm, messages)
+        result = await _invoke_with_retry(fallback_runnable, messages)
         log.info("fallback_model_succeeded model=%s", fallback)
         return result
     except Exception as fallback_exc:
@@ -177,6 +188,6 @@ async def invoke_with_fallback(
     stop=stop_after_attempt(2),
     reraise=True,
 )
-async def _invoke_with_retry(llm: ChatOpenAI, messages: list) -> BaseMessage:
+async def _invoke_with_retry(llm: "ChatOpenAI | Runnable", messages: list) -> BaseMessage:
     """Invoke a specific LLM instance with retry, through the circuit breaker."""
     return await llm_breaker.call(llm.ainvoke, messages)  # type: ignore[return-value]

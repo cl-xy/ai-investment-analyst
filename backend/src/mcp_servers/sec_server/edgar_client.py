@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 
 import httpx
 
@@ -10,14 +11,23 @@ EDGAR_BASE = "https://efts.sec.gov"
 SUBMISSIONS_BASE = "https://data.sec.gov/submissions"
 COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 
+# Avoid hammering SEC on every call during an outage, while still recovering
+# once it comes back, instead of permanently disabling lookups for the
+# process lifetime after a single transient failure.
+_RETRY_COOLDOWN_SECONDS = 300
+
 _ticker_to_cik: dict[str, str] = {}
 _ticker_map_loaded: bool = False
+_last_load_attempt: float = 0.0
 
 
 def _load_ticker_map() -> None:
-    global _ticker_map_loaded
+    global _ticker_map_loaded, _last_load_attempt
     if _ticker_map_loaded:
         return
+    if _last_load_attempt and (time.monotonic() - _last_load_attempt) < _RETRY_COOLDOWN_SECONDS:
+        return
+    _last_load_attempt = time.monotonic()
     try:
         r = httpx.get(COMPANY_TICKERS_URL, headers=HEADERS, timeout=15)
         r.raise_for_status()
@@ -28,8 +38,11 @@ def _load_ticker_map() -> None:
                 _ticker_to_cik[ticker] = cik
         _ticker_map_loaded = True
     except Exception as exc:
-        log.warning("Failed to load SEC ticker map: %s. Will not retry this process.", exc)
-        _ticker_map_loaded = True
+        log.warning(
+            "Failed to load SEC ticker map: %s. Will retry after %ds.",
+            exc,
+            _RETRY_COOLDOWN_SECONDS,
+        )
 
 
 def get_cik(ticker: str) -> str | None:
