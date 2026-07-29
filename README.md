@@ -315,7 +315,7 @@ DEMO_PASSWORD         # Optional: gate the demo
 <a id="walkthrough"></a>
 ## Video Walkthrough
 
-https://github.com/cl-xy/ai-investment-analyst/raw/main/docs/assets/walkthrough.mp4
+https://github.com/cl-xy/ai-investment-analyst/blob/main/docs/assets/walkthrough.mp4
 
 *75-second tour: trace replay, ops dashboard, chaos mode, recovery.*
 
