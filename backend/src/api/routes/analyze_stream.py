@@ -33,7 +33,9 @@ from src.middleware.cost_tracker import CostTracker
 router = APIRouter()
 
 HEARTBEAT_INTERVAL = 15  # seconds
-EXECUTION_TIMEOUT_PER_TICKER = 180  # seconds per ticker for debate (free tier LLMs: 30-73s x3 calls + report)
+EXECUTION_TIMEOUT_PER_TICKER = (
+    180  # seconds per ticker for debate (free tier LLMs: 30-73s x3 calls + report)
+)
 EXECUTION_TIMEOUT_BASE = 30  # base overhead (graph setup, data fetch)
 
 # Module-level event store for reconnection (last 5 minutes)
