@@ -11,7 +11,7 @@ Operational playbook for the AI Investment Analyst. Each scenario includes sympt
 | Vercel dashboard | `https://vercel.com/cl-xy/ai-investment-analyst` |
 | Health check | `GET /api/health` (liveness) |
 | Readiness check | `GET /api/health/ready` (includes DB connectivity) |
-| Groq console | `https://console.groq.com` |
+| OpenRouter dashboard | `https://openrouter.ai` |
 
 **Key log queries** (structured JSON logs via structlog):
 
@@ -38,7 +38,7 @@ curl -s https://<app-domain>/api/health/ready | jq .
 
 ---
 
-## 1. Groq API 429 (Rate Limited)
+## 1. OpenRouter API 429 (Rate Limited)
 
 **Symptoms**:
 - Analyses failing mid-stream
@@ -55,8 +55,8 @@ fly logs -a ai-investment-analyst --since 10m | grep '429'
 # Check circuit breaker state (if exposed via health)
 curl -s https://<app-domain>/api/health | jq .
 
-# Check Groq dashboard for usage
-# https://console.groq.com -> Usage tab
+# Check OpenRouter dashboard for usage
+# https://openrouter.ai -> Usage tab
 ```
 
 **Mitigation**:
@@ -66,10 +66,10 @@ curl -s https://<app-domain>/api/health | jq .
 - If sustained: reduce concurrency limit temporarily by redeploying with lower `MAX_CONCURRENT_ANALYSES`
 
 **Prevention**:
-- Budget guards track daily Groq call counts
+- Budget guards track daily OpenRouter call counts
 - Cache warming for demo tickers (AAPL, MSFT, GOOGL, NVDA, TSLA) via nightly cron
 - Concurrency limiter (max 3 simultaneous pipelines) throttles burst demand
-- Consider upgrading to Groq paid tier if demo traffic grows
+- Consider upgrading to OpenRouter paid tier if demo traffic grows
 
 ---
 
@@ -184,7 +184,7 @@ curl -s "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=appl
 - yfinance: no rate limit, but Yahoo may block IPs. Use residential proxy if needed.
 - NewsAPI: 100/day on free tier. Budget tracking prevents exhaustion.
 - SEC EDGAR: 10 req/sec limit. Respect with rate limiter. Cache filings permanently (they don't change).
-- Alpha Vantage: 25/day. Reserve 5 for manual use.
+- Alpha Vantage: 20/day (budget limit in config). Reserve 5 for manual use.
 
 ---
 
@@ -216,7 +216,7 @@ fly logs -a ai-investment-analyst | grep 'finish_reason'
 
 **Prevention**:
 - `max_tokens` always set on LLM calls (prevents truncation)
-- `response_format={"type": "json_object"}` (Groq JSON mode)
+- `response_format={"type": "json_object"}` (OpenRouter JSON mode)
 - Full Pydantic schema included in system prompt
 - Smaller, simpler schemas have higher success rates. If failures spike, check whether the schema grew too complex.
 
@@ -323,6 +323,7 @@ fly logs -a ai-investment-analyst | grep 'draining'
 - If analyses are being cut off: increase Fly.io kill timeout in `fly.toml`
 
 **Prevention**:
-- `kill_signal = "SIGTERM"` and `kill_timeout = 30` in fly.toml
+- Fly.io default signal handling (SIGTERM with platform-managed kill timeout)
 - Shutdown coordinator registered with signal handlers
 - Frontend handles 503 + Retry-After by showing "server updating, retrying shortly"
+- Consider adding explicit `kill_signal` and `kill_timeout` to `backend/fly.toml` for longer grace periods

@@ -6,7 +6,7 @@
 
 ## Context
 
-I need security scanning in CI that catches real risks specific to this stack (FastAPI + Groq + asyncpg + FastMCP) without flooding PRs with irrelevant findings. Generic SAST rulesets (like `p/python` or `p/owasp-top-ten`) produce noise: they flag patterns that don't apply here (e.g., Django ORM injection rules) while missing patterns that do (e.g., f-string prompt injection, missing await on async DB calls).
+I need security scanning in CI that catches real risks specific to this stack (FastAPI + OpenRouter + asyncpg + FastMCP) without flooding PRs with irrelevant findings. Generic SAST rulesets (like `p/python` or `p/owasp-top-ten`) produce noise: they flag patterns that don't apply here (e.g., Django ORM injection rules) while missing patterns that do (e.g., f-string prompt injection, missing await on async DB calls).
 
 The goal is high signal-to-noise. Every finding should be actionable for this project.
 
@@ -22,7 +22,7 @@ Write 10-12 project-specific Semgrep rules targeting patterns that actually matt
 - **Broad exception swallowing:** flag bare `except:` or `except Exception` without logging
 - **Missing timeout on HTTP calls:** flag `httpx.get`/`aiohttp` calls without explicit timeout
 - **SSE without buffering header:** flag StreamingResponse without `X-Accel-Buffering: no`
-- **Groq call without JSON mode:** flag Groq chat completions for structured output nodes missing `response_format`
+- **OpenRouter call without JSON mode:** flag OpenRouter chat completions for structured output nodes missing `response_format`
 - **Mutable default in Pydantic:** flag `list` or `dict` as default values instead of `default_factory`
 
 Rules live in `.semgrep/` directory. CI runs them with `semgrep --config .semgrep/`.

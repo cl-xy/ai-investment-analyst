@@ -99,6 +99,52 @@ async def _run_in_pool(fn, **kwargs) -> str:
     return await loop.run_in_executor(_TOOL_EXECUTOR, partial(_wrap_sync, fn, **kwargs))
 
 
+def _make_sync_tool(
+    fn,
+    name: str,
+    description: str,
+    args_schema: type[BaseModel] | None = None,
+) -> StructuredTool:
+    """Factory for creating a StructuredTool that runs a sync function in the thread pool."""
+
+    def _sync(*args, **kwargs):
+        return _wrap_sync(fn, **kwargs)
+
+    async def _async(*args, **kwargs):
+        return await _run_in_pool(fn, **kwargs)
+
+    return StructuredTool.from_function(
+        func=_sync,
+        coroutine=_async,
+        name=name,
+        description=description,
+        args_schema=args_schema,
+    )
+
+
+def _make_async_tool(
+    fn,
+    name: str,
+    description: str,
+    args_schema: type[BaseModel] | None = None,
+) -> StructuredTool:
+    """Factory for creating a StructuredTool that wraps an async function."""
+
+    def _sync(*args, **kwargs):
+        return json.dumps([])
+
+    async def _async(*args, **kwargs):
+        return await _wrap_async(fn, **kwargs)
+
+    return StructuredTool.from_function(
+        func=_sync,
+        coroutine=_async,
+        name=name,
+        description=description,
+        args_schema=args_schema,
+    )
+
+
 def load_direct_tools() -> dict:
     """
     Import MCP server modules directly and create LangChain StructuredTools.
@@ -115,34 +161,26 @@ def load_direct_tools() -> dict:
             get_technical_indicators,
         )
 
-        tools["get_quote"] = StructuredTool.from_function(
-            func=lambda ticker: _wrap_sync(get_quote, ticker=ticker),
-            coroutine=lambda ticker: _run_in_pool(get_quote, ticker=ticker),
+        tools["get_quote"] = _make_sync_tool(
+            get_quote,
             name="get_quote",
             description="Get current market quote for a ticker. Returns current_price, change_pct, volume, market_cap, pe_ratio.",
             args_schema=TickerInput,
         )
-        tools["get_fundamentals"] = StructuredTool.from_function(
-            func=lambda ticker: _wrap_sync(get_fundamentals, ticker=ticker),
-            coroutine=lambda ticker: _run_in_pool(get_fundamentals, ticker=ticker),
+        tools["get_fundamentals"] = _make_sync_tool(
+            get_fundamentals,
             name="get_fundamentals",
             description="Get fundamental financial data for a ticker. Returns revenue, eps, debt_to_equity, profit_margin, etc.",
             args_schema=TickerInput,
         )
-        tools["get_price_history"] = StructuredTool.from_function(
-            func=lambda ticker, period="3mo": _wrap_sync(
-                get_price_history, ticker=ticker, period=period
-            ),
-            coroutine=lambda ticker, period="3mo": _run_in_pool(
-                get_price_history, ticker=ticker, period=period
-            ),
+        tools["get_price_history"] = _make_sync_tool(
+            get_price_history,
             name="get_price_history",
             description="Get historical price data for a ticker over a given period.",
             args_schema=PriceHistoryInput,
         )
-        tools["get_technical_indicators"] = StructuredTool.from_function(
-            func=lambda ticker: _wrap_sync(get_technical_indicators, ticker=ticker),
-            coroutine=lambda ticker: _run_in_pool(get_technical_indicators, ticker=ticker),
+        tools["get_technical_indicators"] = _make_sync_tool(
+            get_technical_indicators,
             name="get_technical_indicators",
             description="Get technical indicators (RSI, MACD, moving averages) for a ticker.",
             args_schema=TickerInput,
@@ -154,24 +192,14 @@ def load_direct_tools() -> dict:
     try:
         from src.mcp_servers.news_server.server import get_market_headlines, get_ticker_news
 
-        tools["get_ticker_news"] = StructuredTool.from_function(
-            func=lambda ticker, days_back=7, max_articles=10: _wrap_sync(
-                get_ticker_news, ticker=ticker, days_back=days_back, max_articles=max_articles
-            ),
-            coroutine=lambda ticker, days_back=7, max_articles=10: _run_in_pool(
-                get_ticker_news, ticker=ticker, days_back=days_back, max_articles=max_articles
-            ),
+        tools["get_ticker_news"] = _make_sync_tool(
+            get_ticker_news,
             name="get_ticker_news",
             description="Get recent news articles for a specific ticker.",
             args_schema=NewsInput,
         )
-        tools["get_market_headlines"] = StructuredTool.from_function(
-            func=lambda category="business", limit=20: _wrap_sync(
-                get_market_headlines, category=category, limit=limit
-            ),
-            coroutine=lambda category="business", limit=20: _run_in_pool(
-                get_market_headlines, category=category, limit=limit
-            ),
+        tools["get_market_headlines"] = _make_sync_tool(
+            get_market_headlines,
             name="get_market_headlines",
             description="Get current market news headlines.",
             args_schema=HeadlinesInput,
@@ -183,24 +211,14 @@ def load_direct_tools() -> dict:
     try:
         from src.mcp_servers.sec_server.server import get_latest_filing_summary, search_sec_filings
 
-        tools["search_sec_filings"] = StructuredTool.from_function(
-            func=lambda ticker, form_type="10-K", count=3: _wrap_sync(
-                search_sec_filings, ticker=ticker, form_type=form_type, count=count
-            ),
-            coroutine=lambda ticker, form_type="10-K", count=3: _run_in_pool(
-                search_sec_filings, ticker=ticker, form_type=form_type, count=count
-            ),
+        tools["search_sec_filings"] = _make_sync_tool(
+            search_sec_filings,
             name="search_sec_filings",
             description="Search SEC EDGAR for filings by ticker and form type.",
             args_schema=SECInput,
         )
-        tools["get_latest_filing_summary"] = StructuredTool.from_function(
-            func=lambda ticker, form_type="10-K": _wrap_sync(
-                get_latest_filing_summary, ticker=ticker, form_type=form_type
-            ),
-            coroutine=lambda ticker, form_type="10-K": _run_in_pool(
-                get_latest_filing_summary, ticker=ticker, form_type=form_type
-            ),
+        tools["get_latest_filing_summary"] = _make_sync_tool(
+            get_latest_filing_summary,
             name="get_latest_filing_summary",
             description="Get a summary of the latest SEC filing for a ticker.",
             args_schema=SECSummaryInput,
@@ -218,40 +236,31 @@ def load_direct_tools() -> dict:
             update_position,
         )
 
-        tools["get_portfolio"] = StructuredTool.from_function(
-            func=lambda: json.dumps([]),
-            coroutine=lambda: _wrap_async(get_portfolio),
+        tools["get_portfolio"] = _make_async_tool(
+            get_portfolio,
             name="get_portfolio",
             description="Get all positions in the portfolio.",
         )
-        tools["add_position"] = StructuredTool.from_function(
-            func=lambda ticker, shares, cost_basis, sector="Unknown": json.dumps({}),
-            coroutine=lambda ticker, shares, cost_basis, sector="Unknown": _wrap_async(
-                add_position, ticker=ticker, shares=shares, cost_basis=cost_basis, sector=sector
-            ),
+        tools["add_position"] = _make_async_tool(
+            add_position,
             name="add_position",
             description="Add a new position to the portfolio.",
             args_schema=AddPositionInput,
         )
-        tools["remove_position"] = StructuredTool.from_function(
-            func=lambda ticker: json.dumps({}),
-            coroutine=lambda ticker: _wrap_async(remove_position, ticker=ticker),
+        tools["remove_position"] = _make_async_tool(
+            remove_position,
             name="remove_position",
             description="Remove a position from the portfolio.",
             args_schema=TickerInput,
         )
-        tools["update_position"] = StructuredTool.from_function(
-            func=lambda ticker, shares=None, cost_basis=None: json.dumps({}),
-            coroutine=lambda ticker, shares=None, cost_basis=None: _wrap_async(
-                update_position, ticker=ticker, shares=shares, cost_basis=cost_basis
-            ),
+        tools["update_position"] = _make_async_tool(
+            update_position,
             name="update_position",
             description="Update shares or cost basis for a position.",
             args_schema=UpdatePositionInput,
         )
-        tools["get_portfolio_value"] = StructuredTool.from_function(
-            func=lambda prices: json.dumps({}),
-            coroutine=lambda prices: _wrap_async(get_portfolio_value, prices=prices),
+        tools["get_portfolio_value"] = _make_async_tool(
+            get_portfolio_value,
             name="get_portfolio_value",
             description="Calculate total portfolio value given current prices.",
             args_schema=PortfolioPricesInput,

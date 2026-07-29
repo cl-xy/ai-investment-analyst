@@ -21,3 +21,5 @@ frontend/dist/
 .envrc
 .playwright-mcp/
 analyze-complete.png
+test-results/
+frontend/test-results/

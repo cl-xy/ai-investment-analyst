@@ -15,7 +15,7 @@ C4Context
     System(backend, "Investment Analyst API", "FastAPI + LangGraph agent")
     System(frontend, "Web Client", "React + Zustand, SSE consumer")
 
-    System_Ext(groq, "Groq API", "LLM inference (GPT-OSS 20B / 120B)")
+    System_Ext(openrouter, "OpenRouter API", "LLM inference (GPT-OSS 20B / Nemotron 120B)")
     System_Ext(yfinance, "Yahoo Finance", "Price, fundamentals, technicals")
     System_Ext(newsapi, "NewsAPI + RSS", "Market news articles")
     System_Ext(edgar, "SEC EDGAR", "10-K/10-Q filing summaries")
@@ -25,7 +25,7 @@ C4Context
 
     Rel(user, frontend, "Uses")
     Rel(frontend, backend, "REST + SSE")
-    Rel(backend, groq, "LLM calls")
+    Rel(backend, openrouter, "LLM calls")
     Rel(backend, yfinance, "Market data")
     Rel(backend, newsapi, "News")
     Rel(backend, edgar, "SEC filings")
@@ -44,8 +44,8 @@ sequenceDiagram
     participant FD as Fetch Data
     participant MCP as MCP Servers<br/>(market, news, SEC)
     participant Cache as PostgreSQL Cache
-    participant A as Analyze LLM<br/>(GPT-OSS 120B)
-    participant Rep as Report LLM<br/>(GPT-OSS 120B)
+    participant A as Analyze LLM<br/>(Nemotron 120B)
+    participant Rep as Report LLM<br/>(Nemotron 120B)
     participant PG as PostgreSQL
 
     U->>FE: Enter tickers (e.g. NVDA, AAPL)
@@ -107,8 +107,8 @@ graph TB
         subgraph Agent ["LangGraph StateGraph"]
             Router[Router Node<br/>GPT-OSS 20B]
             FetchData[Fetch Data Node]
-            Analyze[Analyze Ticker Node<br/>GPT-OSS 120B]
-            Report[Generate Report Node<br/>GPT-OSS 120B]
+            Analyze[Analyze Ticker Node<br/>Nemotron 120B]
+            Report[Generate Report Node<br/>Nemotron 120B]
             Chat[Chat Node]
             Portfolio[Portfolio Ops Node]
         end
@@ -116,7 +116,7 @@ graph TB
         EventEmitter[Event Emitter<br/>Domain SSE Adapter]
         CostTracker[Cost Tracker]
         CacheManager[Cache Manager<br/>Stale-While-Revalidate]
-        CircuitBreaker[Circuit Breaker<br/>Groq API]
+        CircuitBreaker[Circuit Breaker<br/>OpenRouter API]
 
         subgraph MCP ["FastMCP Tool Servers"]
             Market[Market Server<br/>yfinance + Alpha Vantage]
@@ -127,7 +127,7 @@ graph TB
     end
 
     subgraph External ["External Services"]
-        Groq[Groq API]
+        OpenRouter[OpenRouter API]
         YFinance[Yahoo Finance API]
         NewsAPI[NewsAPI]
         EDGAR[SEC EDGAR]
@@ -158,9 +158,9 @@ graph TB
     FetchData --> MCP
 
     Analyze --> CircuitBreaker
-    CircuitBreaker --> Groq
-    Report --> Groq
-    Router --> Groq
+    CircuitBreaker --> OpenRouter
+    Report --> OpenRouter
+    Router --> OpenRouter
 
     Market --> YFinance
     News --> NewsAPI
@@ -176,7 +176,7 @@ The system operates across three trust boundaries:
 
 1. **User boundary**: All user input (ticker symbols) is validated with a strict regex (`[A-Z0-9.]{1,10}`) and capped at 5 tickers per request. The demo auth middleware gates analysis endpoints behind a shared password in production.
 
-2. **Backend to LLM provider**: Prompts are constructed server-side with controlled templates. LLM responses are validated against Pydantic schemas (with one retry on validation failure, then a fallback parser). The circuit breaker prevents cascading failures when Groq is degraded.
+2. **Backend to LLM provider**: Prompts are constructed server-side with controlled templates. LLM responses are validated against Pydantic schemas (with one retry on validation failure, then a fallback parser). The circuit breaker prevents cascading failures when OpenRouter is degraded.
 
 3. **Backend to data APIs**: MCP tool calls are wrapped with 30-second timeouts. Failures produce `data_gaps` annotations rather than hard errors. The cache layer (stale-while-revalidate) serves stale data when live fetches fail.
 
@@ -197,8 +197,8 @@ User Input (untrusted)
     │                    │
     ▼                    ▼
 ┌──────────┐      ┌──────────────┐
-│ Groq API │      │ Data APIs    │
-│ (LLM)   │      │ (MCP tools)  │
+│ OpenRouter│      │ Data APIs    │
+│ API(LLM) │      │ (MCP tools)  │
 └──────────┘      └──────────────┘
     │                    │
     ▼                    ▼
@@ -209,9 +209,9 @@ User Input (untrusted)
 
 ## Key Tradeoffs and Failure Modes
 
-### Groq Rate Limiting
+### OpenRouter Rate Limiting
 
-Groq free tier: 1,000 RPM, 250,000 TPM. When rate-limited:
+OpenRouter free tier: 20 req/min. When rate-limited:
 - The circuit breaker opens after 5 failures within 60 seconds
 - During open state (30s recovery), requests receive a `CircuitBreakerOpen` error
 - Half-open state allows a single probe request through
@@ -244,7 +244,7 @@ The entire analysis pipeline has a 120-second hard timeout. If exceeded:
 
 ### Analysis Semaphore
 
-A global `asyncio.Semaphore(3)` limits concurrent full analysis pipelines per backend instance. This prevents overloading the Groq free tier when multiple users submit analyses simultaneously. Requests that cannot acquire a slot within 5 seconds are rejected.
+A global `asyncio.Semaphore(3)` limits concurrent full analysis pipelines per backend instance. This prevents overloading the OpenRouter free tier when multiple users submit analyses simultaneously. Requests that cannot acquire a slot within 5 seconds are rejected.
 
 ### Parallel Tool Calls
 
@@ -252,7 +252,7 @@ Within a single analysis, the fetch node fires all 5 MCP tool calls per ticker c
 
 ### Circuit Breaker
 
-The `groq_breaker` singleton uses a sliding-window pattern:
+The `llm_breaker` singleton uses a sliding-window pattern:
 - Window: 60 seconds
 - Threshold: 5 failures to open
 - Recovery: 30 seconds before half-open probe

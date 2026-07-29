@@ -30,9 +30,9 @@ def _make_patches():
             return_value=True,
         ),
         patch("src.api.routes.analyze_stream.release_analysis_slot"),
-        patch("src.api.db.get_pool", new_callable=AsyncMock),
-        patch("src.api.db.init_schema", new_callable=AsyncMock),
-        patch("src.api.db.close_pool", new_callable=AsyncMock),
+        patch("src.db.get_pool", new_callable=AsyncMock),
+        patch("src.db.init_schema", new_callable=AsyncMock),
+        patch("src.db.close_pool", new_callable=AsyncMock),
     ]
 
 

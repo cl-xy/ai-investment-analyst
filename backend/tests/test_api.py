@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 @pytest.fixture
 def client():
     """Create test client with mocked DB."""
-    with patch("src.api.db.get_pool") as mock_pool:
+    with patch("src.db.get_pool") as mock_pool:
         mock_pool.return_value = AsyncMock()
         from src.api.main import app
 
@@ -36,15 +36,16 @@ class TestStreamEndpoint:
 
     def test_stream_validates_ticker_format(self, client):
         response = client.get("/api/analyze/stream?tickers=INVALID!!!")
-        assert response.status_code == 200  # Returns JSON error, not HTTP error
+        assert response.status_code == 400
         data = response.json()
-        assert "error" in data
+        assert "detail" in data
 
     def test_stream_rejects_too_many_tickers(self, client):
         response = client.get("/api/analyze/stream?tickers=A,B,C,D,E,F")
+        assert response.status_code == 400
         data = response.json()
-        assert "error" in data
-        assert "Maximum 5" in data["error"]
+        assert "detail" in data
+        assert "Maximum 3" in data["detail"]
 
     def test_stream_accepts_valid_tickers(self, client):
         # This will fail to connect to the actual agent, but validates input

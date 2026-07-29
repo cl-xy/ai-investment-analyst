@@ -96,7 +96,7 @@ async def _fetch_price_history(client: httpx.AsyncClient, symbol: str) -> list[P
 
 async def _fetch_yf_info(ticker: str) -> dict:
     """Fetch company info via yfinance (runs in thread pool)."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     def _get() -> dict:
         try:
@@ -109,7 +109,7 @@ async def _fetch_yf_info(ticker: str) -> dict:
 
 async def _fetch_yf_news(ticker: str) -> list[NewsItem]:
     """Fetch recent news headlines + URLs via yfinance (runs in thread pool)."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     def _get() -> list[NewsItem]:
         try:

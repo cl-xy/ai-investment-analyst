@@ -1,10 +1,12 @@
 # ADR-003: Groq Free Tier with GPT-OSS Models
 
-**Status:** Accepted
+**Status:** Superseded (migrated to OpenRouter, 2026-07-27)
 **Date:** 2026-07-05
 **Deciders:** cl-xy
 
 ## Context
+
+> **Note:** This ADR is historical. The project migrated from Groq to OpenRouter in July 2026 (see commit `bd72e73`). The reasoning below reflects the original decision to use Groq. OpenRouter now serves as the LLM provider with the same model routing strategy (fast model for intent classification, capable model for analysis).
 
 This is a portfolio project demonstrating multi-agent investment analysis. It needs to be runnable without incurring API costs, both for development iteration and for anyone cloning the repo to try it out.
 
@@ -23,6 +25,14 @@ Reasons:
 - JSON mode is supported, enabling structured output for Pydantic validation without prompt-hacking.
 - The 20B model is fast enough for routing that it doesn't bottleneck the pipeline.
 - The 120B model produces analysis quality sufficient for a demo, even if it's not GPT-4 class.
+
+## Superseded By
+
+Migrated to OpenRouter (https://openrouter.ai) which provides:
+- Broader model selection with the same free tier economics
+- OpenAI-compatible API (drop-in replacement via langchain-openai)
+- Same models available (`openai/gpt-oss-20b:free`, `nvidia/nemotron-3-super-120b-a12b:free`)
+- 20 req/min rate limit on free tier
 
 ## Consequences
 

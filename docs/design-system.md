@@ -294,7 +294,7 @@ When some data sources succeed but others fail:
 
 ### Rate Limit Error
 
-When the Groq API or other external service returns 429:
+When the OpenRouter API or other external service returns 429:
 
 - Inline error format (same as above) but with specific messaging.
 - Message: "Rate limit reached. Please try again in a few minutes."

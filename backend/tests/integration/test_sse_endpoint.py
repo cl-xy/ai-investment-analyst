@@ -81,24 +81,18 @@ def _mock_compiled_graph(stream_delay: float = 0.0):
     return mock_compiled
 
 
-def _setup_mocks(mock_build_graph, mock_saver, mock_mcp, stream_delay: float = 0.0):
+def _setup_mocks(mock_build_graph, mock_checkpointer, stream_delay: float = 0.0):
     """Configure standard mocks for the streaming endpoint."""
-    # MCP client mock
-    mock_mcp_client = MagicMock()
-    mock_mcp_client.get_tools = AsyncMock(return_value=[])
-    mock_mcp.return_value = mock_mcp_client
-
     # Graph mock
     mock_compiled = _mock_compiled_graph(stream_delay=stream_delay)
     mock_graph = MagicMock()
     mock_graph.compile.return_value = mock_compiled
     mock_build_graph.return_value = mock_graph
 
-    # SQLite saver mock
-    mock_saver_instance = AsyncMock()
-    mock_saver_instance.__aenter__ = AsyncMock(return_value=mock_saver_instance)
-    mock_saver_instance.__aexit__ = AsyncMock(return_value=None)
-    mock_saver.from_conn_string.return_value = mock_saver_instance
+    # get_checkpointer mock (async context manager)
+    mock_cp_instance = MagicMock()
+    mock_checkpointer.return_value.__aenter__ = AsyncMock(return_value=mock_cp_instance)
+    mock_checkpointer.return_value.__aexit__ = AsyncMock(return_value=False)
 
     return mock_compiled
 
@@ -119,12 +113,11 @@ def _parse_sse_events(response) -> list[dict]:
 class TestStreamEmitsRunStarted:
     """Verify the first event in the stream is run_started with correct tickers."""
 
-    @patch("src.api.routes.analyze_stream.create_mcp_client")
-    @patch("src.api.routes.analyze_stream.AsyncSqliteSaver")
+    @patch("src.api.routes.analyze_stream.get_checkpointer")
     @patch("src.api.routes.analyze_stream.build_graph")
-    def test_stream_emits_run_started(self, mock_build_graph, mock_saver, mock_mcp, client):
+    def test_stream_emits_run_started(self, mock_build_graph, mock_checkpointer, client):
         """Hit /api/analyze/stream?tickers=AAPL, verify first event is run_started."""
-        _setup_mocks(mock_build_graph, mock_saver, mock_mcp)
+        _setup_mocks(mock_build_graph, mock_checkpointer)
 
         with client.stream("GET", "/api/analyze/stream?tickers=AAPL") as response:
             assert response.status_code == 200
@@ -143,13 +136,12 @@ class TestStreamEmitsHeartbeat:
     """Verify heartbeat events arrive during slow processing."""
 
     @patch("src.api.routes.analyze_stream.HEARTBEAT_INTERVAL", 1)
-    @patch("src.api.routes.analyze_stream.create_mcp_client")
-    @patch("src.api.routes.analyze_stream.AsyncSqliteSaver")
+    @patch("src.api.routes.analyze_stream.get_checkpointer")
     @patch("src.api.routes.analyze_stream.build_graph")
-    def test_stream_emits_heartbeat(self, mock_build_graph, mock_saver, mock_mcp, client):
+    def test_stream_emits_heartbeat(self, mock_build_graph, mock_checkpointer, client):
         """With a slow mock, verify heartbeat events arrive."""
         # Each event takes 0.2s, 8 events = 1.6s total. Heartbeat interval is 1s.
-        _setup_mocks(mock_build_graph, mock_saver, mock_mcp, stream_delay=0.2)
+        _setup_mocks(mock_build_graph, mock_checkpointer, stream_delay=0.2)
 
         with client.stream("GET", "/api/analyze/stream?tickers=AAPL") as response:
             events = _parse_sse_events(response)
@@ -161,12 +153,11 @@ class TestStreamEmitsHeartbeat:
 class TestStreamEndsWithRunCompleted:
     """Verify the stream terminates with run_completed containing metrics."""
 
-    @patch("src.api.routes.analyze_stream.create_mcp_client")
-    @patch("src.api.routes.analyze_stream.AsyncSqliteSaver")
+    @patch("src.api.routes.analyze_stream.get_checkpointer")
     @patch("src.api.routes.analyze_stream.build_graph")
-    def test_stream_ends_with_run_completed(self, mock_build_graph, mock_saver, mock_mcp, client):
+    def test_stream_ends_with_run_completed(self, mock_build_graph, mock_checkpointer, client):
         """Verify the stream terminates with run_completed containing duration and token counts."""
-        _setup_mocks(mock_build_graph, mock_saver, mock_mcp)
+        _setup_mocks(mock_build_graph, mock_checkpointer)
 
         with client.stream("GET", "/api/analyze/stream?tickers=AAPL") as response:
             events = _parse_sse_events(response)
@@ -186,54 +177,57 @@ class TestInvalidTickerReturnsError:
     def test_invalid_ticker_returns_error(self, client):
         """Invalid ticker format returns JSON error, not an SSE stream."""
         response = client.get("/api/analyze/stream?tickers=INVALID!!!")
+        assert response.status_code == 400
         data = response.json()
-        assert "error" in data
-        assert "Invalid ticker" in data["error"]
+        assert "detail" in data
+        assert "Invalid ticker" in data["detail"]
 
     def test_special_characters_rejected(self, client):
         """Tickers with special characters are rejected."""
         response = client.get("/api/analyze/stream?tickers=AA$BB")
+        assert response.status_code == 400
         data = response.json()
-        assert "error" in data
+        assert "detail" in data
 
     def test_empty_tickers_returns_error(self, client):
         """Empty ticker string returns error."""
         response = client.get("/api/analyze/stream?tickers=")
+        assert response.status_code == 400
         data = response.json()
-        assert "error" in data
+        assert "detail" in data
 
 
 class TestTooManyTickersRejected:
-    """More than 5 tickers returns error."""
+    """More than 3 tickers returns error."""
 
     def test_too_many_tickers_rejected(self, client):
-        """More than 5 tickers returns error."""
-        response = client.get("/api/analyze/stream?tickers=A,B,C,D,E,F")
+        """More than 3 tickers returns error."""
+        response = client.get("/api/analyze/stream?tickers=A,B,C,D")
+        assert response.status_code == 400
         data = response.json()
-        assert "error" in data
-        assert "Maximum 5" in data["error"]
+        assert "detail" in data
+        assert "Maximum 3" in data["detail"]
 
-    def test_exactly_five_tickers_accepted(self, client):
-        """Exactly 5 tickers should be accepted (not rejected)."""
-        response = client.get("/api/analyze/stream?tickers=A,B,C,D,E")
-        # Should not contain a validation error about "Maximum 5"
+    def test_exactly_three_tickers_accepted(self, client):
+        """Exactly 3 tickers should be accepted (not rejected)."""
+        response = client.get("/api/analyze/stream?tickers=A,B,C")
+        # Should not contain a validation error about "Maximum 3"
         if response.headers.get("content-type", "").startswith("application/json"):
             data = response.json()
-            assert "Maximum 5" not in data.get("error", "")
+            assert "Maximum 3" not in data.get("detail", "")
 
 
 class TestClientDisconnectCancelsTask:
     """Simulate client disconnect, verify task is cancelled (no leak)."""
 
-    @patch("src.api.routes.analyze_stream.create_mcp_client")
-    @patch("src.api.routes.analyze_stream.AsyncSqliteSaver")
+    @patch("src.api.routes.analyze_stream.get_checkpointer")
     @patch("src.api.routes.analyze_stream.build_graph")
     def test_client_disconnect_cancels_task(
-        self, mock_build_graph, mock_saver, mock_mcp, client
+        self, mock_build_graph, mock_checkpointer, client
     ):
         """Simulate client disconnect, verify the agent task gets cancelled."""
         # Use a slow stream so we can disconnect mid-stream
-        _setup_mocks(mock_build_graph, mock_saver, mock_mcp, stream_delay=0.3)
+        _setup_mocks(mock_build_graph, mock_checkpointer, stream_delay=0.3)
 
         with client.stream("GET", "/api/analyze/stream?tickers=AAPL") as response:
             # Read just the first event then break (disconnect)
@@ -247,16 +241,16 @@ class TestClientDisconnectCancelsTask:
 class TestStreamTimeoutEmitsErrorEvent:
     """Mock a very slow tool, verify timeout error event."""
 
-    @patch("src.api.routes.analyze_stream.EXECUTION_TIMEOUT", 1)
-    @patch("src.api.routes.analyze_stream.create_mcp_client")
-    @patch("src.api.routes.analyze_stream.AsyncSqliteSaver")
+    @patch("src.api.routes.analyze_stream.EXECUTION_TIMEOUT_BASE", 1)
+    @patch("src.api.routes.analyze_stream.EXECUTION_TIMEOUT_PER_TICKER", 0)
+    @patch("src.api.routes.analyze_stream.get_checkpointer")
     @patch("src.api.routes.analyze_stream.build_graph")
     def test_stream_timeout_emits_error_event(
-        self, mock_build_graph, mock_saver, mock_mcp, client
+        self, mock_build_graph, mock_checkpointer, client
     ):
         """Mock a very slow tool, verify timeout error event and clean termination."""
         # Each event takes 0.3s with 8 events = 2.4s total, but timeout is 1s
-        _setup_mocks(mock_build_graph, mock_saver, mock_mcp, stream_delay=0.3)
+        _setup_mocks(mock_build_graph, mock_checkpointer, stream_delay=0.3)
 
         with client.stream("GET", "/api/analyze/stream?tickers=AAPL") as response:
             events = _parse_sse_events(response)

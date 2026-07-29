@@ -54,9 +54,9 @@ async def readiness():
     if db_ok:
         try:
             budget_status = await get_budget_status()
-            llm_budget = budget_status.get("openrouter", budget_status.get("groq", {}))
+            llm_budget = budget_status.get("openrouter", {})
             remaining = llm_budget.get("remaining", 0)
-            limit = DAILY_LIMITS.get("openrouter", DAILY_LIMITS.get("groq", 1400))
+            limit = DAILY_LIMITS.get("openrouter", 1400)
             # "low" if less than 10% remaining
             budget_ok = remaining > (limit * 0.1)
             checks["llm_budget"] = {

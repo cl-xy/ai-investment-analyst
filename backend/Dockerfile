@@ -11,14 +11,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy source needed for hatchling to build the wheel
+# Install from locked dependencies (reproducible builds)
+# Regenerate with: pip-compile --generate-hashes pyproject.toml -o requirements.lock
+COPY requirements.lock ./
+
+RUN pip install --no-cache-dir --require-hashes --prefix=/install -r requirements.lock
+
+# Copy source for the application package itself
 COPY pyproject.toml ./
 COPY src/ ./src/
-
-# For production, generate a locked requirements.txt with:
-#   pip-compile --generate-hashes pyproject.toml -o requirements.txt
-# Then install with: pip install --require-hashes -r requirements.txt
-RUN pip install --no-cache-dir --prefix=/install .
+RUN pip install --no-cache-dir --no-deps --prefix=/install .
 
 # Stage 2: Runtime
 FROM python:3.11-slim@sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93

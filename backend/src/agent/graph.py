@@ -19,7 +19,6 @@ from typing import Literal
 
 from langgraph.graph import END, START, StateGraph
 
-from .nodes.analyze_ticker import analyze_ticker_node
 from .nodes.chat import chat_node
 from .nodes.compare import compare_node
 from .nodes.debate import debate_ticker_node

@@ -5,7 +5,7 @@
 - Python 3.11+
 - Node.js 20+
 - Docker (for PostgreSQL)
-- A Groq API key (free tier works): https://console.groq.com/keys
+- An OpenRouter API key (free tier works): https://openrouter.ai/keys
 
 ## Quick Setup
 
@@ -59,7 +59,7 @@ chore: bump ruff to 0.5.1
 
 ## Architecture Overview
 
-FastAPI backend with LangGraph agent orchestration. Four MCP tool servers (market, news, portfolio, SEC). Groq free tier for LLM inference. SSE streaming to a React frontend with Zustand state management.
+FastAPI backend with LangGraph agent orchestration. Four MCP tool servers (market, news, portfolio, SEC). OpenRouter free tier for LLM inference. SSE streaming to a React frontend with Zustand state management.
 
 For detailed architecture, see `docs/ARCHITECTURE.md`.
 

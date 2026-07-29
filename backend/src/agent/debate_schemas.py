@@ -82,5 +82,5 @@ class DebateRecord(BaseModel):
     bull: BullCaseOutput
     bear: BearCaseOutput
     moderator: ModeratorOutput
-    model_name: str = "openai/gpt-oss-120b"
+    model_name: str = "nvidia/nemotron-3-super-120b-a12b:free"
     prompt_version: str = "v1"

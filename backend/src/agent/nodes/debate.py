@@ -40,7 +40,6 @@ from ..prompts.debate_prompts import (
     MODERATOR_HUMAN,
     MODERATOR_SYSTEM,
 )
-from ..rate_limiter import acquire_or_raise
 from ..state import InvestmentAnalystState, TickerAnalysis
 
 log = logging.getLogger(__name__)
@@ -89,8 +88,7 @@ def _get_llm() -> ChatOpenAI:
     reraise=True,
 )
 async def _invoke_with_retry(messages: list) -> object:
-    """Invoke LLM with retry, circuit breaker, and rate limiting."""
-    await acquire_or_raise(timeout=30.0)
+    """Invoke LLM with retry and circuit breaker (which handles rate limiting)."""
     return await llm_breaker.call(_get_llm().ainvoke, messages)
 
 

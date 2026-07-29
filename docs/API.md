@@ -1,6 +1,6 @@
 # API Reference
 
-Base URL: `https://api.investment-analyst.fly.dev/api` (production) or `http://localhost:8000/api` (development)
+Base URL: `https://ai-investment-analyst.fly.dev/api` (production) or `http://localhost:8000/api` (development)
 
 ## Authentication
 
@@ -27,7 +27,7 @@ Admin and scheduled endpoints use a separate `SCHEDULER_SECRET_TOKEN` for machin
 
 Per-IP rate limiting via slowapi: **10 requests/minute** on analysis endpoints. Returns HTTP 429 when exceeded.
 
-Upstream Groq free tier limits: 1,000 RPM, 250,000 TPM. The circuit breaker activates after 5 consecutive LLM failures within 60 seconds, with a 30-second cooldown before probing again.
+Upstream OpenRouter free tier limits: 20 req/min. The circuit breaker activates after 5 consecutive LLM failures within 60 seconds, with a 30-second cooldown before probing again.
 
 ---
 
@@ -468,7 +468,7 @@ curl -X POST http://localhost:8000/api/admin/warm-cache \
 
 #### GET /api/admin/budget
 
-Return current API budget usage for all tracked providers (Groq, NewsAPI, etc.).
+Return current API budget usage for all tracked providers (OpenRouter, NewsAPI, etc.).
 
 **Response** `200 OK`
 
@@ -476,7 +476,7 @@ Return current API budget usage for all tracked providers (Groq, NewsAPI, etc.).
 {
   "status": "ok",
   "budgets": {
-    "groq": {"used": 450, "limit": 1000, "window": "hourly"},
+    "openrouter": {"used": 450, "limit": 1000, "window": "hourly"},
     "newsapi": {"used": 80, "limit": 100, "window": "daily"}
   }
 }

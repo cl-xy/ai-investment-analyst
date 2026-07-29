@@ -86,7 +86,7 @@ export default function StreamingAnalysisPage() {
             </div>
             <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
               <Clock className="w-4 h-4" />
-              <span>~30-60 seconds per ticker (reasoning model)</span>
+              <span>~2 minutes per ticker (multi-agent debate)</span>
             </div>
           </div>
           <div className="flex items-center gap-4">

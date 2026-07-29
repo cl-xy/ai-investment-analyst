@@ -13,6 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from src.config import settings
 from src.db import execute
 
 
@@ -25,8 +26,8 @@ class RunMetrics(BaseModel):
     completed_at: datetime | None = None
     duration_ms: int = 0
 
-    router_model: str = "openai/gpt-oss-20b"
-    analysis_model: str = "openai/gpt-oss-120b"
+    router_model: str = settings.llm_router_model
+    analysis_model: str = settings.llm_model
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0

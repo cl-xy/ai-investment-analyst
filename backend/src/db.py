@@ -8,14 +8,23 @@ on first use and shared across the application lifecycle.
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import asyncpg
 from asyncpg import Pool
 
 from src.config import settings
 
+log = logging.getLogger(__name__)
+
 _pool: Pool | None = None
 _pool_lock = asyncio.Lock()
+
+
+async def _init_connection(conn: asyncpg.Connection) -> None:
+    """Validate each connection when acquired from the pool."""
+    # Lightweight query to detect stale connections (Neon closes idle ones)
+    await conn.execute("SELECT 1")
 
 
 async def get_pool() -> Pool:
@@ -24,11 +33,22 @@ async def get_pool() -> Pool:
     if _pool is None:
         async with _pool_lock:
             if _pool is None:
-                _pool = await asyncpg.create_pool(
-                    settings.database_url,
-                    min_size=2,
-                    max_size=10,
-                )
+                for attempt in range(3):
+                    try:
+                        _pool = await asyncpg.create_pool(
+                            settings.database_url,
+                            min_size=1,
+                            max_size=10,
+                            # Close idle connections before Neon's 5-min timeout kills them
+                            max_inactive_connection_lifetime=120.0,
+                            command_timeout=30.0,
+                        )
+                        break
+                    except (OSError, asyncpg.PostgresError) as exc:
+                        if attempt == 2:
+                            raise
+                        log.warning("pool_create_retry attempt=%d error=%s", attempt + 1, exc)
+                        await asyncio.sleep(1.0 * (attempt + 1))
     return _pool
 
 
@@ -124,8 +144,8 @@ CREATE TABLE IF NOT EXISTS runs (
     started_at        TIMESTAMPTZ NOT NULL,
     completed_at      TIMESTAMPTZ,
     duration_ms       INTEGER NOT NULL DEFAULT 0,
-    router_model      TEXT NOT NULL DEFAULT 'openai/gpt-oss-20b',
-    analysis_model    TEXT NOT NULL DEFAULT 'openai/gpt-oss-120b',
+    router_model      TEXT NOT NULL DEFAULT 'openai/gpt-oss-20b:free',
+    analysis_model    TEXT NOT NULL DEFAULT 'nvidia/nemotron-3-super-120b-a12b:free',
     prompt_tokens     INTEGER NOT NULL DEFAULT 0,
     completion_tokens INTEGER NOT NULL DEFAULT 0,
     total_tokens      INTEGER NOT NULL DEFAULT 0,

@@ -1,6 +1,7 @@
 """Tests for the circuit breaker module."""
 
 import asyncio
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -9,6 +10,14 @@ from src.agent.circuit_breaker import (
     CircuitBreakerOpen,
     CircuitState,
 )
+
+
+@pytest.fixture(autouse=True)
+def _bypass_rate_limiter():
+    """Bypass the global LLM rate limiter so tests don't starve for tokens."""
+    mock_acquire = AsyncMock(return_value=True)
+    with patch("src.agent.rate_limiter.llm_limiter.acquire", mock_acquire):
+        yield
 
 
 @pytest.fixture

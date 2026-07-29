@@ -1,6 +1,8 @@
 from cachetools import TTLCache
 
-# 15-minute TTL caches, shared across the server process lifetime
-_quote_cache: TTLCache = TTLCache(maxsize=500, ttl=900)
-_fundamentals_cache: TTLCache = TTLCache(maxsize=500, ttl=900)
-_history_cache: TTLCache = TTLCache(maxsize=200, ttl=900)
+# Short-lived dedupe caches (30s) to collapse burst requests within a single
+# analysis run. Real freshness is owned by the PostgreSQL SWR cache layer in
+# cache/manager.py which wraps all tool invocations in fetch_data_node.
+_quote_cache: TTLCache = TTLCache(maxsize=100, ttl=30)
+_fundamentals_cache: TTLCache = TTLCache(maxsize=100, ttl=30)
+_history_cache: TTLCache = TTLCache(maxsize=100, ttl=30)

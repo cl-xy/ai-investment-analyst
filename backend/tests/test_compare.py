@@ -11,9 +11,9 @@ from fastapi.testclient import TestClient
 @pytest.fixture
 def client():
     """Create test client with mocked DB."""
-    with patch("src.api.db.get_pool") as mock_pool:
+    with patch("src.db.get_pool") as mock_pool:
         mock_pool.return_value = AsyncMock()
-        with patch("src.api.db.init_schema", new_callable=AsyncMock):
+        with patch("src.db.init_schema", new_callable=AsyncMock):
             from src.api.main import app
 
             with TestClient(app) as c:

@@ -77,9 +77,9 @@ def _mock_compiled_graph():
 @pytest.fixture
 def client():
     """Create a test client with mocked DB pool."""
-    with patch("src.api.db.get_pool") as mock_pool:
+    with patch("src.db.get_pool") as mock_pool:
         mock_pool.return_value = AsyncMock()
-        with patch("src.api.db.init_schema", new_callable=AsyncMock):
+        with patch("src.db.init_schema", new_callable=AsyncMock):
             from src.api.main import app
 
             with TestClient(app) as c:
@@ -89,25 +89,25 @@ def client():
 class TestSSEEventContract:
     """Verify the SSE wire format and event ordering."""
 
-    @patch("src.api.routes.analyze_stream.create_mcp_client")
-    @patch("src.api.routes.analyze_stream.AsyncSqliteSaver")
+    @patch("src.api.routes.analyze_stream.acquire_analysis_slot", new_callable=AsyncMock, return_value=True)
+    @patch("src.api.routes.analyze_stream.get_checkpointer")
     @patch("src.api.routes.analyze_stream.build_graph")
-    def test_stream_emits_events_in_order(self, mock_build_graph, mock_saver, mock_mcp, client):
+    def test_stream_emits_events_in_order(self, mock_build_graph, mock_checkpointer, mock_slot, client):
         """The stream should emit run_started first and run_completed last."""
         # Setup mocks
-        mock_mcp_client = MagicMock()
-        mock_mcp_client.get_tools = AsyncMock(return_value=[])
-        mock_mcp.return_value = mock_mcp_client
-
         mock_compiled = _mock_compiled_graph()
         mock_graph = MagicMock()
         mock_graph.compile.return_value = mock_compiled
         mock_build_graph.return_value = mock_graph
 
-        mock_saver_instance = AsyncMock()
-        mock_saver_instance.__aenter__ = AsyncMock(return_value=mock_saver_instance)
-        mock_saver_instance.__aexit__ = AsyncMock(return_value=None)
-        mock_saver.from_conn_string.return_value = mock_saver_instance
+        # get_checkpointer is an async context manager
+        mock_cp = AsyncMock()
+        mock_cp.__aenter__ = AsyncMock(return_value=MagicMock())
+        mock_cp.__aexit__ = AsyncMock(return_value=False)
+        mock_checkpointer.return_value = mock_cp
+
+        # Provide tool_map on app state (normally set at startup)
+        client.app.state.mcp_tools = {}
 
         # Make the stream
         with client.stream("GET", "/api/analyze/stream?tickers=NVDA") as response:
@@ -150,26 +150,36 @@ class TestSSEEventContract:
     def test_stream_validates_input(self, client):
         """Invalid tickers should return error JSON, not start streaming."""
         response = client.get("/api/analyze/stream?tickers=INVALID!!!")
+        assert response.status_code == 400
         data = response.json()
-        assert "error" in data
-        assert "Invalid ticker" in data["error"]
+        assert "detail" in data
+        assert "Invalid ticker" in data["detail"]
 
     def test_stream_rejects_too_many_tickers(self, client):
-        """More than 5 tickers should be rejected."""
+        """More than 3 tickers should be rejected."""
         response = client.get("/api/analyze/stream?tickers=A,B,C,D,E,F")
+        assert response.status_code == 400
         data = response.json()
-        assert "Maximum 5" in data["error"]
+        assert "Maximum 3" in data["detail"]
 
     def test_stream_headers(self, client):
         """SSE responses need correct headers to prevent buffering."""
-        with patch("src.api.routes.analyze_stream.create_mcp_client") as mock_mcp:
-            mock_mcp_client = MagicMock()
-            mock_mcp_client.get_tools = AsyncMock(return_value=[])
-            mock_mcp.return_value = mock_mcp_client
 
-            with patch("src.api.routes.analyze_stream.build_graph"):
-                with patch("src.api.routes.analyze_stream.AsyncSqliteSaver"):
-                    response = client.get("/api/analyze/stream?tickers=NVDA")
+        async def _empty_generator(*args, **kwargs):
+            yield "data: {}\n\n"
+
+        with (
+            patch(
+                "src.api.routes.analyze_stream.acquire_analysis_slot",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "src.api.routes.analyze_stream._stream_generator",
+                side_effect=_empty_generator,
+            ),
+        ):
+            response = client.get("/api/analyze/stream?tickers=NVDA")
 
         assert response.headers.get("cache-control") == "no-cache"
         assert response.headers.get("x-accel-buffering") == "no"

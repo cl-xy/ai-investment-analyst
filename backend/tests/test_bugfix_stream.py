@@ -112,7 +112,7 @@ async def test_run_agent_success_does_not_raise_name_error():
     with (
         patch("src.api.routes.analyze_stream.build_graph", return_value=fake_graph),
         patch("src.api.routes.analyze_stream.get_checkpointer") as mock_cp,
-        patch("src.api.routes.analyze_stream.metrics") as mock_metrics,
+        patch("src.api.routes.analyze_stream.metrics"),
     ):
         # Make get_checkpointer an async context manager
         mock_cp.return_value.__aenter__ = AsyncMock(return_value=MagicMock())

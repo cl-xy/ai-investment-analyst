@@ -6,14 +6,13 @@ the horizon elapses, and computes calibration metrics (Brier score,
 hit rate by confidence bucket).
 """
 
-import json
 import logging
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Query
 
-from src.db import execute, fetch, fetchrow, fetchval
+from src.db import execute, fetch, fetchval
 
 log = logging.getLogger(__name__)
 
@@ -94,7 +93,7 @@ async def get_calibration(
     # Compute metrics
     total = len(rows)
     correct = sum(1 for r in rows if r["outcome"] == "correct")
-    incorrect = sum(1 for r in rows if r["outcome"] == "incorrect")
+    _ = sum(1 for r in rows if r["outcome"] == "incorrect")  # noqa: F841
 
     # Hit rate by confidence bucket
     confidence_buckets = {"high": [], "medium": [], "low": []}
@@ -221,67 +220,82 @@ async def resolve_predictions():
     Fetches current price and computes outcome. Called via scheduled job or manually.
     Returns count of newly resolved predictions.
     """
+    import asyncio
+
     import yfinance as yf
 
-    # Find predictions past their horizon (skip locked to prevent concurrent resolution)
-    rows = await fetch(
-        """
-        SELECT id, ticker, signal, price_at_prediction, horizon_days, created_at
-        FROM predictions
-        WHERE resolved_at IS NULL
-          AND created_at + (horizon_days || ' days')::interval <= now()
-        LIMIT 50
-        FOR UPDATE SKIP LOCKED
-        """,
-    )
+    from src.db import get_pool
 
-    if not rows:
-        return {"resolved_count": 0, "message": "No predictions ready for resolution"}
+    pool = await get_pool()
 
-    resolved_count = 0
-    for row in rows:
-        ticker = row["ticker"]
-        prediction_price = row["price_at_prediction"]
-
-        if prediction_price is None:
-            continue
-
-        # Fetch current price
+    def _fetch_price(ticker: str) -> float | None:
+        """Fetch current price via yfinance (sync, runs in thread pool)."""
         try:
             stock = yf.Ticker(ticker)
             hist = stock.history(period="1d")
             if hist.empty:
-                continue
-            current_price = float(hist["Close"].iloc[-1])
+                return None
+            return float(hist["Close"].iloc[-1])
         except Exception as exc:
             log.warning("resolve_price_fetch_failed ticker=%s error=%s", ticker, exc)
-            continue
+            return None
 
-        # Compute return
-        realized_return = (current_price - prediction_price) / prediction_price
+    # Use a single connection + transaction so FOR UPDATE SKIP LOCKED
+    # holds row locks until all updates complete (prevents concurrent resolution).
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            rows = await conn.fetch(
+                """
+                SELECT id, ticker, signal, price_at_prediction, horizon_days, created_at
+                FROM predictions
+                WHERE resolved_at IS NULL
+                  AND created_at + (horizon_days || ' days')::interval <= now()
+                LIMIT 50
+                FOR UPDATE SKIP LOCKED
+                """,
+            )
 
-        # Determine outcome based on signal
-        signal = row["signal"]
-        if signal == "buy":
-            outcome = "correct" if realized_return > 0.02 else ("incorrect" if realized_return < -0.02 else "neutral")
-        elif signal == "sell":
-            outcome = "correct" if realized_return < -0.02 else ("incorrect" if realized_return > 0.02 else "neutral")
-        else:
-            # hold: correct if price stayed within +/-5%
-            outcome = "correct" if abs(realized_return) < 0.05 else "incorrect"
+            if not rows:
+                return {"resolved_count": 0, "message": "No predictions ready for resolution"}
 
-        await execute(
-            """
-            UPDATE predictions
-            SET resolved_at = $1, outcome_price = $2, realized_return = $3, outcome = $4
-            WHERE id = $5
-            """,
-            datetime.now(timezone.utc),
-            current_price,
-            realized_return,
-            outcome,
-            row["id"],
-        )
-        resolved_count += 1
+            resolved_count = 0
+            for row in rows:
+                ticker = row["ticker"]
+                prediction_price = row["price_at_prediction"]
+
+                if prediction_price is None:
+                    continue
+
+                # Run sync yfinance in thread pool to avoid blocking the event loop
+                current_price = await asyncio.to_thread(_fetch_price, ticker)
+                if current_price is None:
+                    continue
+
+                # Compute return
+                realized_return = (current_price - prediction_price) / prediction_price
+
+                # Determine outcome based on signal
+                signal = row["signal"]
+                if signal == "buy":
+                    outcome = "correct" if realized_return > 0.02 else ("incorrect" if realized_return < -0.02 else "neutral")
+                elif signal == "sell":
+                    outcome = "correct" if realized_return < -0.02 else ("incorrect" if realized_return > 0.02 else "neutral")
+                else:
+                    # hold: correct if price stayed within +/-5%
+                    outcome = "correct" if abs(realized_return) < 0.05 else "incorrect"
+
+                await conn.execute(
+                    """
+                    UPDATE predictions
+                    SET resolved_at = $1, outcome_price = $2, realized_return = $3, outcome = $4
+                    WHERE id = $5
+                    """,
+                    datetime.now(timezone.utc),
+                    current_price,
+                    realized_return,
+                    outcome,
+                    row["id"],
+                )
+                resolved_count += 1
 
     return {"resolved_count": resolved_count}

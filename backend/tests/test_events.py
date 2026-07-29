@@ -89,10 +89,10 @@ class TestEventEmitter:
 
     def test_error_event(self):
         emitter = EventEmitter()
-        event = emitter.error("Connection timeout", recoverable=False, context="groq_api")
+        event = emitter.error("Connection timeout", recoverable=False, context="openrouter_api")
         assert event.type == EventType.ERROR
         assert event.payload["recoverable"] is False
-        assert event.payload["context"] == "groq_api"
+        assert event.payload["context"] == "openrouter_api"
 
     def test_analysis_complete(self):
         emitter = EventEmitter()

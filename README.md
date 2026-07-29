@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/cl-xy/ai-investment-analyst/actions/workflows/ci.yml/badge.svg)](https://github.com/cl-xy/ai-investment-analyst/actions/workflows/ci.yml)
 
-Multi-agent investment analysis system with real-time streaming trace, structured outputs, and source-grounded citations.
+Multi-agent investment analysis system with real-time streaming trace, adversarial debate protocol, structured outputs, and source-grounded citations.
 
 [Live Demo](https://ai-investment-analyst-iota.vercel.app) · Demo password: `investor2026`
 
@@ -10,38 +10,55 @@ Multi-agent investment analysis system with real-time streaming trace, structure
 
 ## What it does
 
-Enter a ticker symbol → watch a multi-agent pipeline execute in real-time:
+Enter a ticker symbol → watch an adversarial investment committee debate in real-time:
 
 1. **Router** classifies intent and extracts tickers (GPT-OSS 20B, ~100ms)
 2. **Fetch Data** calls 5 tools across 4 MCP servers in parallel (market quotes, fundamentals, indicators, news, SEC filings)
-3. **Analyze** synthesizes data into a structured assessment with citations (GPT-OSS 120B, JSON mode)
-4. **Report** generates a cohesive narrative across all analyzed tickers
+3. **Bull Analyst** builds the strongest possible long case with cited evidence
+4. **Bear Analyst** rebuts the bull case point-by-point and argues the short case
+5. **Chief Investment Officer** weighs both sides, assesses evidence quality, and issues a final verdict
+6. **Report** generates a cohesive narrative across all analyzed tickers
 
-Every step streams to the frontend via SSE. You see tool calls resolve, cache hits light up green, and analysis text stream in token by token.
+Every step streams to the frontend via SSE. You see the debate unfold in real-time, tool calls resolve, and the CIO deliberate before issuing a verdict.
+
+### Track Record
+
+Every signal is a prediction. After 30 days, the system checks the actual market outcome and scores itself. The Track Record page shows:
+
+- Overall accuracy and Brier score (calibration quality)
+- Hit rate by confidence bucket (does "high confidence" actually mean high accuracy?)
+- Accuracy by signal type (which calls are most reliable?)
+- Full prediction ledger with wrong calls unhidden
+
+The system is epistemically honest: it shows you when it was wrong, not just when it was right.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         Frontend (React 19)                       │
-│  EventSource → Zustand Store → Trace Panel + Analysis Cards      │
+│  EventSource → Zustand Store → Debate Panel + Analysis Cards     │
 └──────────────────────────────┬──────────────────────────────────┘
                                │ SSE (text/event-stream)
 ┌──────────────────────────────┴──────────────────────────────────┐
 │                      FastAPI Backend                              │
-│  ┌─────────┐  ┌───────────┐  ┌──────────┐  ┌────────────────┐  │
-│  │ Router  │→ │ Fetch Data│→ │ Analyze  │→ │Generate Report │  │
-│  │(20B LLM)│  │(5 MCP     │  │(120B LLM)│  │  (120B LLM)    │  │
-│  │         │  │ tools ∥)  │  │JSON mode │  │                │  │
-│  └─────────┘  └───────────┘  └──────────┘  └────────────────┘  │
+│  ┌─────────┐  ┌───────────┐  ┌──────────────────────────────┐  │
+│  │ Router  │→ │ Fetch Data│→ │   Adversarial Debate Node     │  │
+│  │(20B LLM)│  │(5 MCP     │  │ Bull → Bear → CIO (Nemotron  │  │
+│  │         │  │ tools ∥)  │  │ 120B x3, circuit-broken)      │  │
+│  └─────────┘  └───────────┘  └──────────────┬───────────────┘  │
+│                                              ↓                   │
+│                               ┌──────────────────────────────┐  │
+│                               │  Generate Report + Compare   │  │
+│                               └──────────────────────────────┘  │
 │                      LangGraph StateGraph                        │
 └──────┬──────────┬──────────┬──────────┬──────────┬──────────────┘
        │          │          │          │          │
   ┌────┴───┐ ┌───┴────┐ ┌───┴───┐ ┌───┴───┐ ┌───┴──────┐
   │yfinance│ │NewsAPI │ │  SEC  │ │SQLite │ │PostgreSQL│
   │ quotes │ │  + RSS │ │EDGAR  │ │portfolio│ │ analyses │
-  └────────┘ └────────┘ └───────┘ └───────┘ │  cache   │
-                                             │  runs    │
+  └────────┘ └────────┘ └───────┘ └───────┘ │predictions│
+                                             │  cache   │
                                              └──────────┘
 ```
 
@@ -50,11 +67,13 @@ Every step streams to the frontend via SSE. You see tool calls resolve, cache hi
 | Decision | Choice | Why |
 |----------|--------|-----|
 | Agent orchestration | LangGraph | StateGraph with typed state, conditional edges, checkpointing |
+| Analysis protocol | Adversarial debate (bull/bear/CIO) | Stronger reasoning through structured disagreement |
 | Tool servers | FastMCP | Protocol-level tool interop, each server independently deployable |
-| LLM provider | Groq (free tier) | OpenAI-compatible API, fast inference, JSON mode support |
+| LLM provider | OpenRouter (free tier) | OpenAI-compatible API, multiple model access, JSON mode support |
 | Streaming | SSE with domain events | Simpler than WebSocket, works through all proxies, built-in reconnection |
-| Structured output | Groq JSON mode + Pydantic | Schema validation with retry, replaces brittle regex parsing |
+| Structured output | OpenRouter JSON mode + Pydantic | Schema validation with retry, replaces brittle regex parsing |
 | Caching | PostgreSQL stale-while-revalidate | Serve stale instantly, refresh in background. Single data store. |
+| Calibration | Brier scoring + outcome tracking | Every prediction scored against reality after 30 days |
 | Frontend state | Zustand | Minimal boilerplate, works naturally with SSE event dispatch |
 | Design | Dark-first, CSS custom properties | Tailwind tokens reference CSS vars, theme switch is instant |
 
@@ -63,15 +82,18 @@ Every step streams to the frontend via SSE. You see tool calls resolve, cache hi
 The backend emits domain-specific events (not raw LangGraph internals):
 
 ```
-run_started      → {tickers}
-node_started     → {node_name}
-node_completed   → {node_name, duration_ms}
-tool_call        → {tool_name, args}
-tool_result      → {tool_name, success, cached, duration_ms, source_id}
-llm_token        → {text}
+run_started       → {tickers}
+node_started      → {node_name}
+node_completed    → {node_name, duration_ms}
+tool_call         → {tool_name, args}
+tool_result       → {tool_name, success, cached, duration_ms, source_id}
+llm_token         → {text}
+debate_started    → {ticker, agents}
+debate_turn       → {ticker, role, thesis, confidence, key_arguments, turn_index}
+debate_verdict    → {ticker, signal, confidence, verdict_rationale, key_disagreements}
 analysis_complete → {ticker, analysis}
-run_completed    → {total_duration_ms, total_tokens, cost_usd}
-heartbeat        → {}  (every 15s)
+run_completed     → {total_duration_ms, total_tokens, cost_usd}
+heartbeat         → {}  (every 15s)
 ```
 
 Monotonic sequence IDs enable gapless reconnection via `Last-Event-ID`.
@@ -98,7 +120,7 @@ Citations link claims to specific tool results. Data gaps are always disclosed.
 
 ## Stack
 
-**Backend**: Python 3.11, FastAPI, LangGraph, FastMCP, Groq API, asyncpg (PostgreSQL), Pydantic  
+**Backend**: Python 3.11, FastAPI, LangGraph, FastMCP, OpenRouter API, asyncpg (PostgreSQL), Pydantic  
 **Frontend**: React 19, TypeScript, Vite, Tailwind 3, Zustand, Lucide React, Recharts  
 **Data**: PostgreSQL (analyses, cache, runs, budget), SQLite (portfolio, checkpoints)  
 **Deploy**: Fly.io (backend, containerized) + Neon (serverless PostgreSQL) + Vercel (frontend)  
@@ -112,28 +134,36 @@ backend/
 │   ├── agent/
 │   │   ├── graph.py              # LangGraph DAG definition
 │   │   ├── events.py             # Domain SSE event schema + emitter
+│   │   ├── debate_schemas.py     # Pydantic models for bull/bear/CIO debate
 │   │   ├── structured_output.py  # Pydantic schemas for LLM outputs
 │   │   ├── circuit_breaker.py    # Sliding-window circuit breaker
 │   │   ├── concurrency.py        # Semaphore-bounded async execution
-│   │   ├── nodes/                # Graph nodes (router, fetch, analyze, report)
+│   │   ├── nodes/                # Graph nodes (router, fetch, debate, report)
+│   │   │   ├── debate.py         # Adversarial committee (bull→bear→CIO)
+│   │   │   └── ...
 │   │   └── prompts/              # System/human prompt templates
 │   ├── api/
 │   │   ├── main.py               # FastAPI app entry
-│   │   └── routes/               # Endpoints (analyze, stream, health, admin, eval)
+│   │   ├── persistence.py        # Shared DB persistence + prediction recording
+│   │   └── routes/               # Endpoints (analyze, stream, calibration, health)
 │   ├── cache/                    # PostgreSQL SWR cache + budget guards
 │   ├── metrics.py                # In-memory counters + histograms (no deps)
 │   ├── middleware/               # Auth, rate limiting, cost tracking, security headers
 │   └── mcp_servers/              # 4 FastMCP tool servers
 ├── tests/                        # pytest (unit, integration, property-based, chaos, golden)
 │   └── fixtures/                 # 20 golden test scenarios
+├── scripts/
+│   └── seed_calibration.py       # Demo seed data for track record page
 └── Dockerfile                    # Multi-stage, non-root, healthcheck
 
 frontend/
 ├── src/
-│   ├── stores/analysisStore.ts   # Zustand streaming state
+│   ├── stores/analysisStore.ts   # Zustand streaming + debate state
 │   ├── hooks/useAnalysisStream.ts # SSE EventSource with reconnection
 │   ├── components/
 │   │   ├── StreamingAnalysisPage.tsx  # Main streaming experience
+│   │   ├── DebatePanel.tsx            # Live bull/bear/CIO debate cards
+│   │   ├── CalibrationPage.tsx        # Track record + calibration charts
 │   │   ├── AgentTracePanel.tsx        # Real-time execution trace
 │   │   └── AnalysisCard/             # Structured analysis display
 │   └── types/                    # TypeScript interfaces
@@ -167,7 +197,7 @@ CI enforces: Semgrep (custom rules), hadolint (Dockerfile), pip-audit, npm audit
 
 ```bash
 make test          # backend pytest
-make eval-llm      # promptfoo against Groq API
+make eval-llm      # promptfoo against OpenRouter API
 npx playwright test  # E2E (starts frontend automatically)
 ```
 
@@ -176,7 +206,7 @@ npx playwright test  # E2E (starts frontend automatically)
 - Health: `GET /api/health` (liveness), `GET /api/health/ready` (checks DB, budget, circuit breaker)
 - Metrics: `GET /api/metrics` (counters + histograms, analysis latency p50/p95/p99, tool call rates)
 - Logging: structured JSON with request_id correlation, sensitive field redaction
-- Circuit breaker: auto-trips on consecutive Groq failures, serves cached results while open
+- Circuit breaker: auto-trips on consecutive OpenRouter failures, serves cached results while open
 
 ## Quick Start (Development)
 
@@ -200,7 +230,7 @@ cd frontend && npm run dev
 | [Architecture](docs/ARCHITECTURE.md) | System diagrams, request lifecycle, failure modes, concurrency model |
 | [API Reference](docs/API.md) | Every endpoint with curl examples and error cases |
 | [AI Security Posture](docs/AI_SECURITY_POSTURE.md) | LLM threat model, trust boundaries, mitigations |
-| [Runbook](docs/RUNBOOK.md) | Operational playbook: Groq 429s, Neon exhaustion, SSE drops, rollback |
+| [Runbook](docs/RUNBOOK.md) | Operational playbook: OpenRouter 429s, Neon exhaustion, SSE drops, rollback |
 | [Contributing](docs/CONTRIBUTING.md) | Setup, workflow, commit conventions, PR checklist |
 | [Security Exceptions](docs/SECURITY_EXCEPTIONS.md) | Acknowledged findings with justification and expiry |
 | [Design System](docs/design-system.md) | Tokens, component patterns, loading/error/empty states, accessibility |
@@ -209,7 +239,7 @@ cd frontend && npm run dev
 ## Known Limitations
 
 - **Not financial advice.** Outputs are for educational/demonstration purposes only.
-- **Groq free tier**: 1K RPM, 250K TPM. Demo uses aggressive caching to stay well within limits.
+- **OpenRouter free tier**: 20 req/min. Demo uses aggressive caching to stay well within limits.
 - **No real-time prices**: yfinance data has 15-min delay during market hours.
 - **SEC filings**: Only 10-K summaries. No 8-K, no earnings call transcripts.
 - **Single retry on validation failure**: If the LLM produces invalid JSON twice, falls back to partial extraction.

@@ -40,11 +40,11 @@ Runs as a manual-dispatch GitHub Actions workflow (`workflow_dispatch`), not on 
 **Easier:**
 - Catches prompt regressions before they reach production
 - Eval cases serve as living documentation of expected model behavior
-- Can compare model versions side-by-side (e.g., testing a new Groq model)
+- Can compare model versions side-by-side (e.g., testing a new OpenRouter model)
 - Gives confidence to iterate on prompts without fear of silent degradation
 
 **Harder:**
 - LLM-as-judge assertions have their own failure modes (judge may disagree with itself)
 - Maintaining eval cases as the analysis schema evolves
 - Manual dispatch means someone has to remember to run it after prompt changes
-- API cost per run (roughly 20 Groq calls for generation + judge calls for grading)
+- API cost per run (roughly 20 OpenRouter calls for generation + judge calls for grading)

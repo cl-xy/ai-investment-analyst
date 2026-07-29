@@ -9,11 +9,16 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections import deque
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+# Cap event retention per run. Sufficient for replay and debugging without
+# unbounded memory growth on long analyses with many tool/token events.
+_MAX_EVENTS_PER_RUN = 500
 
 
 class EventType(str, Enum):
@@ -64,12 +69,12 @@ class EventEmitter:
     def __init__(self, run_id: str | None = None):
         self.run_id = run_id or str(uuid.uuid4())
         self._seq = 0
-        self._events: list[StreamEvent] = []
+        self._events: deque[StreamEvent] = deque(maxlen=_MAX_EVENTS_PER_RUN)
         self._node_start_times: dict[str, float] = {}
 
     @property
     def events(self) -> list[StreamEvent]:
-        return self._events
+        return list(self._events)
 
     def _next_seq(self) -> int:
         self._seq += 1

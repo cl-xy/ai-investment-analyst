@@ -20,6 +20,10 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+# Initialize structured logging (JSON in production, console in dev)
+# Production runs on Fly.io with PORT=8000; use env var to detect environment.
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -46,8 +50,8 @@ from .routes.explore import router as explore_router
 from .routes.health import router as health_router
 from .routes.scheduled import router as scheduled_router
 
-# Initialize structured logging (JSON in production, console in dev)
-setup_logging(json_output=not settings.port == 8000, level="INFO")
+_is_production = os.environ.get("FLY_APP_NAME") is not None
+setup_logging(json_output=_is_production, level="INFO")
 log = get_logger("app")
 
 

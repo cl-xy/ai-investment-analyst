@@ -10,10 +10,10 @@ Security model for an LLM-powered financial analysis system. This document cover
 | Market data (prices, fundamentals) | Public | PostgreSQL cache (TTL-based) |
 | News headlines and summaries | Public | PostgreSQL cache |
 | SEC filings (10-K, 10-Q excerpts) | Public | PostgreSQL cache (permanent) |
-| LLM prompts (system + user + tool context) | Internal | Not persisted (Groq no-train policy) |
+| LLM prompts (system + user + tool context) | Internal | Not persisted (OpenRouter no-train policy) |
 | LLM responses (analysis JSON) | Internal | PostgreSQL (validated, structured) |
 | Analysis outputs (rendered to user) | Low sensitivity | PostgreSQL, served via SSE |
-| API keys (Groq, NewsAPI, Alpha Vantage) | Secret | Environment variables only |
+| API keys (OpenRouter, NewsAPI, Alpha Vantage) | Secret | Environment variables only |
 | Demo auth password | Secret | Environment variable |
 
 ## Trust Boundaries
@@ -21,16 +21,16 @@ Security model for an LLM-powered financial analysis system. This document cover
 ```mermaid
 graph LR
     U[User Browser] -->|untrusted input| BE[FastAPI Backend]
-    BE -->|prompts with user-influenced data| GROQ[Groq API]
+    BE -->|prompts with user-influenced data| OR[OpenRouter API]
     BE -->|ticker queries| MKT[yfinance / Alpha Vantage]
     BE -->|search queries| NEWS[NewsAPI / RSS]
     BE -->|CIK lookups| SEC[SEC EDGAR]
     BE -->|validated analysis| PG[(PostgreSQL / Neon)]
     BE -->|SSE events| U
-    GROQ -->|LLM response| BE
+    OR -->|LLM response| BE
 
     style U fill:#f9f,stroke:#333
-    style GROQ fill:#ff9,stroke:#333
+    style OR fill:#ff9,stroke:#333
     style MKT fill:#9ff,stroke:#333
     style NEWS fill:#9ff,stroke:#333
     style SEC fill:#9ff,stroke:#333
@@ -39,7 +39,7 @@ graph LR
 **Boundary descriptions:**
 
 1. **User to Backend** (untrusted): User-supplied ticker symbols and queries. Validated server-side before any processing.
-2. **Backend to Groq API** (semi-trusted): Prompts contain user-influenced data (ticker names) and external data (news headlines, financial figures). Groq does not train on API data per their data retention policy.
+2. **Backend to OpenRouter API** (semi-trusted): Prompts contain user-influenced data (ticker names) and external data (news headlines, financial figures). OpenRouter does not train on API data per their data retention policy.
 3. **Backend to Market/News/SEC APIs** (external): Read-only queries. Responses are incorporated into LLM context as structured tool results.
 4. **Backend to PostgreSQL** (trusted): Validated analysis persisted. Connection via TLS (Neon enforces it).
 5. **Backend to Frontend** (output boundary): Analysis rendered in browser. All output passes through Pydantic schema validation before delivery.
@@ -84,13 +84,13 @@ graph LR
 **Mitigations**:
 - No user PII is collected or stored (demo auth is a shared password, no accounts)
 - No authentication tokens or API keys are ever included in prompts
-- Groq's API data policy: inputs/outputs not used for model training
+- OpenRouter's API data policy: inputs/outputs not used for model training
 - No user conversation history persisted across sessions
 - Security headers prevent embedding (X-Frame-Options: DENY)
 
 ### 5. Model Availability and Rate Limiting
 
-**Threat**: Groq free tier rate limits (30 req/min) cause cascading failures.
+**Threat**: OpenRouter free tier rate limits (20 req/min) cause cascading failures.
 
 **Mitigations**:
 - Circuit breaker: 5 failures within 60s opens the circuit for 30s cooldown
@@ -139,7 +139,7 @@ This system does not:
 | Per-IP rate limiting | slowapi on analysis endpoint |
 | Concurrency limiter | Max 3 simultaneous analysis pipelines |
 | Ticker count cap | Max 5 tickers per request |
-| Groq budget guards | Track daily calls, reject when approaching limits |
+| OpenRouter budget guards | Track daily calls, reject when approaching limits |
 | Alpha Vantage budget | 25/day limit, reserve 5 for manual use |
 | Execution timeout | 120s hard cap per analysis run |
 | Shutdown coordinator | Rejects new requests during drain (503 + Retry-After) |
@@ -152,7 +152,7 @@ Applied via middleware to all responses:
 - `X-Frame-Options: DENY`
 - `Referrer-Policy: strict-origin-when-cross-origin`
 - `Permissions-Policy: camera=(), microphone=(), geolocation=()`
-- `Content-Security-Policy`: restricts scripts, styles, connections to self + Groq API
+- `Content-Security-Policy`: restricts scripts, styles, connections to self + OpenRouter API
 
 ## Known Limitations and Accepted Risks
 
@@ -168,7 +168,7 @@ These are honest acknowledgments, not planned mitigations:
 
 5. **Demo auth is not real auth**: A shared password gates access but provides no identity, audit trail, or per-user rate limiting. Sufficient for a portfolio demo, not for production multi-tenant use.
 
-6. **Groq free tier dependency**: Service availability depends entirely on Groq's free tier remaining available. No SLA, no fallback provider configured.
+6. **OpenRouter free tier dependency**: Service availability depends entirely on OpenRouter's free tier remaining available. No SLA, no fallback provider configured.
 
 7. **No input sanitization for XSS in LLM output**: LLM responses are rendered via React (which escapes by default), but if raw HTML were somehow in the response, React's JSX escaping is the only defense layer.
 
@@ -176,11 +176,11 @@ These are honest acknowledgments, not planned mitigations:
 
 ### If prompt injection is detected in logs:
 
-1. Rotate all API keys (Groq, NewsAPI, Alpha Vantage)
+1. Rotate all API keys (OpenRouter, NewsAPI, Alpha Vantage)
 2. Review cached analyses in PostgreSQL for contaminated output (look for unexpected content in `recommendation` or `summary` fields)
 3. Add the detected input pattern to the ticker validation blocklist
 4. Clear affected cache entries
-5. Review Groq API usage logs for unexpected call patterns
+5. Review OpenRouter API usage logs for unexpected call patterns
 
 ### If rate limit abuse is detected:
 

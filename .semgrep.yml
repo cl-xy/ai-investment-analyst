@@ -96,12 +96,12 @@ rules:
         - "**/backend/tests/"
 
   # 5. LLM invoke without max_tokens
-  - id: groq-missing-max-tokens
+  - id: llm-missing-max-tokens
     patterns:
       - pattern: |
           ChatOpenAI(
             ...,
-            base_url="https://api.groq.com/openai/v1",
+            base_url="https://openrouter.ai/api/v1",
             ...
           )
       - pattern-not: |
@@ -111,7 +111,7 @@ rules:
             ...
           )
     message: >
-      ChatOpenAI targeting Groq instantiated without max_tokens. Without this
+      ChatOpenAI targeting OpenRouter instantiated without max_tokens. Without this
       limit, responses may be silently truncated at the provider default,
       causing incomplete JSON output and validation failures.
     severity: WARNING

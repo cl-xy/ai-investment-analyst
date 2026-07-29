@@ -20,7 +20,7 @@ Automated evaluation of the investment analyst's LLM behavior using [promptfoo](
 ## Running locally
 
 ```bash
-# Requires GROQ_API_KEY in your environment
+# Requires OPENROUTER_API_KEY in your environment
 npx promptfoo eval --config promptfooconfig.yaml
 
 # View results in browser
@@ -37,10 +37,10 @@ make eval-llm
 
 ## Cost and rate limits
 
-Each full run makes ~18 API calls to Groq (one per test case). At current Groq free tier limits:
-- Token usage: ~100K tokens per run (well within 250K TPM limit)
-- Request count: 18 requests (well within 1K RPM limit)
-- Cost: $0 (Groq free tier)
+Each full run makes ~18 API calls to OpenRouter (one per test case). At current OpenRouter free tier limits:
+- Token usage: ~100K tokens per run
+- Request count: 18 requests (within 20 req/min limit)
+- Cost: $0 (OpenRouter free tier)
 - Duration: ~30-60 seconds
 
 Safe to run multiple times locally. No risk of hitting rate limits unless you're simultaneously running the app with heavy traffic.
@@ -49,7 +49,7 @@ Safe to run multiple times locally. No risk of hitting rate limits unless you're
 
 Configured as a **manual-dispatch** workflow, not on every PR. Reasons:
 - LLM outputs are nondeterministic (same prompt can produce different valid responses)
-- API availability is external dependency (Groq outages would fail CI)
+- API availability is external dependency (OpenRouter outages would fail CI)
 - Eval assertions use tolerant checks (schema validation, content presence) rather than exact string matching
 
 Run manually before prompt changes to catch regressions.

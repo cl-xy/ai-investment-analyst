@@ -65,13 +65,8 @@ def _mock_astream_events_slow():
     return _fake_stream
 
 
-def _setup_standard_mocks(mock_build_graph, mock_saver, mock_mcp, stream_factory=None):
+def _setup_standard_mocks(mock_build_graph, mock_checkpointer, stream_factory=None):
     """Set up standard mocks for the agent pipeline."""
-    # MCP client
-    mock_mcp_client = MagicMock()
-    mock_mcp_client.get_tools = AsyncMock(return_value=[])
-    mock_mcp.return_value = mock_mcp_client
-
     # Graph
     mock_compiled = MagicMock()
     if stream_factory:
@@ -87,11 +82,10 @@ def _setup_standard_mocks(mock_build_graph, mock_saver, mock_mcp, stream_factory
     mock_graph.compile.return_value = mock_compiled
     mock_build_graph.return_value = mock_graph
 
-    # SQLite saver
-    mock_saver_instance = AsyncMock()
-    mock_saver_instance.__aenter__ = AsyncMock(return_value=mock_saver_instance)
-    mock_saver_instance.__aexit__ = AsyncMock(return_value=None)
-    mock_saver.from_conn_string.return_value = mock_saver_instance
+    # get_checkpointer is an async context manager
+    mock_cp_instance = MagicMock()
+    mock_checkpointer.return_value.__aenter__ = AsyncMock(return_value=mock_cp_instance)
+    mock_checkpointer.return_value.__aexit__ = AsyncMock(return_value=False)
 
     return mock_compiled
 
@@ -114,9 +108,10 @@ def _make_patches():
             return_value=True,
         ),
         patch("src.api.routes.analyze_stream.release_analysis_slot"),
-        patch("src.api.db.get_pool", new_callable=AsyncMock),
-        patch("src.api.db.init_schema", new_callable=AsyncMock),
-        patch("src.api.db.close_pool", new_callable=AsyncMock),
+        patch("src.db.get_pool", new_callable=AsyncMock),
+        patch("src.db.init_schema", new_callable=AsyncMock),
+        patch("src.db.close_pool", new_callable=AsyncMock),
+        patch("src.agent.direct_tools.load_direct_tools", return_value={}),
     ]
 
 
@@ -150,21 +145,20 @@ def _parse_sse_events(response) -> list[dict]:
     return events
 
 
-class TestGroqTimeoutReturnsErrorEvent:
+class TestLLMTimeoutReturnsErrorEvent:
     """Mock the LLM call to raise asyncio.TimeoutError."""
 
-    @patch("src.api.routes.analyze_stream.EXECUTION_TIMEOUT", 2)
-    @patch("src.api.routes.analyze_stream.create_mcp_client")
-    @patch("src.api.routes.analyze_stream.AsyncSqliteSaver")
+    @patch("src.api.routes.analyze_stream.EXECUTION_TIMEOUT_BASE", 1)
+    @patch("src.api.routes.analyze_stream.EXECUTION_TIMEOUT_PER_TICKER", 1)
+    @patch("src.api.routes.analyze_stream.get_checkpointer")
     @patch("src.api.routes.analyze_stream.build_graph")
-    def test_groq_timeout_returns_error_event(
-        self, mock_build_graph, mock_saver, mock_mcp, client
+    def test_llm_timeout_returns_error_event(
+        self, mock_build_graph, mock_checkpointer, client
     ):
         """LLM timeout produces an error event and the stream terminates cleanly."""
         _setup_standard_mocks(
             mock_build_graph,
-            mock_saver,
-            mock_mcp,
+            mock_checkpointer,
             stream_factory=_mock_astream_events_slow,
         )
 
@@ -186,17 +180,15 @@ class TestGroqTimeoutReturnsErrorEvent:
 class TestMCPServerCrashPopulatesDataGaps:
     """Mock an MCP tool to raise an exception during execution."""
 
-    @patch("src.api.routes.analyze_stream.create_mcp_client")
-    @patch("src.api.routes.analyze_stream.AsyncSqliteSaver")
+    @patch("src.api.routes.analyze_stream.get_checkpointer")
     @patch("src.api.routes.analyze_stream.build_graph")
     def test_mcp_server_crash_emits_error_event(
-        self, mock_build_graph, mock_saver, mock_mcp, client
+        self, mock_build_graph, mock_checkpointer, client
     ):
         """When the agent stream raises an exception, an error event is emitted."""
         _setup_standard_mocks(
             mock_build_graph,
-            mock_saver,
-            mock_mcp,
+            mock_checkpointer,
             stream_factory=lambda: _mock_astream_events_with_exception(
                 RuntimeError, "MCP server connection lost"
             ),
@@ -221,16 +213,15 @@ class TestPostgresUnavailableStreamStillWorks:
     """Mock the DB persist call to raise. Stream should still complete."""
 
     @patch("src.middleware.cost_tracker.execute", new_callable=AsyncMock)
-    @patch("src.api.routes.analyze_stream.create_mcp_client")
-    @patch("src.api.routes.analyze_stream.AsyncSqliteSaver")
+    @patch("src.api.routes.analyze_stream.get_checkpointer")
     @patch("src.api.routes.analyze_stream.build_graph")
     def test_postgres_unavailable_stream_still_works(
-        self, mock_build_graph, mock_saver, mock_mcp, mock_db_execute, client
+        self, mock_build_graph, mock_checkpointer, mock_db_execute, client
     ):
         """Persistence failure does not break the SSE stream."""
         mock_db_execute.side_effect = ConnectionRefusedError("PostgreSQL unavailable")
 
-        _setup_standard_mocks(mock_build_graph, mock_saver, mock_mcp)
+        _setup_standard_mocks(mock_build_graph, mock_checkpointer)
 
         with client.stream("GET", "/api/analyze/stream?tickers=AAPL") as response:
             events = _parse_sse_events(response)
@@ -251,17 +242,16 @@ class TestPostgresUnavailableStreamStillWorks:
 class TestConcurrentAnalysesComplete:
     """Launch multiple sequential analysis requests and verify they all complete."""
 
-    @patch("src.api.routes.analyze_stream.create_mcp_client")
-    @patch("src.api.routes.analyze_stream.AsyncSqliteSaver")
+    @patch("src.api.routes.analyze_stream.get_checkpointer")
     @patch("src.api.routes.analyze_stream.build_graph")
     def test_concurrent_analyses_all_complete(
-        self, mock_build_graph, mock_saver, mock_mcp, client
+        self, mock_build_graph, mock_checkpointer, client
     ):
         """Multiple requests should all complete without crashing."""
         results = []
         for ticker in ["AAPL", "NVDA", "TSLA"]:
             # Re-setup mocks since astream_events is consumed per call
-            _setup_standard_mocks(mock_build_graph, mock_saver, mock_mcp)
+            _setup_standard_mocks(mock_build_graph, mock_checkpointer)
 
             with client.stream(
                 "GET", f"/api/analyze/stream?tickers={ticker}"
@@ -274,17 +264,16 @@ class TestConcurrentAnalysesComplete:
             assert events[0]["type"] == "run_started", f"Request {i} missing run_started"
             assert events[-1]["type"] == "run_completed", f"Request {i} missing run_completed"
 
-    @patch("src.api.routes.analyze_stream.create_mcp_client")
-    @patch("src.api.routes.analyze_stream.AsyncSqliteSaver")
+    @patch("src.api.routes.analyze_stream.get_checkpointer")
     @patch("src.api.routes.analyze_stream.build_graph")
     def test_concurrent_requests_have_unique_run_ids(
-        self, mock_build_graph, mock_saver, mock_mcp, client
+        self, mock_build_graph, mock_checkpointer, client
     ):
         """Each request should get a unique run_id."""
         run_ids = []
 
         for ticker in ["AAPL", "MSFT"]:
-            _setup_standard_mocks(mock_build_graph, mock_saver, mock_mcp)
+            _setup_standard_mocks(mock_build_graph, mock_checkpointer)
 
             with client.stream(
                 "GET", f"/api/analyze/stream?tickers={ticker}"

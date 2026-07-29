@@ -236,9 +236,7 @@ async def _run_agent(
                         # Emit debate turn events when inside the debate node
                         if current_node == "debate" and output and hasattr(output, "content"):
                             # Identify which ticker this LLM call belongs to by
-                            # parsing the ticker field from the JSON output. This is
-                            # robust to retries (which inflate the call count) since
-                            # the LLM always emits its target ticker in the response.
+                            # parsing the ticker field from the JSON output.
                             _current_ticker = None
                             try:
                                 parsed_output = extract_json(output.content)
@@ -249,64 +247,78 @@ async def _run_agent(
                             except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
                                 pass
 
-                            # Fallback: use counter-based heuristic if parsing failed
+                            # Fallback: use the ticker currently being debated.
+                            # The debate node processes one ticker at a time (the
+                            # first in tickers_to_analyze not yet in ticker_analyses).
+                            # Previous fallback used a sequential counter which could
+                            # misattribute retry events to the wrong ticker.
+                            _num_debate_turns = len(DEBATE_ROLES)
                             if not _current_ticker:
+                                # Find the ticker currently being debated: first one
+                                # that hasn't completed all expected debate turns yet.
+                                analyzed_tickers = [
+                                    t for t in tickers_upper
+                                    if debate_llm_count[t] >= _num_debate_turns
+                                ]
                                 for t in tickers_upper:
-                                    if debate_llm_count[t] < 3:
+                                    if t not in analyzed_tickers:
                                         _current_ticker = t
                                         break
 
-                            if _current_ticker:
-                                count = debate_llm_count[_current_ticker]
-                                # Only advance the counter up to 3 (the expected
-                                # number of debate roles). Extra calls from retries
-                                # are ignored for event emission purposes.
-                                if count >= 3:
-                                    continue
-                                debate_llm_count[_current_ticker] = count + 1
-                                duration_ms = int((time.monotonic() - debate_llm_start.pop("_pending", time.monotonic())) * 1000)
+                            if not _current_ticker:
+                                # All tickers already have their turns; this is a stray
+                                # retry event. Skip it entirely.
+                                debate_llm_start.pop("_pending", None)
+                                continue
 
-                                try:
-                                    turn_data = extract_json(output.content)
-                                except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
-                                    turn_data = {}
+                            count = debate_llm_count[_current_ticker]
+                            # Only advance the counter up to the expected number of
+                            # debate roles. Extra calls from retries are ignored.
+                            if count >= _num_debate_turns:
+                                debate_llm_start.pop("_pending", None)
+                                continue
+                            debate_llm_count[_current_ticker] = count + 1
+                            duration_ms = int((time.monotonic() - debate_llm_start.pop("_pending", time.monotonic())) * 1000)
 
-                                role = DEBATE_ROLES[min(count, 2)]
+                            try:
+                                turn_data = extract_json(output.content)
+                            except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
+                                turn_data = {}
 
-                                if count == 0:
-                                    ev = emitter.debate_started(_current_ticker, list(DEBATE_ROLES))
-                                    await queue.put(ev.to_sse())
+                            role = DEBATE_ROLES[min(count, _num_debate_turns - 1)]
 
-                                # Emit debate turn for all roles
-                                key_args = (
-                                    turn_data.get("bull_case", []) + turn_data.get("bear_case", [])
-                                    if count == 2
-                                    else turn_data.get("key_arguments", [])
-                                )
-                                ev = emitter.debate_turn(
+                            if count == 0:
+                                ev = emitter.debate_started(_current_ticker, list(DEBATE_ROLES))
+                                await queue.put(ev.to_sse())
+
+                            # Emit debate turn for all roles
+                            key_args = (
+                                turn_data.get("bull_case", []) + turn_data.get("bear_case", [])
+                                if count == _num_debate_turns - 1
+                                else turn_data.get("key_arguments", [])
+                            )
+                            ev = emitter.debate_turn(
+                                ticker=_current_ticker,
+                                role=role,
+                                thesis=turn_data.get("thesis", ""),
+                                confidence=turn_data.get("confidence", "medium"),
+                                key_arguments=key_args,
+                                turn_index=count,
+                                duration_ms=duration_ms,
+                            )
+                            await queue.put(ev.to_sse())
+
+                            # Moderator (last role) also produces the verdict
+                            if count == _num_debate_turns - 1:
+                                ev = emitter.debate_verdict(
                                     ticker=_current_ticker,
-                                    role=role,
-                                    thesis=turn_data.get("thesis", ""),
+                                    signal=turn_data.get("signal", "hold"),
                                     confidence=turn_data.get("confidence", "medium"),
-                                    key_arguments=key_args,
-                                    turn_index=count,
+                                    verdict_rationale=turn_data.get("verdict_rationale", ""),
+                                    key_disagreements=turn_data.get("key_disagreements", []),
                                     duration_ms=duration_ms,
                                 )
                                 await queue.put(ev.to_sse())
-
-                                # Moderator also produces the verdict
-                                if count == 2:
-                                    ev = emitter.debate_verdict(
-                                        ticker=_current_ticker,
-                                        signal=turn_data.get("signal", "hold"),
-                                        confidence=turn_data.get("confidence", "medium"),
-                                        verdict_rationale=turn_data.get("verdict_rationale", ""),
-                                        key_disagreements=turn_data.get("key_disagreements", []),
-                                        duration_ms=duration_ms,
-                                    )
-                                    await queue.put(ev.to_sse())
-
-                                debate_llm_start.pop("_pending", None)
 
             # Scale timeout with ticker count: each ticker's debate takes ~100s
             execution_timeout = EXECUTION_TIMEOUT_BASE + (len(tickers_upper) * EXECUTION_TIMEOUT_PER_TICKER)
@@ -403,6 +415,8 @@ async def _stream_generator(
     resume_run_id: str | None = None,
 ):
     """Async generator that yields SSE events."""
+    slot_released = False
+
     # If reconnecting, try to replay missed events
     if last_event_id is not None and resume_run_id:
         replayed = _replay_events(resume_run_id, last_event_id)
@@ -410,12 +424,13 @@ async def _stream_generator(
             # Run state not found on this instance (likely routed to different machine).
             # Emit a terminal error so the client stops reconnecting blindly.
             error_msg = (
-                f"event: error\ndata: "
-                f'{{"type":"error","message":"Run state unavailable on this instance. '
-                f'Please start a new analysis.","recoverable":false}}\n\n'
+                "event: error\ndata: "
+                '{"type":"error","message":"Run state unavailable on this instance. '
+                'Please start a new analysis.","recoverable":false}\n\n'
             )
             yield error_msg
             release_analysis_slot()
+            slot_released = True
             return
         for ev in replayed:
             yield ev
@@ -423,8 +438,8 @@ async def _stream_generator(
             # Check if run already completed
             _, stored = _recent_runs.get(resume_run_id, (0, []))
             if any("run_completed" in ev for ev in stored):
-                # Release the slot before returning (acquired by caller)
                 release_analysis_slot()
+                slot_released = True
                 return  # Run finished, nothing to stream
 
     emitter = EventEmitter()
@@ -471,7 +486,8 @@ async def _stream_generator(
                 await heartbeat_task
             except (asyncio.CancelledError, Exception):
                 pass
-        release_analysis_slot()
+        if not slot_released:
+            release_analysis_slot()
 
 
 @router.get("/analyze/stream")
