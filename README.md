@@ -46,7 +46,7 @@ The interesting engineering isn't the features. It's the failure handling, obser
 │  ┌─── LangGraph StateGraph ─────────────────────────────────────────────┐ │
 │  │                                                                       │ │
 │  │  Router ──→ Fetch Data ──→ Adversarial Debate ──→ Report ──→ Compare │ │
-│  │  (20B)      (5 tools ∥)    Bull → Bear → CIO     (120B)    (if 2+)  │ │
+│  │  (20B)      (6 tools ∥)    Bull → Bear → CIO     (120B)    (if 2+)  │ │
 │  │                             (120B x3, sequential)                     │ │
 │  │                                                                       │ │
 │  │  Circuit Breaker: trip@3 failures, 60s recovery, half-open probe     │ │
@@ -62,11 +62,11 @@ The interesting engineering isn't the features. It's the failure handling, obser
   ┌────┴───┐ ┌───┴────┐ ┌───┴───┐ ┌───┴───┐ ┌───┴──────────┐
   │yfinance│ │NewsAPI │ │  SEC  │ │SQLite │ │  PostgreSQL   │
   │ quotes │ │  + RSS │ │EDGAR  │ │portfolio│ │ analyses     │
-  │ fundmtl│ │        │ │       │ │       │ │ predictions  │
+  │ fundmtl│ │StockTwt│ │       │ │       │ │ predictions  │
   │ indctrs│ │        │ │       │ │       │ │ cache (SWR)  │
   └────────┘ └────────┘ └───────┘ └───────┘ │ ops_traces   │
        ↑          ↑          ↑               │ metrics      │
-       └──── 4 FastMCP Tool Servers ────┘    └──────────────┘
+       └──── 5 FastMCP Tool Servers ────┘    └──────────────┘
              (per-tool error isolation)
 ```
 
@@ -93,7 +93,7 @@ Every constraint produced a better architecture than "throw money at it" would h
 Enter a ticker symbol and watch an adversarial investment committee debate in real-time:
 
 1. **Router** classifies intent and extracts tickers (GPT-OSS 20B, ~100ms)
-2. **Fetch Data** calls 5 tools across 4 MCP servers in parallel (market quotes, fundamentals, indicators, news, SEC filings, StockTwits sentiment)
+2. **Fetch Data** calls 6 tools across 5 MCP servers in parallel (market quotes, fundamentals, indicators, news, SEC filings, StockTwits sentiment)
 3. **Bull Analyst** builds the strongest possible long case with cited evidence
 4. **Bear Analyst** rebuts the bull case point-by-point and argues the short case
 5. **Chief Investment Officer** weighs both sides, assesses evidence quality, and issues a final verdict with explicit rationale
@@ -130,7 +130,7 @@ Detailed rationale in [`docs/adr/`](docs/adr/). Summary:
 |----------|--------|-----|
 | Agent orchestration | LangGraph StateGraph | Typed state, conditional edges, checkpointing, astream_events |
 | Analysis protocol | Adversarial debate (bull/bear/CIO) | Structured disagreement reduces single-model bias |
-| Tool servers | 4x FastMCP (in-process) | Protocol-level interop, per-tool error isolation |
+| Tool servers | 5x FastMCP (in-process) | Protocol-level interop, per-tool error isolation |
 | Streaming | SSE with domain events | Simpler than WS, works through all proxies, built-in reconnection |
 | Structured output | JSON mode + Pydantic + retry | Schema validation prevents silent data corruption |
 | Caching | PostgreSQL stale-while-revalidate | One fewer service, JSONB flexibility, transactional consistency |
@@ -194,7 +194,7 @@ backend/
 │   ├── ops/                      # Metrics collector, trace store, chaos injection
 │   ├── cache/                    # PostgreSQL SWR cache + budget guards
 │   ├── middleware/               # Auth, rate limit, cost tracking, security headers
-│   └── mcp_servers/              # 4 FastMCP tool servers (market, news, portfolio, SEC)
+│   └── mcp_servers/              # 5 FastMCP tool servers (market, news, portfolio, SEC, sentiment)
 ├── tests/                        # pytest (unit, integration, property, chaos, golden)
 └── Dockerfile                    # Multi-stage, non-root, healthcheck
 
@@ -219,7 +219,7 @@ docs/
 ├── AI_SECURITY_POSTURE.md        # LLM threat model, trust boundaries
 └── RUNBOOK.md                    # Operational playbook
 
-evals/                            # promptfoo LLM evaluation (18+ cases)
+evals/                            # promptfoo LLM evaluation (41 cases)
 tests/e2e/                        # Playwright (5 specs, 3 browsers)
 ```
 
@@ -244,8 +244,8 @@ tests/e2e/                        # Playwright (5 specs, 3 browsers)
 |-------|------|----------|
 | Unit + integration | pytest | Schema validation, events, cache, circuit breaker, chaos injection |
 | Property-based | Hypothesis | Ticker validation, sentiment bounds, JSON extraction, budget invariants |
-| E2E | Playwright | 5 specs across 3 browsers (analysis flow, error states, accessibility) |
-| LLM evaluation | promptfoo | 18 cases: structured output, factual grounding, safety, citations, reasoning balance |
+| E2E | Playwright | 11 specs across 3 browsers (analysis flow, error states, accessibility, chat, compare, explore) |
+| LLM evaluation | promptfoo | 41 cases: structured output, factual grounding, safety, citations, reasoning, edge cases, degradation |
 | Golden fixtures | pytest | 20 scenarios with mocked tool responses for deterministic testing |
 | Security | Semgrep + pip-audit + npm-audit | Custom SAST rules targeting LLM-specific risks |
 

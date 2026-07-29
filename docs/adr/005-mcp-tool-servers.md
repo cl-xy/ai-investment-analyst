@@ -5,18 +5,19 @@
 
 ## Context
 
-The agent needs structured access to 4+ external data sources, each with different reliability profiles, rate limits, and response schemas:
+The agent needs structured access to 5+ external data sources, each with different reliability profiles, rate limits, and response schemas:
 
 - **Market data** (yfinance): unlimited but occasionally returns None fields
 - **News** (NewsAPI + RSS feeds): 100/day free tier, needs fallback
 - **Portfolio** (SQLite): local, always available
 - **SEC filings** (EDGAR): 10 req/sec, responses are large, should cache permanently
+- **Sentiment** (StockTwits): retail sentiment signal, rate-limited scraping
 
 Direct function calls would work, but coupling the agent to specific data source implementations makes testing difficult and error isolation impossible. A single failing source (SEC EDGAR timeout) shouldn't crash the entire analysis.
 
 ## Decision
 
-Use 4 in-process FastMCP tool servers: `market_server`, `news_server`, `portfolio_server`, `sec_server`. Each exposes typed tool functions with schema validation at the boundary. Tools are registered with the agent via LangGraph's tool binding mechanism.
+Use 5 in-process FastMCP tool servers: `market_server`, `news_server`, `portfolio_server`, `sec_server`, `sentiment_server`. Each exposes typed tool functions with schema validation at the boundary. Tools are registered with the agent via LangGraph's tool binding mechanism.
 
 The agent graph (`backend/src/agent/graph.py`) receives MCP tools as a dictionary and binds them into nodes via `functools.partial`. Each tool call is wrapped in try/except at the node level, with failures populating a `data_gaps` field rather than raising.
 
@@ -39,4 +40,4 @@ The agent graph (`backend/src/agent/graph.py`) receives MCP tools as a dictionar
 **Negative:**
 - Slight overhead vs direct function calls (MCP protocol serialization/deserialization). Negligible compared to LLM call latency.
 - In-process means a truly broken server (unhandled exception in import) could still affect the process. Mitigated by lazy loading and import-time error handling.
-- 4 servers sharing one process means no independent scaling. Acceptable for current load profile.
+- 5 servers sharing one process means no independent scaling. Acceptable for current load profile.
