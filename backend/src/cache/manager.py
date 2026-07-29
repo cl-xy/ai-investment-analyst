@@ -28,6 +28,9 @@ TTL_CONFIG: dict[str, dict[str, int]] = {
     "newsapi:get_ticker_news": {"fresh": 21600, "stale": 43200, "expire": 86400},
     "sec_edgar:get_latest_filing_summary": {"fresh": 604800, "stale": 2592000, "expire": 0},
     "alpha_vantage:default": {"fresh": 86400, "stale": 172800, "expire": 604800},
+    # Retail sentiment shifts faster than published news, so keep this shorter
+    # than newsapi's freshness window.
+    "stocktwits:get_ticker_sentiment": {"fresh": 1800, "stale": 3600, "expire": 14400},
 }
 
 DEFAULT_TTL = {"fresh": 3600, "stale": 7200, "expire": 86400}

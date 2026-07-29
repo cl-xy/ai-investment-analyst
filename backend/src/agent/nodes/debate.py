@@ -51,6 +51,25 @@ async def _invoke_with_retry(messages: list) -> object:
     )
 
 
+def _format_sentiment(sentiment: dict) -> str:
+    if not sentiment or not sentiment.get("message_count"):
+        return "No StockTwits sentiment data available."
+    lines = [
+        f"Messages analyzed: {sentiment.get('message_count', 0)}",
+        f"Bullish: {sentiment.get('bullish_count', 0)}, Bearish: {sentiment.get('bearish_count', 0)}, "
+        f"Unlabeled: {sentiment.get('unlabeled_count', 0)}",
+    ]
+    ratio = sentiment.get("bullish_ratio")
+    if ratio is not None:
+        lines.append(f"Bullish ratio (of labeled messages): {ratio}")
+    samples = sentiment.get("sample_messages") or []
+    if samples:
+        lines.append("Sample messages:")
+        for s in samples[:3]:
+            lines.append(f"  - {s}")
+    return "\n".join(lines)
+
+
 def _format_news(articles: list[dict]) -> str:
     if not articles:
         return "No recent news available."
@@ -73,6 +92,7 @@ def _build_data_context(ticker: str, state: InvestmentAnalystState) -> dict[str,
     news = state.get("raw_news", {}).get(ticker, [])
     sec_text = state.get("raw_filings", {}).get(ticker, "") or "Not available."
     earnings = state.get("raw_earnings", {}).get(ticker, {}) or {}
+    sentiment = state.get("raw_sentiment", {}).get(ticker, {}) or {}
 
     return {
         "ticker": ticker,
@@ -87,16 +107,19 @@ def _build_data_context(ticker: str, state: InvestmentAnalystState) -> dict[str,
         "article_count": len(news),
         "news_text": _format_news(news),
         "news_source_id": _make_source_id("newsapi", ticker),
+        "sentiment_text": _format_sentiment(sentiment),
+        "sentiment_source_id": _make_source_id("stocktwits", ticker),
         "sec_notes": sec_text[:1500],
         "sec_source_id": _make_source_id("sec_edgar", ticker),
         "raw_price_data": price_data,
         "raw_earnings": earnings,
+        "raw_sentiment": sentiment,
     }
 
 
 async def _run_bull_agent(ctx: dict[str, Any]) -> BullCaseOutput:
     """Run the bull analyst agent."""
-    prompt = BULL_HUMAN.format(**{k: v for k, v in ctx.items() if k not in ("raw_price_data", "raw_earnings")})
+    prompt = BULL_HUMAN.format(**{k: v for k, v in ctx.items() if k not in ("raw_price_data", "raw_earnings", "raw_sentiment")})
     messages = [SystemMessage(content=BULL_SYSTEM), HumanMessage(content=prompt)]
 
     response = await _invoke_with_retry(messages)
@@ -133,7 +156,7 @@ async def _run_bear_agent(ctx: dict[str, Any], bull: BullCaseOutput) -> BearCase
     prompt = BEAR_HUMAN.format(
         bull_thesis=bull.thesis,
         bull_arguments=json.dumps(bull.key_arguments, indent=2),
-        **{k: v for k, v in ctx.items() if k not in ("raw_price_data", "raw_earnings")},
+        **{k: v for k, v in ctx.items() if k not in ("raw_price_data", "raw_earnings", "raw_sentiment")},
     )
     messages = [SystemMessage(content=BEAR_SYSTEM), HumanMessage(content=prompt)]
 
@@ -182,7 +205,7 @@ async def _run_moderator(
         bear_risk_flags=json.dumps(bear.risk_flags, indent=2),
         bear_evidence=json.dumps([e.model_dump() for e in bear.evidence], indent=2),
         bear_concessions=json.dumps(bear.conceded_strengths, indent=2),
-        **{k: v for k, v in ctx.items() if k not in ("raw_price_data", "raw_earnings")},
+        **{k: v for k, v in ctx.items() if k not in ("raw_price_data", "raw_earnings", "raw_sentiment")},
     )
     messages = [SystemMessage(content=MODERATOR_SYSTEM), HumanMessage(content=prompt)]
 

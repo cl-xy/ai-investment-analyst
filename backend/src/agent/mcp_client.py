@@ -1,5 +1,5 @@
 """
-Initializes MultiServerMCPClient connecting to all four MCP servers via stdio transport.
+Initializes MultiServerMCPClient connecting to all five MCP servers via stdio transport.
 Call `get_mcp_tools()` inside the agent's async context to retrieve LangChain-compatible tools.
 """
 
@@ -35,6 +35,7 @@ MCP_SERVER_CONFIG = {
     "market_server": _server("src.mcp_servers.market_server.server"),
     "news_server": _server("src.mcp_servers.news_server.server"),
     "sec_server": _server("src.mcp_servers.sec_server.server"),
+    "sentiment_server": _server("src.mcp_servers.sentiment_server.server"),
 }
 
 

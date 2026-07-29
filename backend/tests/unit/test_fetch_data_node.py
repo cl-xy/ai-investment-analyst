@@ -69,6 +69,7 @@ async def test_fetch_data_populates_all_fields(mock_use, mock_check, mock_cache,
     mock_filing = {"text_excerpt": "Risk factors include..."}
     mock_indicators = {"rsi_14": 65.0, "sma_50": 480.0, "sma_200": 420.0, "macd": None}
     mock_earnings = {"next_earnings_date": "2026-08-15", "days_until_earnings": 17}
+    mock_sentiment = {"message_count": 10, "bullish_count": 7, "bearish_count": 3}
 
     mcp_tools = {
         "get_ticker_news": _make_tool(_text_block(mock_news)),
@@ -77,6 +78,7 @@ async def test_fetch_data_populates_all_fields(mock_use, mock_check, mock_cache,
         "get_latest_filing_summary": _make_tool(_text_block(mock_filing)),
         "get_technical_indicators": _make_tool(_text_block(mock_indicators)),
         "get_earnings_calendar": _make_tool(_text_block(mock_earnings)),
+        "get_ticker_sentiment": _make_tool(_text_block(mock_sentiment)),
     }
 
     result = await fetch_data_node(base_state, mcp_tools=mcp_tools)
@@ -93,6 +95,9 @@ async def test_fetch_data_populates_all_fields(mock_use, mock_check, mock_cache,
 
     assert result["raw_earnings"]["NVDA"]["next_earnings_date"] == "2026-08-15"
     assert result["raw_earnings"]["NVDA"]["days_until_earnings"] == 17
+
+    assert result["raw_sentiment"]["NVDA"]["bullish_count"] == 7
+    assert result["raw_sentiment"]["NVDA"]["bearish_count"] == 3
 
 
 @pytest.mark.asyncio
@@ -121,6 +126,46 @@ async def test_fetch_data_missing_earnings_tool_is_not_a_data_gap(
 
     assert result["raw_earnings"]["NVDA"] == {}
     assert not any("earnings" in gap.lower() for gap in result["data_gaps"])
+
+
+@pytest.mark.asyncio
+@patch("src.agent.nodes.fetch_data.cache_manager")
+@patch("src.cache.budget.check_budget", new_callable=AsyncMock, return_value=True)
+async def test_fetch_data_sentiment_budget_exhausted_is_a_data_gap(
+    mock_check, mock_cache, base_state
+):
+    """Unlike earnings, a missing sentiment result (including from budget
+    exhaustion) IS surfaced as a data gap — the plan calls this out
+    explicitly since it's meant to degrade the same way other providers do."""
+
+    async def _passthrough_except_stocktwits(provider, tool, ticker, fetch_fn):
+        # Simulate use_budget() rejecting only the stocktwits provider.
+        with patch(
+            "src.cache.budget.use_budget",
+            new_callable=AsyncMock,
+            return_value=(provider != "stocktwits"),
+        ):
+            data = await fetch_fn()
+        return data, f"{provider}:{ticker}:mock", False
+
+    mock_cache.get_or_fetch = AsyncMock(side_effect=_passthrough_except_stocktwits)
+
+    from src.agent.nodes.fetch_data import fetch_data_node
+
+    mcp_tools = {
+        "get_ticker_news": _make_tool(_text_block([])),
+        "get_quote": _make_tool(_text_block({})),
+        "get_fundamentals": _make_tool(_text_block({})),
+        "get_latest_filing_summary": _make_tool(_text_block({})),
+        "get_technical_indicators": _make_tool(_text_block({})),
+        "get_earnings_calendar": _make_tool(_text_block({})),
+        "get_ticker_sentiment": _make_tool(_text_block({"message_count": 5, "bullish_count": 5})),
+    }
+
+    result = await fetch_data_node(base_state, mcp_tools=mcp_tools)
+
+    assert result["raw_sentiment"]["NVDA"] == {}
+    assert any("sentiment" in gap.lower() for gap in result["data_gaps"])
 
 
 @pytest.mark.asyncio

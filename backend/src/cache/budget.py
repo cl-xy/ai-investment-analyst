@@ -15,6 +15,10 @@ DAILY_LIMITS: dict[str, int] = {
     "alpha_vantage": 20,
     "newsapi": 90,
     "openrouter": 1400,
+    # StockTwits' public symbol-stream endpoint requires no API key, so there's
+    # no documented per-key quota to size against — this is a deliberately
+    # conservative guess pending real usage data, not a verified provider limit.
+    "stocktwits": 300,
 }
 
 

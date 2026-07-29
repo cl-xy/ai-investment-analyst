@@ -27,6 +27,7 @@ Rules:
 4. Never fabricate data. If information is missing, work with what you have.
 5. Provide 3-5 key arguments and 1-3 catalysts.
 6. If an earnings date is imminent (within ~2 weeks), treat it as a near-term catalyst worth naming explicitly.
+7. Retail sentiment is a minor, noisy signal, not a primary driver. Extreme bullish retail chatter with weak fundamentals can actually be a bearish contrarian signal — weigh it accordingly rather than treating it as confirmation.
 
 Return ONLY valid JSON."""
 
@@ -43,6 +44,9 @@ TECHNICAL INDICATORS (source_id: {indicators_source_id}):
 
 EARNINGS (source_id: {earnings_source_id}):
 {earnings}
+
+RETAIL SENTIMENT (StockTwits, source_id: {sentiment_source_id}):
+{sentiment_text}
 
 RECENT NEWS ({article_count} articles, source_id: {news_source_id}):
 {news_text}
@@ -72,6 +76,7 @@ Rules:
 5. Never fabricate data. If information is missing, that itself may be a risk flag.
 6. Provide 3-5 key arguments and 2-4 rebuttals.
 7. If an earnings date is imminent, treat the uncertainty as event risk worth flagging.
+8. Retail sentiment is a minor, noisy signal. Extreme bullish retail chatter combined with weak fundamentals is itself a bearish signal worth flagging as a risk (crowded/hype-driven trade); don't just dismiss it.
 
 Return ONLY valid JSON."""
 
@@ -98,6 +103,9 @@ TECHNICAL INDICATORS (source_id: {indicators_source_id}):
 
 EARNINGS (source_id: {earnings_source_id}):
 {earnings}
+
+RETAIL SENTIMENT (StockTwits, source_id: {sentiment_source_id}):
+{sentiment_text}
 
 RECENT NEWS ({article_count} articles, source_id: {news_source_id}):
 {news_text}
@@ -134,6 +142,7 @@ Rules:
 6. Your bear_case should contain only the bear arguments that survived scrutiny.
 7. Cap confidence at "medium" if the two sides agree on facts but disagree on interpretation.
 8. Signal "insufficient_data" if fewer than 2 data sources are available.
+9. Retail sentiment (StockTwits) is supplementary context, not a primary driver — weigh fundamentals and evidence-backed arguments far more heavily than message-board chatter.
 
 Signal guidelines:
 - buy: bull case is materially stronger, catalysts are near-term, risks are manageable
@@ -175,6 +184,9 @@ TECHNICAL INDICATORS (source_id: {indicators_source_id}):
 
 EARNINGS (source_id: {earnings_source_id}):
 {earnings}
+
+RETAIL SENTIMENT (StockTwits, source_id: {sentiment_source_id}):
+{sentiment_text}
 
 RECENT NEWS ({article_count} articles, source_id: {news_source_id}):
 {news_text}

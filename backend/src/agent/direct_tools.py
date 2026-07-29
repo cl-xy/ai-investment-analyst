@@ -214,6 +214,19 @@ def load_direct_tools() -> dict:
     except Exception as e:
         print(f"[direct_tools] Failed to load news tools: {e}")
 
+    # --- Sentiment tools ---
+    try:
+        from src.mcp_servers.sentiment_server.server import get_ticker_sentiment
+
+        tools["get_ticker_sentiment"] = _make_sync_tool(
+            get_ticker_sentiment,
+            name="get_ticker_sentiment",
+            description="Get recent StockTwits retail sentiment for a ticker. Returns message_count, bullish_count, bearish_count, bullish_ratio, sample_messages.",
+            args_schema=TickerInput,
+        )
+    except Exception as e:
+        print(f"[direct_tools] Failed to load sentiment tools: {e}")
+
     # --- SEC tools ---
     try:
         from src.mcp_servers.sec_server.server import get_latest_filing_summary, search_sec_filings

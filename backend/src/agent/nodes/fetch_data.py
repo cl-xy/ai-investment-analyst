@@ -1,5 +1,5 @@
 """
-Fetch data node. Calls 6 MCP tool servers in parallel with graceful degradation.
+Fetch data node. Calls 7 MCP tool servers in parallel with graceful degradation.
 
 Each tool call is independently wrapped with timeout handling.
 Integrates with the PostgreSQL cache layer (stale-while-revalidate).
@@ -21,8 +21,8 @@ TOOL_TIMEOUT = 30  # seconds per tool call
 
 # Global semaphore bounding concurrent tool calls across all analyses.
 # Prevents overwhelming external APIs (SEC EDGAR ~10 req/s, yfinance, newsapi).
-# With analysis_slot semaphore(3) × 6 tools × N tickers, this caps actual I/O.
-_GLOBAL_TOOL_SEMAPHORE = asyncio.Semaphore(18)
+# With analysis_slot semaphore(3) × 7 tools × N tickers, this caps actual I/O.
+_GLOBAL_TOOL_SEMAPHORE = asyncio.Semaphore(21)
 
 
 def _unwrap(result) -> dict | list:
@@ -148,7 +148,7 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
         async with _GLOBAL_TOOL_SEMAPHORE:
             return await _call_tool_cached(tools, provider, tool_name, ticker, tool_kwargs)
 
-    async def fetch_one(ticker: str) -> tuple[str, list, dict, str, dict, list[str]]:
+    async def fetch_one(ticker: str) -> tuple[str, list, dict, str, dict, dict, list[str]]:
         """Fetch all data for one ticker with caching. Returns per-ticker results + gaps."""
         gaps: list[str] = []
         from src.cache.manager import cache_manager as cm
@@ -161,6 +161,7 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
             ("sec_edgar", "get_latest_filing_summary", {"ticker": ticker, "form_type": "10-K"}),
             ("yfinance", "get_technical_indicators", {"ticker": ticker}),
             ("yfinance", "get_earnings_calendar", {"ticker": ticker}),
+            ("stocktwits", "get_ticker_sentiment", {"ticker": ticker}),
         ]
 
         # Separate budget-exhausted providers (cache-only) from live fetches
@@ -210,6 +211,7 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
         filing_data, filing_ok, _, _ = results[3]
         indicators_data, indicators_ok, _, _ = results[4]
         earnings_data, earnings_ok, _, _ = results[5]
+        sentiment_data, sentiment_ok, _, _ = results[6]
 
         # Track gaps for failed sources
         if not news_ok:
@@ -231,6 +233,9 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
             # Not a real gap worth surfacing to the user — many tickers simply
             # have no confirmed upcoming earnings date. Just default to empty.
             earnings_data = {}
+        if not sentiment_ok:
+            gaps.append(f"Retail sentiment unavailable for {ticker}")
+            sentiment_data = {}
 
         news = news_data if isinstance(news_data, list) else []
         prices = {
@@ -240,8 +245,9 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
         }
         filing_text = filing_data.get("text_excerpt", "") if isinstance(filing_data, dict) else ""
         earnings = earnings_data if isinstance(earnings_data, dict) else {}
+        sentiment = sentiment_data if isinstance(sentiment_data, dict) else {}
 
-        return ticker, news, prices, filing_text, earnings, gaps
+        return ticker, news, prices, filing_text, earnings, sentiment, gaps
 
     all_results = await asyncio.gather(*[fetch_one(t) for t in tickers], return_exceptions=True)
 
@@ -249,6 +255,7 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
     raw_prices: dict[str, dict] = {}
     raw_filings: dict[str, str] = {}
     raw_earnings: dict[str, dict] = {}
+    raw_sentiment: dict[str, dict] = {}
     all_gaps: list[str] = []
 
     for i, result in enumerate(all_results):
@@ -260,12 +267,14 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
             raw_prices[ticker] = {"quote": {}, "fundamentals": {}, "indicators": {}}
             raw_filings[ticker] = ""
             raw_earnings[ticker] = {}
+            raw_sentiment[ticker] = {}
             continue
-        _, news, prices, filing_text, earnings, gaps = result
+        _, news, prices, filing_text, earnings, sentiment, gaps = result
         raw_news[ticker] = news
         raw_prices[ticker] = prices
         raw_filings[ticker] = filing_text
         raw_earnings[ticker] = earnings
+        raw_sentiment[ticker] = sentiment
         all_gaps.extend(gaps)
 
     return {
@@ -273,5 +282,6 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
         "raw_prices": raw_prices,
         "raw_filings": raw_filings,
         "raw_earnings": raw_earnings,
+        "raw_sentiment": raw_sentiment,
         "data_gaps": all_gaps,
     }
