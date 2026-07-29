@@ -22,7 +22,6 @@ import type {
   SLOData,
   MetricsData,
   ChaosState,
-  ChaosScenario,
   CircuitBreaker,
   RecentError,
   LatencyEntry,
@@ -510,7 +509,7 @@ function LatencyChart({ entries }: { entries: LatencyEntry[] }) {
               borderRadius: 8,
             }}
             labelStyle={{ color: 'var(--text-primary)' }}
-            formatter={(value: number, name: string) => [
+            formatter={(value: unknown, name: unknown) => [
               `${value}s`,
               name === 'fetch_data' ? 'Fetch Data' : name === 'debate' ? 'Debate' : 'Report',
             ]}

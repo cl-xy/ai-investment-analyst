@@ -280,7 +280,11 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     price_data = ctx["raw_price_data"]
 
     correlation_id = state.get("correlation_id")
-    _log = log.bind(correlation_id=correlation_id, node="debate", ticker=ticker) if correlation_id else log
+    _log = (
+        log.bind(correlation_id=correlation_id, node="debate", ticker=ticker)
+        if correlation_id
+        else log
+    )
     _log.info("debate_starting")
 
     # Run bull agent
@@ -288,9 +292,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     try:
         bull = await _run_bull_agent(ctx)
         bull_duration = int((time.monotonic() - bull_start) * 1000)
-        _log.info(
-            "bull_complete", confidence=bull.confidence, duration_ms=bull_duration
-        )
+        _log.info("bull_complete", confidence=bull.confidence, duration_ms=bull_duration)
     except (CircuitBreakerOpen, Exception) as e:
         _log.warning("bull_failed", error=str(e))
         # Fallback: create minimal analysis without debate
@@ -323,9 +325,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     try:
         bear = await _run_bear_agent(ctx, bull)
         bear_duration = int((time.monotonic() - bear_start) * 1000)
-        _log.info(
-            "bear_complete", confidence=bear.confidence, duration_ms=bear_duration
-        )
+        _log.info("bear_complete", confidence=bear.confidence, duration_ms=bear_duration)
     except (CircuitBreakerOpen, Exception) as e:
         _log.warning("bear_failed", error=str(e))
         # Degrade: use bull-only analysis

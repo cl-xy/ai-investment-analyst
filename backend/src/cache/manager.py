@@ -165,9 +165,7 @@ class CacheManager:
         # lock context and in the same asyncio tick, no other coroutine can acquire
         # between check and pop).
         if len(self._inflight_locks) > self._lock_max_size:
-            to_remove = [
-                k for k, lk in self._inflight_locks.items() if not lk.locked()
-            ]
+            to_remove = [k for k, lk in self._inflight_locks.items() if not lk.locked()]
             for k in to_remove[: len(to_remove) // 2]:
                 self._inflight_locks.pop(k, None)
 

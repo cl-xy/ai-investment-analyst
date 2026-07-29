@@ -15,7 +15,9 @@ async def generate_report_node(state: InvestmentAnalystState) -> dict:
     analyses = state.get("ticker_analyses", {})
     portfolio = state.get("portfolio", [])
     correlation_id = state.get("correlation_id")
-    _log = log.bind(correlation_id=correlation_id, node="generate_report") if correlation_id else log
+    _log = (
+        log.bind(correlation_id=correlation_id, node="generate_report") if correlation_id else log
+    )
 
     portfolio_context = ""
     if portfolio:

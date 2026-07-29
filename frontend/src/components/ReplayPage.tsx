@@ -437,7 +437,7 @@ function TimelineView({
     }
     if (e.type === 'node_completed' && e.node === currentNode) {
       const dur = (e.payload as { duration_ms?: number }).duration_ms || 0
-      nodeGroups.push({ node: currentNode, startIdx: nodeStart, endIdx: i, durationMs: dur })
+      nodeGroups.push({ node: currentNode!, startIdx: nodeStart, endIdx: i, durationMs: dur })
       currentNode = null
     }
   }

@@ -38,11 +38,7 @@ def _check_ops_auth(request: Request) -> bool:
     if not demo_password:
         # No password configured, allow access (dev mode)
         return True
-    provided = (
-        request.query_params.get("password")
-        or request.headers.get("X-Demo-Password")
-        or ""
-    )
+    provided = request.query_params.get("password") or request.headers.get("X-Demo-Password") or ""
     return hmac.compare_digest(provided.encode(), demo_password.encode())
 
 

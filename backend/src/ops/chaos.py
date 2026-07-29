@@ -128,6 +128,7 @@ chaos_config = ChaosConfig()
 
 # Integration helpers: call these at integration points
 
+
 async def check_llm_chaos() -> None:
     """
     Call before LLM API calls. Raises TimeoutError if llm_timeout is active,

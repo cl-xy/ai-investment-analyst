@@ -118,7 +118,11 @@ async def peer_compare_node(state: InvestmentAnalystState) -> dict:
         return {}
 
     correlation_id = state.get("correlation_id")
-    _log = log.bind(correlation_id=correlation_id, node="peer_compare", ticker=primary) if correlation_id else log
+    _log = (
+        log.bind(correlation_id=correlation_id, node="peer_compare", ticker=primary)
+        if correlation_id
+        else log
+    )
 
     sector = (primary_analysis.get("fundamentals") or {}).get("sector")
     if not sector:

@@ -297,11 +297,17 @@ class OpsCollector:
         burn_rate = (budget_consumed / expected_consumption) if expected_consumption > 0 else 0.0
 
         # Determine overall SLO status
-        if availability >= self.slo_targets["availability"] and latency_p95 <= self.slo_targets["latency_p95_ms"]:
+        if (
+            availability >= self.slo_targets["availability"]
+            and latency_p95 <= self.slo_targets["latency_p95_ms"]
+        ):
             slo_status = "healthy"
         elif burn_rate > 2.0:
             slo_status = "critical"
-        elif availability < self.slo_targets["availability"] or latency_p95 > self.slo_targets["latency_p95_ms"]:
+        elif (
+            availability < self.slo_targets["availability"]
+            or latency_p95 > self.slo_targets["latency_p95_ms"]
+        ):
             slo_status = "at_risk"
         else:
             slo_status = "healthy"
