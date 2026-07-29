@@ -9,22 +9,14 @@ Falls back to single-shot analysis if debate fails or rate budget is exhausted.
 import asyncio
 import json
 import logging
-import os
 import time
-from functools import cache
 from typing import Any
 
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import ValidationError
-from tenacity import (
-    retry,
-    retry_if_exception,
-    stop_after_attempt,
-    wait_exponential,
-)
 
-from ..circuit_breaker import CircuitBreakerOpen, llm_breaker
+from ..circuit_breaker import CircuitBreakerOpen
+from ..llm_fallback import invoke_with_fallback
 from ..debate_schemas import (
     BearCaseOutput,
     BullCaseOutput,
@@ -44,53 +36,19 @@ from ..state import InvestmentAnalystState, TickerAnalysis
 
 log = logging.getLogger(__name__)
 
-# Minimum delay between sequential LLM calls to stay under 30 req/min
-_MIN_CALL_INTERVAL = 2.5  # seconds
+# Minimum delay between sequential LLM calls to reduce burst contention
+# on free-tier provider workers (Nvidia ResourceExhausted threshold)
+_MIN_CALL_INTERVAL = 4.0  # seconds
 
 
-def _is_retryable_error(exc: BaseException) -> bool:
-    """Return True for transient errors that should be retried."""
-    import re
+async def _invoke_with_retry(messages: list) -> object:
+    """Invoke LLM with retry + model fallback for debate steps.
 
-    exc_str = str(exc).lower()
-    if any(code in exc_str for code in ("401", "400", "unauthorized", "bad request")):
-        return False
-    if re.search(r"\b(429|500|502|503)\b", exc_str):
-        return True
-    if "rate limit" in exc_str:
-        return True
-    if any(term in exc_str for term in ("timeout", "connection", "temporary", "unavailable")):
-        return True
-    return False
-
-
-@cache
-def _get_llm() -> ChatOpenAI:
-    from ...config import settings
-
-    api_key = settings.openrouter_api_key or os.environ.get("OPENROUTER_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY environment variable is not set")
-    return ChatOpenAI(
-        model=settings.llm_model,
-        temperature=0.3,  # slightly higher than 0 for diverse debate perspectives
-        max_tokens=8192,  # type: ignore[call-arg]
-        base_url=settings.llm_base_url,
-        api_key=api_key,  # type: ignore[arg-type]
-        model_kwargs={"response_format": {"type": "json_object"}},
-        request_timeout=120,  # type: ignore[call-arg]
+    Uses higher temperature for diverse debate perspectives.
+    """
+    return await invoke_with_fallback(
+        messages, temperature=0.3, max_tokens=8192, request_timeout=120
     )
-
-
-@retry(
-    retry=retry_if_exception(_is_retryable_error),
-    wait=wait_exponential(multiplier=1, min=2, max=8),
-    stop=stop_after_attempt(2),
-    reraise=True,
-)
-async def _invoke_with_retry(messages: list) -> BaseMessage:
-    """Invoke LLM with retry and circuit breaker (which handles rate limiting)."""
-    return await llm_breaker.call(_get_llm().ainvoke, messages)  # type: ignore[return-value]
 
 
 def _format_news(articles: list[dict]) -> str:

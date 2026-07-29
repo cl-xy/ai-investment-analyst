@@ -66,10 +66,7 @@ async def test_analyze_ticker_returns_analysis(state_with_ticker_data):
         "sec_notes": "Company highlights supply chain as primary risk."
     }"""
 
-    mock_llm = AsyncMock()
-    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
-
-    with patch("src.agent.nodes.analyze_ticker._get_llm", return_value=mock_llm):
+    with patch("src.agent.nodes.analyze_ticker.invoke_with_fallback", new_callable=AsyncMock, return_value=mock_response):
         from src.agent.nodes.analyze_ticker import analyze_ticker_node
 
         result = await analyze_ticker_node(state_with_ticker_data)
@@ -99,10 +96,7 @@ async def test_analyze_ticker_handles_code_fenced_json(state_with_ticker_data):
 }
 ```"""
 
-    mock_llm = AsyncMock()
-    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
-
-    with patch("src.agent.nodes.analyze_ticker._get_llm", return_value=mock_llm):
+    with patch("src.agent.nodes.analyze_ticker.invoke_with_fallback", new_callable=AsyncMock, return_value=mock_response):
         from src.agent.nodes.analyze_ticker import analyze_ticker_node
 
         result = await analyze_ticker_node(state_with_ticker_data)
@@ -116,10 +110,7 @@ async def test_analyze_ticker_falls_back_on_invalid_json(state_with_ticker_data)
     mock_response = MagicMock()
     mock_response.content = "I cannot analyze this stock right now."
 
-    mock_llm = AsyncMock()
-    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
-
-    with patch("src.agent.nodes.analyze_ticker._get_llm", return_value=mock_llm):
+    with patch("src.agent.nodes.analyze_ticker.invoke_with_fallback", new_callable=AsyncMock, return_value=mock_response):
         from src.agent.nodes.analyze_ticker import analyze_ticker_node
 
         result = await analyze_ticker_node(state_with_ticker_data)
@@ -146,12 +137,10 @@ async def test_analyze_ticker_skips_already_analyzed(state_with_ticker_data):
         }
     }
 
-    mock_llm = AsyncMock()
-
-    with patch("src.agent.nodes.analyze_ticker._get_llm", return_value=mock_llm):
+    with patch("src.agent.nodes.analyze_ticker.invoke_with_fallback", new_callable=AsyncMock) as mock_invoke:
         from src.agent.nodes.analyze_ticker import analyze_ticker_node
 
         result = await analyze_ticker_node(state_with_ticker_data)
 
-    mock_llm.ainvoke.assert_not_called()
+    mock_invoke.assert_not_called()
     assert result == {}

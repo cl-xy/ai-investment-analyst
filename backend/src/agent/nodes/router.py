@@ -1,35 +1,15 @@
 import logging
-import os
-from functools import cache
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 log = logging.getLogger(__name__)
 
 from ..json_utils import extract_json
+from ..llm_fallback import invoke_with_fallback
 from ..prompts.router_prompt import ROUTER_HUMAN, ROUTER_SYSTEM
 from ..state import InvestmentAnalystState
 from ..structured_output import RouterOutput
-
-
-@cache
-def _get_llm() -> ChatOpenAI:
-    from ...config import settings
-
-    api_key = settings.openrouter_api_key or os.environ.get("OPENROUTER_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY environment variable is not set")
-    return ChatOpenAI(
-        model=settings.llm_router_model,
-        temperature=0,
-        max_tokens=256,  # type: ignore[call-arg]
-        base_url=settings.llm_base_url,
-        api_key=api_key,  # type: ignore[arg-type]
-        model_kwargs={"response_format": {"type": "json_object"}},
-        request_timeout=30,  # type: ignore[call-arg]
-    )
 
 
 async def router_node(state: InvestmentAnalystState) -> dict:
@@ -37,19 +17,23 @@ async def router_node(state: InvestmentAnalystState) -> dict:
     if state.get("intent"):
         return {}
 
+    from ...config import settings
+
     last_message = state["messages"][-1]
     user_text = last_message.content if hasattr(last_message, "content") else str(last_message)
 
     try:
-        from ..rate_limiter import acquire_or_raise
-
-        await acquire_or_raise()
-
-        response = await _get_llm().ainvoke(
+        # Rate limiting is handled by the circuit breaker inside invoke_with_fallback
+        response = await invoke_with_fallback(
             [
                 SystemMessage(content=ROUTER_SYSTEM),
                 HumanMessage(content=ROUTER_HUMAN.format(message=user_text)),
-            ]
+            ],
+            primary_model=settings.llm_router_model,
+            fallback_model=settings.llm_router_model_fallback,
+            temperature=0.0,
+            max_tokens=256,
+            request_timeout=30,
         )
     except Exception as e:
         log.warning("router_node LLM call failed: %s", e)

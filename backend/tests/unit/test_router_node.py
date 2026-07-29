@@ -29,11 +29,10 @@ async def test_router_skips_llm_when_intent_preset(base_state):
     base_state["intent"] = "list_portfolio"
     from src.agent.nodes.router import router_node
 
-    mock_llm = AsyncMock()
-    with patch("src.agent.nodes.router._get_llm", return_value=mock_llm):
+    with patch("src.agent.nodes.router.invoke_with_fallback", new_callable=AsyncMock) as mock_invoke:
         result = await router_node(base_state)
 
-    mock_llm.ainvoke.assert_not_called()
+    mock_invoke.assert_not_called()
     assert result == {}
 
 
@@ -42,10 +41,7 @@ async def test_router_parses_single_ticker_intent(base_state):
     mock_response = MagicMock()
     mock_response.content = '{"intent": "single_ticker", "tickers": ["NVDA", "AAPL"], "reasoning": "User wants analysis"}'
 
-    mock_llm = AsyncMock()
-    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
-
-    with patch("src.agent.nodes.router._get_llm", return_value=mock_llm):
+    with patch("src.agent.nodes.router.invoke_with_fallback", new_callable=AsyncMock, return_value=mock_response):
         from src.agent.nodes.router import router_node
 
         result = await router_node(base_state)
@@ -60,10 +56,7 @@ async def test_router_parses_json_with_code_fences(base_state):
     mock_response = MagicMock()
     mock_response.content = '```json\n{"intent": "full_report", "tickers": []}\n```'
 
-    mock_llm = AsyncMock()
-    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
-
-    with patch("src.agent.nodes.router._get_llm", return_value=mock_llm):
+    with patch("src.agent.nodes.router.invoke_with_fallback", new_callable=AsyncMock, return_value=mock_response):
         from src.agent.nodes.router import router_node
 
         result = await router_node(base_state)
@@ -77,10 +70,7 @@ async def test_router_falls_back_to_conversational_on_bad_json(base_state):
     mock_response = MagicMock()
     mock_response.content = "I cannot determine the intent."
 
-    mock_llm = AsyncMock()
-    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
-
-    with patch("src.agent.nodes.router._get_llm", return_value=mock_llm):
+    with patch("src.agent.nodes.router.invoke_with_fallback", new_callable=AsyncMock, return_value=mock_response):
         from src.agent.nodes.router import router_node
 
         result = await router_node(base_state)

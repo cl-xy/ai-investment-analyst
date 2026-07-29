@@ -2,71 +2,25 @@
 Analyze ticker node. Uses OpenRouter JSON mode + Pydantic validation.
 
 Replaces brittle extract_json() with structured output validation.
-Single retry on validation failure. Circuit breaker + exponential backoff
-for transient LLM API errors.
+Single retry on validation failure. Model fallback chain for transient
+upstream errors (ResourceExhausted, 429, timeout).
 """
 
 import json
 import logging
-import os
 import time
-from functools import cache
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
-from tenacity import (
-    retry,
-    retry_if_exception,
-    stop_after_attempt,
-    wait_exponential,
-)
 
-from ..circuit_breaker import CircuitBreakerOpen, llm_breaker
+from ..circuit_breaker import CircuitBreakerOpen
 from ..json_utils import extract_json
+from ..llm_fallback import invoke_with_fallback
 from ..prompts.analyst_prompt import ANALYST_HUMAN, ANALYST_SYSTEM
 from ..state import InvestmentAnalystState, TickerAnalysis
 from ..structured_output import AnalysisOutput
 
 log = logging.getLogger(__name__)
-
-
-def _is_retryable_error(exc: BaseException) -> bool:
-    """Return True for transient errors that should be retried."""
-    exc_str = str(exc).lower()
-    # Don't retry auth errors (401) or bad request (400) — check these first
-    if any(code in exc_str for code in ("401", "400", "unauthorized", "bad request")):
-        return False
-    # Rate limit (429) or server errors (500, 502, 503)
-    # Use word-boundary-aware matching to avoid false positives (e.g. port 5003)
-    import re
-
-    if re.search(r"\b(429|500|502|503)\b", exc_str):
-        return True
-    if "rate limit" in exc_str:
-        return True
-    # Retry generic connection/timeout errors
-    if any(term in exc_str for term in ("timeout", "connection", "temporary", "unavailable")):
-        return True
-    return False
-
-
-@cache
-def _get_llm() -> ChatOpenAI:
-    from ...config import settings
-
-    api_key = settings.openrouter_api_key or os.environ.get("OPENROUTER_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY environment variable is not set")
-    return ChatOpenAI(
-        model=settings.llm_model,
-        temperature=0,
-        max_tokens=16384,  # type: ignore[call-arg]
-        base_url=settings.llm_base_url,
-        api_key=api_key,  # type: ignore[arg-type]
-        model_kwargs={"response_format": {"type": "json_object"}},
-        request_timeout=120,  # type: ignore[call-arg]
-    )
 
 
 def _format_news(articles: list[dict]) -> str:
@@ -83,17 +37,6 @@ def _format_news(articles: list[dict]) -> str:
 
 def _make_source_id(provider: str, ticker: str) -> str:
     return f"{provider}:{ticker}:{int(time.time())}"
-
-
-@retry(
-    retry=retry_if_exception(_is_retryable_error),
-    wait=wait_exponential(multiplier=1, min=1, max=4),
-    stop=stop_after_attempt(3),
-    reraise=True,
-)
-async def _invoke_llm_with_retry(messages: list) -> object:
-    """Invoke LLM with retry on transient errors, wrapped in circuit breaker."""
-    return await llm_breaker.call(_get_llm().ainvoke, messages)
 
 
 async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
@@ -136,7 +79,7 @@ async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
     ]
 
     try:
-        response = await _invoke_llm_with_retry(messages)
+        response = await invoke_with_fallback(messages)
     except CircuitBreakerOpen as e:
         log.warning("analyze_ticker_node circuit breaker open for %s: %s", ticker, e)
         analysis: TickerAnalysis = {
@@ -174,7 +117,7 @@ async def analyze_ticker_node(state: InvestmentAnalystState) -> dict:
                 f"Your JSON was invalid. Errors: {error_msg}\n"
                 f"Fix the JSON and return a valid response matching the schema exactly."
             )
-            retry_response = await _invoke_llm_with_retry(
+            retry_response = await invoke_with_fallback(
                 messages + [HumanMessage(content=retry_prompt)]
             )
             output = AnalysisOutput.model_validate_json(retry_response.content)  # type: ignore[union-attr, arg-type, attr-defined]
