@@ -53,6 +53,9 @@ def _store_event(run_id: str, sse_msg: str):
     now = time.time()
     if run_id not in _recent_runs:
         _recent_runs[run_id] = (now, [])
+    else:
+        # Pop and re-insert to move to end (maintain LRU order for eviction)
+        _recent_runs[run_id] = _recent_runs.pop(run_id)
     _recent_runs[run_id] = (now, _recent_runs[run_id][1])
     _recent_runs[run_id][1].append(sse_msg)
     # Evict expired/overflow only periodically, not on every event
@@ -76,7 +79,10 @@ def _replay_events(run_id: str, after_seq: int) -> list[str]:
         lines = ev.split("\n")
         id_line = next((line for line in lines if line.startswith("id: ")), None)
         if id_line:
-            seq = int(id_line.removeprefix("id: "))
+            try:
+                seq = int(id_line.removeprefix("id: "))
+            except (ValueError, TypeError):
+                continue
             if seq > after_seq:
                 result.append(ev)
     return result
@@ -103,7 +109,7 @@ async def _run_agent(
     """Execute the LangGraph agent and emit domain events to the queue."""
 
     tickers_upper = [t.upper() for t in tickers]
-    tool_start_times: dict[str, float] = {}
+    tool_start_times: dict[str, tuple[float, str]] = {}
     # Track debate LLM calls within the debate node
     debate_llm_count: dict[str, int] = defaultdict(int)
     debate_llm_start: dict[str, float] = {}  # per-ticker start times
@@ -111,6 +117,10 @@ async def _run_agent(
 
     event = emitter.run_started(tickers_upper)
     await queue.put(event.to_sse())
+
+    ticker_analyses: dict = {}
+    _run_succeeded = False
+    _timed_out = False
 
     try:
         message = f"Analyze these stocks: {', '.join(tickers_upper)}"
@@ -232,8 +242,9 @@ async def _run_agent(
                     # LLM start: track debate timing (keyed by current_node context)
                     elif kind == "on_chat_model_start":
                         if current_node == "debate":
-                            # Store start time; ticker resolved at on_chat_model_end
-                            debate_llm_start["_pending"] = time.monotonic()
+                            # Store start time keyed by LLM call run_id
+                            llm_run_id = event_data.get("run_id", "_pending")
+                            debate_llm_start[llm_run_id] = time.monotonic()
 
                     # LLM completion: track tokens + emit debate events
                     elif kind == "on_chat_model_end":
@@ -283,20 +294,23 @@ async def _run_agent(
                             if not _current_ticker:
                                 # All tickers already have their turns; this is a stray
                                 # retry event. Skip it entirely.
-                                debate_llm_start.pop("_pending", None)
+                                llm_run_id = event_data.get("run_id", "_pending")
+                                debate_llm_start.pop(llm_run_id, None)
                                 continue
 
                             count = debate_llm_count[_current_ticker]
                             # Only advance the counter up to the expected number of
                             # debate roles. Extra calls from retries are ignored.
                             if count >= _num_debate_turns:
-                                debate_llm_start.pop("_pending", None)
+                                llm_run_id = event_data.get("run_id", "_pending")
+                                debate_llm_start.pop(llm_run_id, None)
                                 continue
                             debate_llm_count[_current_ticker] = count + 1
+                            llm_run_id = event_data.get("run_id", "_pending")
                             duration_ms = int(
                                 (
                                     time.monotonic()
-                                    - debate_llm_start.pop("_pending", time.monotonic())
+                                    - debate_llm_start.pop(llm_run_id, time.monotonic())
                                 )
                                 * 1000
                             )
@@ -304,6 +318,8 @@ async def _run_agent(
                             try:
                                 turn_data = extract_json(output.content)
                             except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
+                                turn_data = {}
+                            if not isinstance(turn_data, dict):
                                 turn_data = {}
 
                             role = DEBATE_ROLES[min(count, _num_debate_turns - 1)]
@@ -349,6 +365,7 @@ async def _run_agent(
             try:
                 await asyncio.wait_for(_execute(), timeout=execution_timeout)
             except asyncio.TimeoutError:
+                _timed_out = True
                 ev = emitter.error(
                     f"Analysis timed out after {execution_timeout}s",
                     recoverable=False,
@@ -404,8 +421,12 @@ async def _run_agent(
         await queue.put(ev.to_sse())
         _run_succeeded = False
     else:
-        metrics.inc("analyses_total", labels={"status": "success"})
-        _run_succeeded = True
+        if _timed_out:
+            metrics.inc("analyses_total", labels={"status": "error"})
+            _run_succeeded = False
+        else:
+            metrics.inc("analyses_total", labels={"status": "success"})
+            _run_succeeded = True
 
     # Always emit run_completed and signal done, even if summary/persist fail
     try:
@@ -495,6 +516,11 @@ async def _stream_generator(
                 release_analysis_slot()
                 slot_released = True
                 return  # Run finished, nothing to stream
+            # Run still in progress; client got replayed events but we cannot
+            # attach to the live run from here. Do NOT start a new agent.
+            release_analysis_slot()
+            slot_released = True
+            return
         else:
             # Run exists on this instance but client already has all events.
             # Check if the run completed (emit terminal) or is still in-progress
@@ -592,7 +618,7 @@ async def analyze_stream(
             headers={"Retry-After": "10"},
         )
 
-    ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+    ticker_list = list(dict.fromkeys(t.strip().upper() for t in tickers.split(",") if t.strip()))
     if not ticker_list:
         return JSONResponse(
             status_code=400,

@@ -3,14 +3,26 @@ interface Props {
 }
 
 function fmtNum(val: unknown, decimals = 2, suffix = ''): string {
-  if (val === undefined || val === null || val === '') return '-'
+  if (val === undefined || val === null) return '-'
+  if (typeof val === 'string') {
+    const trimmed = val.trim()
+    if (trimmed === '') return '-'
+    const parsed = Number(trimmed)
+    if (Number.isFinite(parsed)) {
+      return `${parsed.toLocaleString(undefined, { maximumFractionDigits: decimals })}${suffix}`
+    }
+    return trimmed
+  }
   if (typeof val === 'number') {
+    if (!Number.isFinite(val)) return '-'
     return `${val.toLocaleString(undefined, { maximumFractionDigits: decimals })}${suffix}`
   }
-  return String(val)
+  return '-'
 }
 
 export default function MarketPositionSection({ fundamentals }: Props) {
+  if (!fundamentals) return null
+
   const items = [
     { label: 'Revenue (TTM)', value: fmtNum(fundamentals.revenue, 0) },
     { label: 'Net Income', value: fmtNum(fundamentals.net_income, 0) },
@@ -19,7 +31,7 @@ export default function MarketPositionSection({ fundamentals }: Props) {
     { label: 'Return on Equity', value: fmtNum(fundamentals.roe, 1, '%') },
     { label: 'Debt to Equity', value: fmtNum(fundamentals.debt_to_equity) },
     { label: 'EPS (TTM)', value: fmtNum(fundamentals.eps) },
-    { label: 'Sector', value: String(fundamentals.sector ?? '-') },
+    { label: 'Sector', value: typeof fundamentals.sector === 'string' && fundamentals.sector.trim() ? fundamentals.sector : '-' },
   ]
 
   const description = typeof fundamentals.description === 'string' ? fundamentals.description : ''

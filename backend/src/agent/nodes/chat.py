@@ -18,6 +18,7 @@ Be concise and actionable. When citing data, note the source."""
 
 
 async def chat_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> dict:
+    mcp_tools = mcp_tools or {}
     tools = list(mcp_tools.values()) if mcp_tools else []
     correlation_id = state.get("correlation_id")
     _log = log.bind(correlation_id=correlation_id, node="chat") if correlation_id else log
@@ -43,7 +44,7 @@ async def chat_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> dict:
         for tool_call in response.tool_calls:
             tool_name = tool_call["name"]
             tool = mcp_tools.get(tool_name)
-            if tool:
+            if tool is not None:
                 try:
                     result = await tool.ainvoke(tool_call["args"])
                     messages.append(
@@ -53,12 +54,25 @@ async def chat_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> dict:
                         )
                     )
                 except Exception as e:
+                    _log.error(
+                        "chat_tool_error",
+                        tool=tool_name,
+                        error=str(e),
+                    )
                     messages.append(
                         ToolMessage(
-                            content=f"Error calling {tool_name}: {e}",
+                            content=f"Error: tool '{tool_name}' failed to execute.",
                             tool_call_id=tool_call["id"],
                         )
                     )
+            else:
+                _log.warning("chat_tool_not_found", tool=tool_name)
+                messages.append(
+                    ToolMessage(
+                        content=f"Error: tool '{tool_name}' is not available.",
+                        tool_call_id=tool_call["id"],
+                    )
+                )
     else:
         # Tool loop hit the limit without a natural break
         _log.warning("chat_node_max_tool_rounds", max_rounds=MAX_TOOL_ROUNDS)

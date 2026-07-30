@@ -23,9 +23,8 @@ const ICON_STYLES = {
 }
 
 export default function ToastContainer() {
-  const { toasts, removeToast } = useToastStore()
-
-  if (toasts.length === 0) return null
+  const toasts = useToastStore((s) => s.toasts)
+  const removeToast = useToastStore((s) => s.removeToast)
 
   return (
     <div
@@ -42,21 +41,25 @@ export default function ToastContainer() {
 }
 
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
-  const Icon = ICONS[toast.type]
+  const Icon = ICONS[toast.type] ?? Info
 
   return (
     <div
-      className={`flex items-start gap-3 px-4 py-3 rounded-xl border shadow-lg animate-slide-in-right ${TYPE_STYLES[toast.type]}`}
-      role="alert"
+      className={`flex items-start gap-3 px-4 py-3 rounded-xl border shadow-lg animate-slide-in-right ${TYPE_STYLES[toast.type] ?? TYPE_STYLES.info}`}
+      role={toast.type === 'error' ? 'alert' : 'status'}
     >
-      <Icon className={`w-4 h-4 mt-0.5 shrink-0 ${ICON_STYLES[toast.type]}`} />
+      <Icon className={`w-4 h-4 mt-0.5 shrink-0 ${ICON_STYLES[toast.type] ?? ICON_STYLES.info}`} aria-hidden="true" />
       <div className="flex-1 min-w-0">
         <p className="text-sm text-[var(--text-primary)]">{toast.message}</p>
         {toast.action && (
           <button
+            type="button"
             onClick={() => {
-              toast.action!.onClick()
-              onDismiss()
+              try {
+                toast.action!.onClick()
+              } finally {
+                onDismiss()
+              }
             }}
             className="mt-1 text-xs font-medium text-[var(--accent)] hover:underline focus-ring rounded"
           >
@@ -65,11 +68,12 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
         )}
       </div>
       <button
+        type="button"
         onClick={onDismiss}
         className="shrink-0 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors p-1 min-w-[28px] min-h-[28px] flex items-center justify-center focus-ring rounded"
         aria-label="Dismiss notification"
       >
-        <X className="w-3.5 h-3.5" />
+        <X className="w-3.5 h-3.5" aria-hidden="true" />
       </button>
     </div>
   )

@@ -5,18 +5,27 @@ GET /api/health       -> liveness (always 200 if the app is running)
 GET /api/health/ready -> readiness (checks DB, reports provider status)
 """
 
+import asyncio
+import logging
 import time
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+from src.agent.circuit_breaker import llm_breaker
 from src.cache.budget import DAILY_LIMITS, get_budget_status
 from src.db import fetchval
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 # Track when the app started for uptime calculation
 _start_time = time.monotonic()
+
+# Timeouts for dependency checks (seconds)
+_DB_TIMEOUT = 3.0
+_BUDGET_TIMEOUT = 2.0
 
 
 @router.get("/health")
@@ -38,22 +47,36 @@ async def readiness():
     checks: dict = {}
     status = "healthy"
 
-    # 1. Database check
+    # 1. Database check (with timeout to prevent hung probes)
     db_start = time.monotonic()
     try:
-        result = await fetchval("SELECT 1")
+        result = await asyncio.wait_for(fetchval("SELECT 1"), timeout=_DB_TIMEOUT)
         db_ok = result == 1
         db_latency = round((time.monotonic() - db_start) * 1000, 1)
-        checks["database"] = {"status": "up", "latency_ms": db_latency}
-    except Exception:
+        if db_ok:
+            checks["database"] = {"status": "up", "latency_ms": db_latency}
+        else:
+            checks["database"] = {"status": "down", "latency_ms": db_latency}
+            status = "unhealthy"
+    except asyncio.TimeoutError:
         db_ok = False
-        checks["database"] = {"status": "down"}
+        db_latency = round((time.monotonic() - db_start) * 1000, 1)
+        checks["database"] = {"status": "timeout", "latency_ms": db_latency}
         status = "unhealthy"
+        logger.warning("Health check: database timed out after %.1fms", db_latency)
+    except Exception as exc:
+        db_ok = False
+        db_latency = round((time.monotonic() - db_start) * 1000, 1)
+        checks["database"] = {"status": "down", "latency_ms": db_latency}
+        status = "unhealthy"
+        logger.warning("Health check: database error: %s", type(exc).__name__)
 
-    # 2. LLM budget check
+    # 2. LLM budget check (with timeout)
     if db_ok:
         try:
-            budget_status = await get_budget_status()
+            budget_status = await asyncio.wait_for(
+                get_budget_status(), timeout=_BUDGET_TIMEOUT
+            )
             llm_budget = budget_status.get("openrouter", {})
             remaining = llm_budget.get("remaining", 0)
             limit = DAILY_LIMITS.get("openrouter", 1400)
@@ -65,13 +88,19 @@ async def readiness():
             }
             if not budget_ok:
                 status = "degraded" if status == "healthy" else status
-        except Exception:
+        except asyncio.TimeoutError:
             checks["llm_budget"] = {"status": "unknown"}
+            status = "degraded" if status == "healthy" else status
+            logger.warning("Health check: budget status timed out")
+        except Exception as exc:
+            checks["llm_budget"] = {"status": "unknown"}
+            status = "degraded" if status == "healthy" else status
+            logger.warning(
+                "Health check: budget status error: %s", type(exc).__name__
+            )
 
     # 3. Circuit breaker state
     try:
-        from src.agent.circuit_breaker import llm_breaker
-
         cb_state = llm_breaker.state.value
         checks["circuit_breaker"] = {
             "status": cb_state,
@@ -79,8 +108,11 @@ async def readiness():
         }
         if cb_state in ("open", "half_open"):
             status = "degraded" if status == "healthy" else status
-    except Exception:
+    except Exception as exc:
         checks["circuit_breaker"] = {"status": "unknown", "provider": "openrouter"}
+        logger.warning(
+            "Health check: circuit breaker error: %s", type(exc).__name__
+        )
 
     uptime = round(time.monotonic() - _start_time, 1)
 

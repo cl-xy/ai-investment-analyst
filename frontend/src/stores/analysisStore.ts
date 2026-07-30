@@ -67,6 +67,8 @@ interface AnalysisStore {
   reset: () => void
 }
 
+const MAX_EVENTS = 500
+
 export const useAnalysisStore = create<AnalysisStore>((set) => ({
   events: [],
   currentNode: null,
@@ -91,8 +93,9 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
 
   addEvent: (event: StreamEvent) =>
     set((state) => {
+      const newEvents = [...state.events, event]
       const updates: Partial<AnalysisStore> = {
-        events: [...state.events, event],
+        events: newEvents.length > MAX_EVENTS ? newEvents.slice(-MAX_EVENTS) : newEvents,
       }
 
       if (event.type === 'node_started') {
@@ -101,12 +104,14 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
         updates.currentNode = null
       }
 
-      // Track debate started
+      // Track debate started (idempotent: preserve existing turns if replayed)
       if (event.type === 'debate_started') {
         const ticker = event.payload.ticker as string
-        updates.debates = {
-          ...state.debates,
-          [ticker]: { ticker, turns: [], verdict: null, isActive: true },
+        if (!state.debates[ticker]) {
+          updates.debates = {
+            ...state.debates,
+            [ticker]: { ticker, turns: [], verdict: null, isActive: true },
+          }
         }
       }
 
@@ -121,6 +126,7 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
   setComplete: (meta: RunCompletedPayload) =>
     set((state) => ({
       isStreaming: false,
+      currentNode: null,
       runMeta: state.runMeta
         ? {
             ...state.runMeta,
@@ -132,11 +138,15 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
     })),
 
   setError: (error: string) =>
-    set({ error, isStreaming: false }),
+    set({ error, isStreaming: false, currentNode: null }),
 
   addDebateTurn: (ticker: string, turn: DebateTurnPayload) =>
     set((state) => {
       const existing = state.debates[ticker] || emptyDebate(ticker)
+      // Deduplicate by turn_index (SSE reconnect can replay events)
+      if (existing.turns.some((t) => t.turn_index === turn.turn_index)) {
+        return state
+      }
       return {
         debates: {
           ...state.debates,

@@ -3,6 +3,7 @@ Analyze endpoint. Runs the LangGraph agent and persists results to PostgreSQL.
 """
 
 import json
+import logging
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -26,6 +27,8 @@ from src.api.persistence import persist_full_run
 from src.db import fetchrow
 
 from ..schemas import VALID_TICKER_RE, AnalyzeRequest, AnalyzeResponse, TickerAnalysis
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -69,21 +72,21 @@ async def _fetch_cached_analyses(tickers: list[str]) -> dict[str, TickerAnalysis
                 ticker=row["ticker"],
                 signal=row["signal"],
                 confidence=row["confidence"],
-                sentiment_score=row["sentiment_score"],
-                news_summary=row["news_summary"],
+                sentiment_score=row["sentiment_score"] or 0.0,
+                news_summary=row["news_summary"] or "",
                 risk_flags=row["risk_flags"]
                 if isinstance(row["risk_flags"], list)
-                else json.loads(row["risk_flags"]),
+                else json.loads(row["risk_flags"] or "[]"),
                 price_data=row["price_data"]
                 if isinstance(row["price_data"], dict)
-                else json.loads(row["price_data"]),
+                else json.loads(row["price_data"] or "{}"),
                 fundamentals=row["fundamentals"]
                 if isinstance(row["fundamentals"], dict)
-                else json.loads(row["fundamentals"]),
+                else json.loads(row["fundamentals"] or "{}"),
                 earnings=row["earnings"]
                 if isinstance(row["earnings"], dict)
                 else json.loads(row["earnings"] or "{}"),
-                sec_notes=row["sec_notes"],
+                sec_notes=row["sec_notes"] or "",
             )
     return cached
 
@@ -126,15 +129,22 @@ async def analyze_tickers(
         try:
             result = await _run_analysis(new_tickers, mcp_tools)
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"Analysis failed: {exc}") from exc
+            logger.exception("Analysis failed for tickers %s", new_tickers)
+            raise HTTPException(
+                status_code=500, detail="Analysis failed. Please try again later."
+            ) from exc
 
-        raw_analyses: dict = result.get("ticker_analyses", {})
+        raw_analyses = result.get("ticker_analyses", {})
         for ticker, data in raw_analyses.items():
+            try:
+                sentiment = float(data.get("sentiment_score", 0.0))
+            except (TypeError, ValueError):
+                sentiment = 0.0
             analyses[ticker] = TickerAnalysis(
                 ticker=data.get("ticker", ticker),
                 signal=data.get("signal", "insufficient_data"),
                 confidence=data.get("confidence", "low"),
-                sentiment_score=float(data.get("sentiment_score", 0.0)),
+                sentiment_score=sentiment,
                 news_summary=data.get("news_summary", ""),
                 risk_flags=data.get("risk_flags", []),
                 price_data=data.get("price_data", {}),
@@ -175,12 +185,19 @@ async def analyze_tickers(
 
     created_at = datetime.now(timezone.utc)
 
-    try:
-        analysis_id = await persist_full_run(normalised_tickers, raw_for_persist, report_markdown)
-    except Exception:
-        # Persistence failure should not block the response; the analysis
-        # itself succeeded. Use a generated id so the client still gets a
-        # valid response shape.
+    if raw_for_persist:
+        try:
+            analysis_id = await persist_full_run(
+                normalised_tickers, raw_for_persist, report_markdown
+            )
+        except Exception:
+            # Persistence failure should not block the response; the analysis
+            # itself succeeded. Use a generated id so the client still gets a
+            # valid response shape.
+            logger.exception("Failed to persist analysis for %s", normalised_tickers)
+            analysis_id = uuid.uuid4()
+    else:
+        # All tickers served from cache; no new data to persist.
         analysis_id = uuid.uuid4()
 
     return AnalyzeResponse(

@@ -29,19 +29,29 @@ class TokenBucket:
         deadline = time.monotonic() + timeout
         while True:
             async with self._lock:
-                self._refill()
+                now = time.monotonic()
+                self._refill(now)
+
+                # Strict timeout: never grant a token after the deadline
+                if now >= deadline:
+                    return False
+
                 if self._tokens >= 1.0:
                     self._tokens -= 1.0
                     return True
 
-            # Wait before retrying
+                # Compute adaptive sleep: time until next token becomes available
+                wait_for_token = (1.0 - self._tokens) / self._rate
+
+            # Sleep for the shorter of time-to-next-token or remaining timeout
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return False
-            await asyncio.sleep(min(0.5, remaining))
+            await asyncio.sleep(min(wait_for_token, remaining))
 
-    def _refill(self):
-        now = time.monotonic()
+    def _refill(self, now: float | None = None):
+        if now is None:
+            now = time.monotonic()
         elapsed = now - self._last_refill
         self._tokens = min(self._capacity, self._tokens + elapsed * self._rate)
         self._last_refill = now

@@ -22,8 +22,10 @@ export function useRestorableState<T>(key: string, initial: T): [T, Dispatch<Set
     }
   })
 
-  // Keep ref in sync with latest value
-  latestRef.current = value
+  // Keep ref in sync after commit (safe for concurrent mode)
+  useEffect(() => {
+    latestRef.current = value
+  })
 
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current)
@@ -37,12 +39,17 @@ export function useRestorableState<T>(key: string, initial: T): [T, Dispatch<Set
     return () => { if (timerRef.current) clearTimeout(timerRef.current) }
   }, [storageKey, value])
 
-  // Emergency flush on unmount (uses ref to avoid stale closure)
+  // Flush on page unload (pagehide fires reliably, effect cleanup does not)
   useEffect(() => {
-    return () => {
+    const flush = () => {
       try {
         sessionStorage.setItem(storageKey, JSON.stringify(latestRef.current))
       } catch { /* ignore */ }
+    }
+    window.addEventListener('pagehide', flush)
+    return () => {
+      flush()
+      window.removeEventListener('pagehide', flush)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey])

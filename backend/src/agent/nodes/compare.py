@@ -5,11 +5,14 @@ Takes completed ticker_analyses from state and produces a structured comparison
 including relative valuation, normalized metrics, and a brief AI-generated narrative.
 """
 
+import json
+
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, ValidationError
 
 from src.logging_config import get_logger
 
+from ..json_utils import extract_json
 from ..llm_fallback import invoke_with_fallback
 from ..state import InvestmentAnalystState
 
@@ -60,6 +63,22 @@ Return ONLY valid JSON matching this schema:
 Be concise, evidence-based, and acknowledge when differences are marginal."""
 
 
+def _normalize_content(content) -> str:
+    """Extract text from LangChain response content (str or list of blocks)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        # Join text fields from content blocks
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                parts.append(block)
+        return "".join(parts)
+    return str(content)
+
+
 async def compare_node(state: InvestmentAnalystState) -> dict:
     """Compare all analyzed tickers and produce a structured comparison."""
     analyses = state.get("ticker_analyses", {})
@@ -69,21 +88,27 @@ async def compare_node(state: InvestmentAnalystState) -> dict:
     if len(analyses) < 2:
         return {}
 
-    # Format analyses for the comparison prompt
-    analyses_text = []
-    for ticker, analysis in analyses.items():
-        analyses_text.append(
-            f"## {ticker}\n"
-            f"Signal: {analysis.get('signal', 'unknown')}\n"
-            f"Confidence: {analysis.get('confidence', 'unknown')}\n"
-            f"Sentiment: {analysis.get('sentiment_score', 0)}\n"
-            f"Risk Flags: {', '.join(analysis.get('risk_flags', []))}\n"
-            f"Summary: {analysis.get('news_summary', '')}\n"
-        )
-
-    prompt = f"Compare these {len(analyses)} stocks:\n\n" + "\n".join(analyses_text)
-
     try:
+        # Format analyses for the comparison prompt
+        analyses_text = []
+        for ticker, analysis in analyses.items():
+            # Defensively handle non-dict values or missing keys
+            if not isinstance(analysis, dict):
+                analysis = analysis.model_dump() if hasattr(analysis, "model_dump") else {}
+            risk_flags = analysis.get("risk_flags") or []
+            if isinstance(risk_flags, str):
+                risk_flags = [risk_flags]
+            analyses_text.append(
+                f"## {ticker}\n"
+                f"Signal: {analysis.get('signal', 'unknown')}\n"
+                f"Confidence: {analysis.get('confidence', 'unknown')}\n"
+                f"Sentiment: {analysis.get('sentiment_score', 0)}\n"
+                f"Risk Flags: {', '.join(str(f) for f in risk_flags)}\n"
+                f"Summary: {analysis.get('news_summary', '')}\n"
+            )
+
+        prompt = f"Compare these {len(analyses)} stocks:\n\n" + "\n".join(analyses_text)
+
         response = await invoke_with_fallback(
             [
                 SystemMessage(content=COMPARE_SYSTEM),
@@ -94,14 +119,28 @@ async def compare_node(state: InvestmentAnalystState) -> dict:
             request_timeout=120,
         )
 
-        comparison = ComparisonOutput.model_validate_json(
-            str(response.content)  # type: ignore[arg-type]
-        )
+        content_str = _normalize_content(response.content)
+
+        # Primary path: direct Pydantic JSON validation
+        try:
+            comparison = ComparisonOutput.model_validate_json(content_str)
+        except (ValidationError, json.JSONDecodeError):
+            # Fallback: strip markdown fences / preamble via extract_json
+            parsed = extract_json(content_str)
+            if isinstance(parsed, dict):
+                comparison = ComparisonOutput.model_validate(parsed)
+            else:
+                raise
+
         return {"comparison": comparison.model_dump()}
-    except (ValidationError, Exception) as e:
+    except Exception as e:
         # Non-critical, comparison is supplementary — surface the failure instead
         # of silently dropping it so the API/UI can show "unavailable" rather
         # than nothing at all.
-        _log.warning("compare_node_failed", error=str(e))
-        failed = ComparisonOutput(status="failed", error=str(e)[:200])
+        _log.warning("compare_node_failed", error=str(e), exc_info=True)
+        failed = ComparisonOutput(
+            tickers=list(analyses.keys()) if analyses else [],
+            status="failed",
+            error=str(e)[:200],
+        )
         return {"comparison": failed.model_dump()}

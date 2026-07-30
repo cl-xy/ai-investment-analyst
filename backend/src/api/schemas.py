@@ -6,21 +6,42 @@ import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # Shared ticker validation regex. Alphanumeric + dots, 1-10 chars.
 VALID_TICKER_RE = re.compile(r"\A[A-Z0-9.]{1,10}\Z")
 
 
 class AnalyzeRequest(BaseModel):
-    tickers: list[str] = Field(..., min_length=1, description="List of ticker symbols to analyze")
+    tickers: list[str] = Field(
+        ..., min_length=1, max_length=10, description="List of ticker symbols to analyze"
+    )
+
+    @field_validator("tickers")
+    @classmethod
+    def validate_tickers(cls, v: list[str]) -> list[str]:
+        """Normalize (strip/upper) and validate each ticker against the allowed pattern."""
+        normalized = []
+        seen: set[str] = set()
+        for raw in v:
+            t = raw.strip().upper()
+            if not t:
+                raise ValueError("Ticker must not be empty")
+            if not VALID_TICKER_RE.match(t):
+                raise ValueError(f"Invalid ticker symbol: {t!r}")
+            if t not in seen:
+                normalized.append(t)
+                seen.add(t)
+        if not normalized:
+            raise ValueError("At least one valid ticker is required")
+        return normalized
 
 
 class TickerAnalysis(BaseModel):
     ticker: str
     signal: Literal["buy", "hold", "sell", "insufficient_data"] = "insufficient_data"
     confidence: Literal["high", "medium", "low"] = "low"
-    sentiment_score: float = 0.0
+    sentiment_score: float = Field(0.0, ge=-1.0, le=1.0)
     news_summary: str = ""
     risk_flags: list[str] = Field(default_factory=list)
     price_data: dict = Field(default_factory=dict)

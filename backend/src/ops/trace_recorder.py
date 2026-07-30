@@ -41,9 +41,9 @@ async def record_trace(
         The generated trace UUID.
     """
     trace_id = uuid.uuid4()
-    pool = await get_pool()
 
     try:
+        pool = await get_pool()
         await pool.execute(
             """
             INSERT INTO traces (
@@ -53,7 +53,7 @@ async def record_trace(
             trace_id,
             run_id,
             tickers,
-            json.dumps(events),
+            json.dumps(events, default=str),
             duration_ms,
             status,
             signal,
@@ -72,10 +72,17 @@ async def set_featured_trace(trace_id: uuid.UUID) -> None:
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
-            # Clear existing featured flag
-            await conn.execute("UPDATE traces SET is_featured = FALSE WHERE is_featured = TRUE")
-            # Set new featured
-            await conn.execute("UPDATE traces SET is_featured = TRUE WHERE id = $1", trace_id)
+            # Verify trace exists before modifying featured state
+            result = await conn.execute(
+                "UPDATE traces SET is_featured = TRUE WHERE id = $1", trace_id
+            )
+            if result == "UPDATE 0":
+                raise ValueError(f"Trace {trace_id} does not exist")
+            # Clear featured flag from all other traces
+            await conn.execute(
+                "UPDATE traces SET is_featured = FALSE WHERE is_featured = TRUE AND id != $1",
+                trace_id,
+            )
     log.info("featured_trace_set", trace_id=str(trace_id))
 
 
@@ -87,6 +94,7 @@ async def get_featured_trace() -> dict | None:
         SELECT id, run_id, tickers, events, duration_ms, status, signal, created_at
         FROM traces
         WHERE is_featured = TRUE
+        ORDER BY created_at DESC
         LIMIT 1
         """
     )
@@ -113,6 +121,7 @@ async def get_trace(trace_id: uuid.UUID) -> dict | None:
 
 async def list_traces(limit: int = 50, ticker: str | None = None) -> list[dict]:
     """List available traces, newest first. Optionally filter by ticker."""
+    limit = max(1, min(limit, 100))
     pool = await get_pool()
 
     if ticker:

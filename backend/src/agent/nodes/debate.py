@@ -9,12 +9,14 @@ Falls back to single-shot analysis if debate fails or rate budget is exhausted.
 import asyncio
 import json
 import time
+from datetime import date
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import ValidationError
 
 from src.logging_config import get_logger
+from src.numeric import safe_float as _safe_float
 
 from ..circuit_breaker import CircuitBreakerOpen
 from ..debate_schemas import (
@@ -23,7 +25,7 @@ from ..debate_schemas import (
     DebateRecord,
     ModeratorOutput,
 )
-from ..json_utils import extract_json
+from ..json_utils import extract_json as _extract_json_raw
 from ..llm_fallback import invoke_with_fallback
 from ..prompts.debate_prompts import (
     BEAR_HUMAN,
@@ -40,6 +42,22 @@ log = get_logger(__name__)
 # Minimum delay between sequential LLM calls to reduce burst contention
 # on free-tier provider workers (Nvidia ResourceExhausted threshold)
 _MIN_CALL_INTERVAL = 4.0  # seconds
+
+
+def _safe_extract_json(text: str) -> dict | None:
+    """Extract JSON dict from LLM text, returning None on failure or non-dict."""
+    try:
+        parsed = _extract_json_raw(text)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return None
+    if isinstance(parsed, dict):
+        return parsed
+    # extract_json can return a list; take first dict element if available
+    if isinstance(parsed, list):
+        for item in parsed:
+            if isinstance(item, dict):
+                return item
+    return None
 
 
 async def _invoke_with_retry(messages: list) -> object:
@@ -89,14 +107,15 @@ def _make_source_id(provider: str, ticker: str) -> str:
 
 def _build_data_context(ticker: str, state: InvestmentAnalystState) -> dict[str, Any]:
     """Extract and format data context from state for prompt injection."""
-    price_data: dict = state.get("raw_prices", {}).get(ticker, {})
-    news = state.get("raw_news", {}).get(ticker, [])
-    sec_text = state.get("raw_filings", {}).get(ticker, "") or "Not available."
-    earnings = state.get("raw_earnings", {}).get(ticker, {}) or {}
-    sentiment = state.get("raw_sentiment", {}).get(ticker, {}) or {}
+    price_data: dict = state.get("raw_prices", {}).get(ticker) or {}
+    news = state.get("raw_news", {}).get(ticker) or []
+    sec_text = state.get("raw_filings", {}).get(ticker) or "Not available."
+    earnings = state.get("raw_earnings", {}).get(ticker) or {}
+    sentiment = state.get("raw_sentiment", {}).get(ticker) or {}
 
     return {
         "ticker": ticker,
+        "current_date": date.today().isoformat(),
         "price_data": json.dumps(price_data.get("quote", {}), indent=2),
         "price_source_id": _make_source_id("yfinance", ticker),
         "fundamentals": json.dumps(price_data.get("fundamentals", {}), indent=2),
@@ -135,7 +154,7 @@ async def _run_bull_agent(ctx: dict[str, Any]) -> BullCaseOutput:
 
     try:
         return BullCaseOutput.model_validate_json(response.content)  # type: ignore[arg-type]
-    except (ValidationError, ValueError):
+    except (ValidationError, ValueError, TypeError):
         # Retry with error feedback
         retry_msg = HumanMessage(
             content="Your JSON was invalid. Return valid JSON matching the schema exactly."
@@ -143,10 +162,10 @@ async def _run_bull_agent(ctx: dict[str, Any]) -> BullCaseOutput:
         retry_response = await _invoke_with_retry(messages + [retry_msg])
         try:
             return BullCaseOutput.model_validate_json(retry_response.content)  # type: ignore[arg-type]
-        except (ValidationError, ValueError):
-            # Fallback: extract what we can
-            parsed = extract_json(response.content)  # type: ignore[arg-type]
-            if isinstance(parsed, dict):
+        except (ValidationError, ValueError, TypeError):
+            # Fallback: try retry response first, then original
+            parsed = _safe_extract_json(retry_response.content) or _safe_extract_json(response.content)  # type: ignore[arg-type]
+            if parsed:
                 return BullCaseOutput(
                     ticker=ctx["ticker"],
                     thesis=parsed.get("thesis", "Bull case generation failed"),
@@ -177,16 +196,16 @@ async def _run_bear_agent(ctx: dict[str, Any], bull: BullCaseOutput) -> BearCase
 
     try:
         return BearCaseOutput.model_validate_json(response.content)  # type: ignore[arg-type]
-    except (ValidationError, ValueError):
+    except (ValidationError, ValueError, TypeError):
         retry_msg = HumanMessage(
             content="Your JSON was invalid. Return valid JSON matching the schema exactly."
         )
         retry_response = await _invoke_with_retry(messages + [retry_msg])
         try:
             return BearCaseOutput.model_validate_json(retry_response.content)  # type: ignore[arg-type]
-        except (ValidationError, ValueError):
-            parsed = extract_json(response.content)  # type: ignore[arg-type]
-            if isinstance(parsed, dict):
+        except (ValidationError, ValueError, TypeError):
+            parsed = _safe_extract_json(retry_response.content) or _safe_extract_json(response.content)  # type: ignore[arg-type]
+            if parsed:
                 return BearCaseOutput(
                     ticker=ctx["ticker"],
                     thesis=parsed.get("thesis", "Bear case generation failed"),
@@ -230,21 +249,21 @@ async def _run_moderator(
 
     try:
         return ModeratorOutput.model_validate_json(response.content)  # type: ignore[arg-type]
-    except (ValidationError, ValueError):
+    except (ValidationError, ValueError, TypeError):
         retry_msg = HumanMessage(
             content="Your JSON was invalid. Return valid JSON matching the schema exactly."
         )
         retry_response = await _invoke_with_retry(messages + [retry_msg])
         try:
             return ModeratorOutput.model_validate_json(retry_response.content)  # type: ignore[arg-type]
-        except (ValidationError, ValueError):
-            parsed = extract_json(response.content)  # type: ignore[arg-type]
-            if isinstance(parsed, dict):
+        except (ValidationError, ValueError, TypeError):
+            parsed = _safe_extract_json(retry_response.content) or _safe_extract_json(response.content)  # type: ignore[arg-type]
+            if parsed:
                 return ModeratorOutput(
                     ticker=ctx["ticker"],
                     signal=parsed.get("signal", "insufficient_data"),
                     confidence=parsed.get("confidence", "low"),
-                    sentiment_score=float(parsed.get("sentiment_score", 0.0)),
+                    sentiment_score=_safe_float(parsed.get("sentiment_score")),
                     thesis=parsed.get("thesis", "Moderator verdict generation failed"),
                     bull_case=parsed.get("bull_case", []),
                     bear_case=parsed.get("bear_case", []),
@@ -276,8 +295,6 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
         return {}
 
     ticker = tickers_remaining[0]
-    ctx = _build_data_context(ticker, state)
-    price_data = ctx["raw_price_data"]
 
     correlation_id = state.get("correlation_id")
     _log = (
@@ -285,6 +302,33 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
         if correlation_id
         else log
     )
+
+    try:
+        ctx = _build_data_context(ticker, state)
+    except Exception as e:
+        _log.warning("context_build_failed", error=str(e))
+        analysis: TickerAnalysis = {
+            "ticker": ticker,
+            "signal": "insufficient_data",
+            "confidence": "low",
+            "sentiment_score": 0.0,
+            "thesis": f"Debate failed: data context error ({type(e).__name__})",
+            "bull_case": [],
+            "bear_case": [],
+            "news_summary": "Analysis unavailable due to data preparation error",
+            "risk_flags": ["Data context incomplete"],
+            "citations": [],
+            "data_gaps": [f"Context build failed: {str(e)[:100]}"],
+            "price_data": {},
+            "fundamentals": {},
+            "earnings": {},
+            "sec_notes": "",
+        }
+        existing = dict(state.get("ticker_analyses", {}))
+        existing[ticker] = analysis
+        return {"ticker_analyses": existing, "current_ticker": ticker}
+
+    price_data = ctx["raw_price_data"]
     _log.info("debate_starting")
 
     # Run bull agent
@@ -389,36 +433,57 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
         existing[ticker] = analysis
         return {"ticker_analyses": existing, "current_ticker": ticker}
 
-    # Build the debate record for persistence
-    debate_record = DebateRecord(
-        ticker=ticker,
-        bull=bull,
-        bear=bear,
-        moderator=moderator,
-    )
+    # Build the debate record and final analysis safely
+    try:
+        debate_record = DebateRecord(
+            ticker=ticker,
+            bull=bull,
+            bear=bear,
+            moderator=moderator,
+        )
 
-    # Convert moderator output to the standard TickerAnalysis format
-    analysis_result: dict[str, Any] = {
-        "ticker": moderator.ticker,
-        "signal": moderator.signal,
-        "confidence": moderator.confidence,
-        "sentiment_score": moderator.sentiment_score,
-        "thesis": moderator.thesis,
-        "bull_case": moderator.bull_case,
-        "bear_case": moderator.bear_case,
-        "news_summary": moderator.news_summary or moderator.thesis,
-        "risk_flags": moderator.risk_flags,
-        "citations": [c.model_dump() for c in moderator.citations],
-        "data_gaps": moderator.data_gaps,
-        "price_data": price_data.get("quote", {}),
-        "fundamentals": price_data.get("fundamentals", {}),
-        "earnings": ctx.get("raw_earnings", {}),
-        "sec_notes": moderator.sec_notes,
-        # Debate-specific fields for persistence
-        "_debate": debate_record.model_dump(),
-        "_verdict_rationale": moderator.verdict_rationale,
-        "_key_disagreements": moderator.key_disagreements,
-    }
+        # Convert moderator output to the standard TickerAnalysis format
+        analysis_result: dict[str, Any] = {
+            "ticker": ticker,
+            "signal": moderator.signal,
+            "confidence": moderator.confidence,
+            "sentiment_score": moderator.sentiment_score,
+            "thesis": moderator.thesis,
+            "bull_case": moderator.bull_case,
+            "bear_case": moderator.bear_case,
+            "news_summary": moderator.news_summary or moderator.thesis,
+            "risk_flags": moderator.risk_flags,
+            "citations": [c.model_dump() for c in moderator.citations],
+            "data_gaps": moderator.data_gaps,
+            "price_data": price_data.get("quote", {}),
+            "fundamentals": price_data.get("fundamentals", {}),
+            "earnings": ctx.get("raw_earnings", {}),
+            "sec_notes": moderator.sec_notes,
+            # Debate-specific fields for persistence
+            "_debate": debate_record.model_dump(),
+            "_verdict_rationale": moderator.verdict_rationale,
+            "_key_disagreements": moderator.key_disagreements,
+        }
+    except Exception as e:
+        _log.warning("result_assembly_failed", error=str(e))
+        # All 3 agents succeeded but serialization failed; preserve core output
+        analysis_result = {
+            "ticker": ticker,
+            "signal": moderator.signal,
+            "confidence": moderator.confidence,
+            "sentiment_score": moderator.sentiment_score,
+            "thesis": moderator.thesis,
+            "bull_case": getattr(moderator, "bull_case", []),
+            "bear_case": getattr(moderator, "bear_case", []),
+            "news_summary": getattr(moderator, "news_summary", "") or moderator.thesis,
+            "risk_flags": getattr(moderator, "risk_flags", []),
+            "citations": [],
+            "data_gaps": [f"Result assembly failed: {str(e)[:100]}"],
+            "price_data": price_data.get("quote", {}),
+            "fundamentals": price_data.get("fundamentals", {}),
+            "earnings": ctx.get("raw_earnings", {}),
+            "sec_notes": "",
+        }
 
     existing = dict(state.get("ticker_analyses", {}))
     existing[ticker] = analysis_result

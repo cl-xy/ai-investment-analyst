@@ -52,7 +52,7 @@ async def record_prediction(
 @router.get("/calibration")
 async def get_calibration(
     ticker: str | None = Query(None, description="Filter by ticker"),
-    horizon_days: int = Query(30, description="Prediction horizon in days"),
+    horizon_days: int = Query(30, ge=1, le=3650, description="Prediction horizon in days"),
 ):
     """
     Get calibration metrics for resolved predictions.
@@ -136,11 +136,18 @@ async def get_calibration(
 
     brier_score = brier_sum / brier_count if brier_count > 0 else None
 
-    # Unresolved count
-    unresolved = await fetchval(
-        "SELECT COUNT(*) FROM predictions WHERE resolved_at IS NULL AND horizon_days = $1",
-        horizon_days,
-    )
+    # Unresolved count (apply same ticker filter if provided)
+    if ticker:
+        unresolved = await fetchval(
+            "SELECT COUNT(*) FROM predictions WHERE resolved_at IS NULL AND horizon_days = $1 AND ticker = $2",
+            horizon_days,
+            ticker.upper(),
+        )
+    else:
+        unresolved = await fetchval(
+            "SELECT COUNT(*) FROM predictions WHERE resolved_at IS NULL AND horizon_days = $1",
+            horizon_days,
+        )
 
     return {
         "status": "ok",
@@ -159,7 +166,7 @@ async def get_calibration(
 async def list_predictions(
     ticker: str | None = Query(None),
     resolved: bool | None = Query(None, description="Filter by resolution status"),
-    limit: int = Query(50, le=200),
+    limit: int = Query(50, ge=1, le=200),
 ):
     """List predictions with optional filters."""
     conditions: list[str] = []
@@ -250,6 +257,7 @@ async def resolve_predictions():
                 FROM predictions
                 WHERE resolved_at IS NULL
                   AND created_at + (horizon_days || ' days')::interval <= now()
+                ORDER BY created_at ASC, id ASC
                 LIMIT 50
                 FOR UPDATE SKIP LOCKED
                 """,
@@ -263,7 +271,7 @@ async def resolve_predictions():
                 ticker = row["ticker"]
                 prediction_price = row["price_at_prediction"]
 
-                if prediction_price is None:
+                if prediction_price is None or prediction_price <= 0:
                     continue
 
                 # Run sync yfinance in thread pool with a timeout to avoid

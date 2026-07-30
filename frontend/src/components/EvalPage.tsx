@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { BarChart3, Clock, CheckCircle2, Database, Zap, TrendingUp, AlertCircle, RefreshCw } from 'lucide-react'
 import { Link } from 'react-router-dom'
+
+import { API_BASE, authHeaders } from '../api/config'
 
 interface EvalSummary {
   total_runs: number
@@ -13,36 +15,51 @@ interface EvalSummary {
   last_run_at: string | null
 }
 
-import { API_BASE, authHeaders } from '../api/config'
-
 export default function EvalPage() {
   const [summary, setSummary] = useState<EvalSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
-  const fetchData = () => {
+  const fetchData = useCallback(() => {
+    // Abort any in-flight request to prevent stale responses overwriting newer data
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
     setLoading(true)
     setError(null)
-    fetch(`${API_BASE}/api/eval/summary`, { headers: authHeaders() })
+    fetch(`${API_BASE}/api/eval/summary`, {
+      headers: authHeaders(),
+      signal: controller.signal,
+    })
       .then((res) => {
-        if (!res.ok) throw new Error('Failed to fetch eval summary')
+        if (!res.ok) throw new Error(`Failed to fetch eval summary (${res.status})`)
+        if (res.status === 204) return null
         return res.json()
       })
-      .then(setSummary)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false))
-  }
+      .then((data) => {
+        if (!controller.signal.aborted) setSummary(data)
+      })
+      .catch((err) => {
+        if (err.name === 'AbortError') return
+        if (!controller.signal.aborted) setError(err.message)
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+  }, [])
 
   useEffect(() => {
     fetchData()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    return () => { abortRef.current?.abort() }
+  }, [fetchData])
 
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto px-6 py-12">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {Array.from({ length: 8 }).map((_, i) => (
+          {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-5">
               <div className="h-4 w-20 rounded animate-shimmer mb-3" />
               <div className="h-7 w-16 rounded animate-shimmer" />
@@ -107,11 +124,12 @@ export default function EvalPage() {
         <h1 className="text-xl font-semibold text-[var(--text-primary)]">Evaluation Metrics</h1>
         <p className="text-sm text-[var(--text-muted)] mt-1">
           Automated quality metrics from the last 100 analysis runs.
-          {summary.last_run_at && (
-            <span className="ml-2">
-              Last run: {new Date(summary.last_run_at).toLocaleString()}
-            </span>
-          )}
+          {summary.last_run_at && (() => {
+            const d = new Date(summary.last_run_at)
+            return !isNaN(d.getTime()) ? (
+              <span className="ml-2">Last run: {d.toLocaleString()}</span>
+            ) : null
+          })()}
         </p>
       </div>
 
@@ -119,7 +137,7 @@ export default function EvalPage() {
         <MetricTile
           icon={<CheckCircle2 className="w-4 h-4" />}
           label="Schema Validation"
-          value={`${summary.schema_validation_rate ?? 0}%`}
+          value={`${(summary.schema_validation_rate ?? 0).toFixed(1)}%`}
           status={(summary.schema_validation_rate ?? 0) >= 95 ? 'good' : (summary.schema_validation_rate ?? 0) >= 80 ? 'warn' : 'bad'}
         />
         <MetricTile
@@ -132,14 +150,14 @@ export default function EvalPage() {
         <MetricTile
           icon={<Zap className="w-4 h-4" />}
           label="Tool Success"
-          value={`${summary.tool_success_rate ?? 0}%`}
+          value={`${(summary.tool_success_rate ?? 0).toFixed(1)}%`}
           status={(summary.tool_success_rate ?? 0) >= 90 ? 'good' : (summary.tool_success_rate ?? 0) >= 70 ? 'warn' : 'bad'}
         />
         <MetricTile
           icon={<Database className="w-4 h-4" />}
           label="Cache Hit Rate"
-          value={`${summary.cache_hit_rate ?? 0}%`}
-          status={(summary.cache_hit_rate ?? 0) >= 60 ? 'good' : 'warn'}
+          value={`${(summary.cache_hit_rate ?? 0).toFixed(1)}%`}
+          status={(summary.cache_hit_rate ?? 0) >= 60 ? 'good' : (summary.cache_hit_rate ?? 0) >= 30 ? 'warn' : 'bad'}
         />
         <MetricTile
           icon={<BarChart3 className="w-4 h-4" />}
@@ -150,7 +168,7 @@ export default function EvalPage() {
         <MetricTile
           icon={<TrendingUp className="w-4 h-4" />}
           label="Citation Coverage"
-          value={`${summary.citation_coverage ?? 0}`}
+          value={`${(summary.citation_coverage ?? 0).toFixed(1)}`}
           subtitle="avg per analysis"
           status={(summary.citation_coverage ?? 0) >= 3 ? 'good' : 'warn'}
         />

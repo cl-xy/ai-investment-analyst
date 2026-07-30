@@ -1,9 +1,11 @@
 """
 Explore route. Returns trending US stocks from Yahoo Finance.
 Results are cached in-memory for 5 minutes to reduce external API calls.
+Best-effort cache (per-process, not shared across Fly machines).
 """
 
 import asyncio
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
@@ -16,6 +18,8 @@ from src.middleware.auth import limiter
 
 from ..schemas import ExploreResponse, NewsItem, PricePoint, StockDetail, TrendingStock
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 _TRENDING_URL = "https://query1.finance.yahoo.com/v1/finance/trending/US"
@@ -23,8 +27,13 @@ _CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; investment-analyst/1.0)"}
 _CACHE: TTLCache = TTLCache(maxsize=1, ttl=300)  # 5-minute TTL for trending list
 _DETAIL_CACHE: TTLCache = TTLCache(maxsize=50, ttl=900)  # 15-minute TTL per ticker
+_DETAIL_LOCKS: TTLCache = TTLCache(maxsize=50, ttl=900)  # Bounded lock pool (evicts stale locks)
 _CACHE_KEY = "explore"
 _YF_EXECUTOR = ThreadPoolExecutor(max_workers=4)
+_YF_TIMEOUT = 15  # seconds, max wait for a yfinance executor call
+
+# Single-flight locks to prevent cache stampede
+_explore_lock = asyncio.Lock()
 
 
 async def _fetch_trending_symbols(client: httpx.AsyncClient, count: int = 20) -> list[str]:
@@ -36,7 +45,11 @@ async def _fetch_trending_symbols(client: httpx.AsyncClient, count: int = 20) ->
     )
     resp.raise_for_status()
     data = resp.json()
-    quotes = data.get("finance", {}).get("result", [{}])[0].get("quotes", [])
+    finance = data.get("finance") or {}
+    result = finance.get("result")
+    if not isinstance(result, list) or not result:
+        return []
+    quotes = result[0].get("quotes", []) if isinstance(result[0], dict) else []
     return [q["symbol"] for q in quotes if q.get("symbol")]
 
 
@@ -106,7 +119,13 @@ async def _fetch_yf_info(ticker: str) -> dict:
         except Exception:
             return {}
 
-    return await loop.run_in_executor(_YF_EXECUTOR, _get)
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(_YF_EXECUTOR, _get), timeout=_YF_TIMEOUT
+        )
+    except asyncio.TimeoutError:
+        logger.warning("yfinance info timeout for %s", ticker)
+        return {}
 
 
 async def _fetch_yf_news(ticker: str) -> list[NewsItem]:
@@ -132,7 +151,13 @@ async def _fetch_yf_news(ticker: str) -> list[NewsItem]:
         except Exception:
             return []
 
-    return await loop.run_in_executor(_YF_EXECUTOR, _get)
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(_YF_EXECUTOR, _get), timeout=_YF_TIMEOUT
+        )
+    except asyncio.TimeoutError:
+        logger.warning("yfinance news timeout for %s", ticker)
+        return []
 
 
 @router.get("/explore", response_model=ExploreResponse)
@@ -142,44 +167,50 @@ async def get_explore(request: Request) -> ExploreResponse:
     if cached is not None:
         return cached
 
-    try:
-        async with httpx.AsyncClient() as client:
-            symbols = await _fetch_trending_symbols(client)
-            if not symbols:
-                raise HTTPException(status_code=502, detail="No trending symbols returned")
-            quotes = await _fetch_quotes(client, symbols)
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(
-            status_code=502, detail=f"Yahoo Finance error: {exc.response.status_code}"
-        ) from exc
-    except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=502, detail=f"Failed to reach Yahoo Finance: {exc}"
-        ) from exc
+    async with _explore_lock:
+        # Double-check after acquiring lock (another request may have populated cache)
+        cached = _CACHE.get(_CACHE_KEY)
+        if cached is not None:
+            return cached
 
-    stocks: list[TrendingStock] = []
-    for rank, symbol in enumerate(symbols, start=1):
-        q = quotes.get(symbol, {})
-        stocks.append(
-            TrendingStock(
-                rank=rank,
-                ticker=symbol,
-                name=q.get("shortName") or symbol,
-                price=q.get("regularMarketPrice"),
-                change_pct=q.get("regularMarketChangePercent"),
-                volume=q.get("regularMarketVolume"),
+        try:
+            async with httpx.AsyncClient() as client:
+                symbols = await _fetch_trending_symbols(client)
+                if not symbols:
+                    raise HTTPException(status_code=502, detail="No trending symbols returned")
+                quotes = await _fetch_quotes(client, symbols)
+        except httpx.HTTPStatusError as exc:
+            raise HTTPException(
+                status_code=502, detail=f"Yahoo Finance error: {exc.response.status_code}"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise HTTPException(
+                status_code=502, detail=f"Failed to reach Yahoo Finance: {exc}"
+            ) from exc
+
+        stocks: list[TrendingStock] = []
+        for rank, symbol in enumerate(symbols, start=1):
+            q = quotes.get(symbol, {})
+            stocks.append(
+                TrendingStock(
+                    rank=rank,
+                    ticker=symbol,
+                    name=q.get("shortName") or symbol,
+                    price=q.get("regularMarketPrice"),
+                    change_pct=q.get("regularMarketChangePercent"),
+                    volume=q.get("regularMarketVolume"),
+                )
             )
-        )
 
-    response = ExploreResponse(stocks=stocks, updated_at=datetime.now(timezone.utc))
-    _CACHE[_CACHE_KEY] = response
-    return response
+        response = ExploreResponse(stocks=stocks, updated_at=datetime.now(timezone.utc))
+        _CACHE[_CACHE_KEY] = response
+        return response
 
 
 @router.get("/explore/{ticker}/detail", response_model=StockDetail)
 @limiter.limit("20/minute")
 async def get_stock_detail(request: Request, ticker: str) -> StockDetail:
-    ticker = ticker.upper()
+    ticker = ticker.strip().upper()
 
     from src.api.schemas import VALID_TICKER_RE
 
@@ -189,19 +220,34 @@ async def get_stock_detail(request: Request, ticker: str) -> StockDetail:
     if cached is not None:
         return cached
 
-    async with httpx.AsyncClient() as client:
-        price_history, info, news_headlines = await asyncio.gather(
-            _fetch_price_history(client, ticker),
-            _fetch_yf_info(ticker),
-            _fetch_yf_news(ticker),
-        )
+    # Per-ticker lock to prevent stampede on same ticker (bounded pool)
+    if ticker not in _DETAIL_LOCKS:
+        _DETAIL_LOCKS[ticker] = asyncio.Lock()
+    lock = _DETAIL_LOCKS[ticker]
 
-    detail = StockDetail(
-        ticker=ticker,
-        industry=info.get("industry") or info.get("sector") or None,
-        description=info.get("longBusinessSummary") or None,
-        price_history=price_history,
-        trending_reason=news_headlines,
-    )
-    _DETAIL_CACHE[ticker] = detail
-    return detail
+    async with lock:
+        # Double-check cache after acquiring lock
+        cached = _DETAIL_CACHE.get(ticker)
+        if cached is not None:
+            return cached
+
+        async with httpx.AsyncClient() as client:
+            price_history, info, news_headlines = await asyncio.gather(
+                _fetch_price_history(client, ticker),
+                _fetch_yf_info(ticker),
+                _fetch_yf_news(ticker),
+            )
+
+        # If no meaningful data returned, ticker likely does not exist
+        if not price_history and not info and not news_headlines:
+            raise HTTPException(status_code=404, detail="Ticker not found or no data available")
+
+        detail = StockDetail(
+            ticker=ticker,
+            industry=info.get("industry") or info.get("sector") or None,
+            description=info.get("longBusinessSummary") or None,
+            price_history=price_history,
+            trending_reason=news_headlines,
+        )
+        _DETAIL_CACHE[ticker] = detail
+        return detail

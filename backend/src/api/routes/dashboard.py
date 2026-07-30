@@ -2,7 +2,6 @@
 Dashboard routes. List and retrieve persisted analysis results.
 """
 
-import json
 import uuid
 
 from fastapi import APIRouter, HTTPException
@@ -48,15 +47,10 @@ async def get_analysis(analysis_id: str) -> AnalyzeResponse:
             confidence=tr["confidence"],
             sentiment_score=tr["sentiment_score"],
             news_summary=tr["news_summary"],
-            risk_flags=json.loads(tr["risk_flags"])
-            if isinstance(tr["risk_flags"], str)
-            else tr["risk_flags"],
-            price_data=json.loads(tr["price_data"])
-            if isinstance(tr["price_data"], str)
-            else tr["price_data"],
-            fundamentals=json.loads(tr["fundamentals"])
-            if isinstance(tr["fundamentals"], str)
-            else tr["fundamentals"],
+            risk_flags=tr["risk_flags"],
+            price_data=tr["price_data"],
+            fundamentals=tr["fundamentals"],
+            earnings=tr["earnings"],
             sec_notes=tr["sec_notes"],
         )
 

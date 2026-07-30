@@ -8,6 +8,7 @@ Rate limiting via slowapi (per-IP, 10 req/min on analysis endpoints).
 from __future__ import annotations
 
 import hmac
+import logging
 import os
 from typing import Callable
 
@@ -17,8 +18,14 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 
+logger = logging.getLogger(__name__)
+
 # Rate limiter instance (shared across the app)
 limiter = Limiter(key_func=get_remote_address)
+
+# Cache password at import time to avoid per-request os.environ lookups
+# and eliminate TOCTOU window during env var rotation
+_DEMO_PASSWORD: str = os.environ.get("DEMO_PASSWORD", "")
 
 
 class DemoAuthMiddleware(BaseHTTPMiddleware):
@@ -43,13 +50,18 @@ class DemoAuthMiddleware(BaseHTTPMiddleware):
     PUBLIC_PREFIXES = ("/api/health", "/api/explore")
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        demo_password = os.environ.get("DEMO_PASSWORD", "")
+        demo_password = _DEMO_PASSWORD
 
         # No password configured, auth gate disabled
         if not demo_password:
             return await call_next(request)
 
         path = request.url.path
+
+        # Allow CORS preflight through without auth (browsers don't send
+        # custom headers on OPTIONS, so X-Demo-Password won't be present)
+        if request.method == "OPTIONS":
+            return await call_next(request)
 
         # Skip auth for explicitly public paths
         if any(path.startswith(prefix) for prefix in self.PUBLIC_PREFIXES):
@@ -65,6 +77,12 @@ class DemoAuthMiddleware(BaseHTTPMiddleware):
         )
 
         if not hmac.compare_digest(provided.encode(), demo_password.encode()):
+            logger.warning(
+                "Auth failed for %s %s from %s",
+                request.method,
+                path,
+                get_remote_address(request),
+            )
             return JSONResponse(
                 status_code=401,
                 content={

@@ -12,6 +12,7 @@ so only demo-authenticated requests can toggle chaos.
 from __future__ import annotations
 
 import asyncio
+import random
 import threading
 import time
 from dataclasses import dataclass, field
@@ -35,7 +36,7 @@ class ChaosScenario:
 class ChaosConfig:
     """Global chaos configuration. Thread-safe access."""
 
-    _lock: threading.Lock = field(default_factory=threading.Lock)
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
 
     llm_timeout: ChaosScenario = field(
         default_factory=lambda: ChaosScenario(
@@ -90,26 +91,27 @@ class ChaosConfig:
 
         Returns True if the scenario was found and toggled, False otherwise.
         """
-        scenario: ChaosScenario | None = getattr(self, scenario_name, None)
-        if scenario is None or not isinstance(scenario, ChaosScenario):
-            return False
-
         with self._lock:
+            scenario: ChaosScenario | None = getattr(self, scenario_name, None)
+            if scenario is None or not isinstance(scenario, ChaosScenario):
+                return False
             scenario.enabled = enabled
             scenario.activated_at = time.time() if enabled else None
-            log.warning(
-                "chaos_toggled",
-                scenario=scenario_name,
-                enabled=enabled,
-            )
+
+        # Log outside the lock to avoid blocking the event loop on I/O
+        log.warning(
+            "chaos_toggled",
+            scenario=scenario_name,
+            enabled=enabled,
+        )
         return True
 
     def is_active(self, scenario_name: str) -> bool:
         """Check if a specific chaos scenario is currently active."""
-        scenario: ChaosScenario | None = getattr(self, scenario_name, None)
-        if scenario is None or not isinstance(scenario, ChaosScenario):
-            return False
         with self._lock:
+            scenario: ChaosScenario | None = getattr(self, scenario_name, None)
+            if scenario is None or not isinstance(scenario, ChaosScenario):
+                return False
             return scenario.enabled
 
     def reset_all(self) -> None:
@@ -137,8 +139,12 @@ async def check_llm_chaos() -> None:
     if chaos_config.is_active("rate_limit_exhausted"):
         raise RuntimeError("Chaos: rate limit exhausted (injected failure)")
     if chaos_config.is_active("llm_timeout"):
-        # Simulate a slow response that will likely trigger timeout handling
-        await asyncio.sleep(30.0)
+        # Simulate a slow response that will likely trigger timeout handling.
+        # Sleep in smaller increments so disabling mid-sleep takes effect.
+        for _ in range(30):
+            if not chaos_config.is_active("llm_timeout"):
+                return
+            await asyncio.sleep(1.0)
         raise TimeoutError("Chaos: LLM timeout (injected failure)")
 
 
@@ -151,7 +157,5 @@ async def check_mcp_chaos() -> None:
 async def check_slow_response() -> None:
     """Call at response boundaries. Adds artificial latency if slow_response is active."""
     if chaos_config.is_active("slow_response"):
-        import random
-
         delay = random.uniform(5.0, 10.0)
         await asyncio.sleep(delay)

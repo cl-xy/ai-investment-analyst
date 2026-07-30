@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { X, Database, Clock, CheckCircle2 } from 'lucide-react'
+import { X, Database, Clock, CheckCircle2, XCircle } from 'lucide-react'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import type { Citation, StreamEvent, ToolResultPayload } from '../types/stream'
@@ -12,37 +12,56 @@ interface EvidenceDrawerProps {
 
 export default function EvidenceDrawer({ citation, toolResults, onClose }: EvidenceDrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null)
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [closing, setClosing] = useState(false)
   const reducedMotion = usePrefersReducedMotion()
   const isOpen = citation !== null
 
-  // Reset closing state when a new citation opens
+  // Reset closing state and clear pending timeout when a new citation opens
   useEffect(() => {
-    if (citation) setClosing(false)
+    if (citation) {
+      if (closeTimeoutRef.current) {
+        clearTimeout(closeTimeoutRef.current)
+        closeTimeoutRef.current = null
+      }
+      setClosing(false)
+    }
   }, [citation])
 
+  // Clear timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (closeTimeoutRef.current) {
+        clearTimeout(closeTimeoutRef.current)
+      }
+    }
+  }, [])
+
   const handleClose = useCallback(() => {
+    if (closing) return // prevent multiple close triggers
     if (reducedMotion) {
       onClose()
       return
     }
     setClosing(true)
-    setTimeout(() => {
+    closeTimeoutRef.current = setTimeout(() => {
+      closeTimeoutRef.current = null
       setClosing(false)
       onClose()
     }, 200) // matches --motion-standard
-  }, [onClose, reducedMotion])
+  }, [onClose, reducedMotion, closing])
 
   // #14: Focus trap with restore
   useFocusTrap(drawerRef, isOpen)
 
   useEffect(() => {
+    if (!isOpen) return
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') handleClose()
     }
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)
-  }, [handleClose])
+  }, [isOpen, handleClose])
 
   // #14: Set inert on siblings when open
   useEffect(() => {
@@ -61,20 +80,30 @@ export default function EvidenceDrawer({ citation, toolResults, onClose }: Evide
   }, [isOpen])
 
   // Body scroll lock when drawer is open
+  const savedOverflowRef = useRef<string | null>(null)
   useEffect(() => {
     if (!isOpen && !closing) return
-    const originalOverflow = document.body.style.overflow
+    if (savedOverflowRef.current === null) {
+      savedOverflowRef.current = document.body.style.overflow
+    }
     document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = originalOverflow }
+    return () => {
+      document.body.style.overflow = savedOverflowRef.current ?? ''
+      savedOverflowRef.current = null
+    }
   }, [isOpen, closing])
 
   if (!citation && !closing) return null
 
-  // Find matching tool result by source_id or provider
+  // Find matching tool result by source_id, falling back to provider only if no source_id match
   const matchingResult = citation
     ? toolResults.find((ev) => {
-        const payload = ev.payload as unknown as ToolResultPayload
-        return payload.source_id === citation.source_id || ev.tool === citation.provider
+        const p = ev.payload as unknown as ToolResultPayload | undefined
+        if (!p || typeof p !== 'object') return false
+        return p.source_id === citation.source_id
+      }) ?? toolResults.find((ev) => {
+        if (!citation.source_id) return ev.tool === citation.provider
+        return false
       })
     : undefined
 
@@ -151,7 +180,10 @@ export default function EvidenceDrawer({ citation, toolResults, onClose }: Evide
               </h3>
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-sm">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                  {payload.success
+                    ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                    : <XCircle className="w-3.5 h-3.5 text-red-500" />
+                  }
                   <span className="text-[var(--text-secondary)]">
                     {payload.success ? 'Successfully retrieved' : 'Retrieval failed'}
                   </span>
@@ -159,7 +191,7 @@ export default function EvidenceDrawer({ citation, toolResults, onClose }: Evide
                 <div className="flex items-center gap-2 text-sm">
                   <Clock className="w-3.5 h-3.5 text-[var(--text-muted)]" />
                   <span className="text-[var(--text-secondary)]">
-                    {payload.duration_ms}ms latency
+                    {payload.duration_ms != null ? `${payload.duration_ms}ms latency` : 'Latency unknown'}
                   </span>
                 </div>
                 {payload.cached && (

@@ -69,7 +69,9 @@ class CacheManager:
     def _task_cleanup(self, task: asyncio.Task, *, key: str) -> None:
         """Done-callback for background refresh tasks. Captures only key, not full scope."""
         self._refresh_tasks.discard(task)
-        self._pending_refreshes.pop(key, None)
+        # Only remove if this task is still the registered one (avoids popping a newer task)
+        if self._pending_refreshes.get(key) is task:
+            self._pending_refreshes.pop(key, None)
 
     async def get(self, key: str) -> dict | None:
         """Get a cache entry by key. Returns None if not found or expired."""
@@ -80,7 +82,9 @@ class CacheManager:
         if row["expires_at"] and row["expires_at"] < datetime.now(timezone.utc):
             return None
 
-        return dict(row)
+        result = dict(row)
+        result["data"] = _normalize(result["data"])
+        return result
 
     async def get_or_fetch(
         self,
@@ -116,7 +120,7 @@ class CacheManager:
                     stale_at = row["stale_at"]
                     source_id = row["source_id"]
 
-                    if now < stale_at:
+                    if stale_at and now < stale_at:
                         return data, source_id, True
 
                     # Stale: serve immediately, refresh in background (deduplicated)
@@ -131,9 +135,7 @@ class CacheManager:
 
         # Cache miss: use per-key lock to prevent stampede (singleflight).
         # Only one caller fetches; others wait and re-check cache after lock release.
-        if key not in self._inflight_locks:
-            self._inflight_locks[key] = asyncio.Lock()
-        lock = self._inflight_locks[key]
+        lock = self._inflight_locks.setdefault(key, asyncio.Lock())
 
         async with lock:
             # Re-check cache after acquiring lock (another caller may have populated it)
@@ -157,15 +159,17 @@ class CacheManager:
             # Never cache empty responses (transient failures that returned no data)
             if data in ({}, [], "", None):
                 raise RuntimeError(f"Tool returned empty data for {key}")
-            source_id = f"{provider}:{ticker}:{int(time.time())}"
-            await self._store(key, data, source_id, provider, ttl, now)
+            store_now = datetime.now(timezone.utc)
+            source_id = f"{provider}:{tool}:{ticker}:{int(time.time())}"
+            await self._store(key, data, source_id, provider, ttl, store_now)
 
         # Prune idle locks when the dict exceeds max size to prevent unbounded growth.
-        # Only remove locks that are not currently held (safe since we're outside the
-        # lock context and in the same asyncio tick, no other coroutine can acquire
-        # between check and pop).
+        # Only remove locks that are not currently held and have no waiters pending.
+        # A lock with _waiters means coroutines are queued on it even if not locked().
         if len(self._inflight_locks) > self._lock_max_size:
-            to_remove = [k for k, lk in self._inflight_locks.items() if not lk.locked()]
+            to_remove = [
+                k for k, lk in self._inflight_locks.items() if not lk.locked() and k != key
+            ]
             for k in to_remove[: len(to_remove) // 2]:
                 self._inflight_locks.pop(k, None)
 
@@ -198,7 +202,7 @@ class CacheManager:
             if data in ({}, [], "", None):
                 _log.warning("background_refresh_got_empty key=%s", key)
                 return
-            source_id = f"{provider}:{ticker}:{int(time.time())}"
+            source_id = f"{provider}:{tool}:{ticker}:{int(time.time())}"
             await self._store(key, data, source_id, provider, ttl, datetime.now(timezone.utc))
         except Exception as exc:
             _log.warning(

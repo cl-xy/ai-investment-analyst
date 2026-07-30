@@ -99,14 +99,14 @@ function humanizeScenarioId(id: string): string {
 }
 
 function parseChaosResponse(wire: ChaosWireState): ChaosState {
-  const scenarios: ChaosScenario[] = Object.entries(wire.scenarios).map(([id, s]) => ({
+  const scenarios: ChaosScenario[] = Object.entries(wire.scenarios ?? {}).map(([id, s]) => ({
     id,
     label: humanizeScenarioId(id),
     description: s.description,
     enabled: s.enabled,
   }))
   return {
-    active: wire.any_active,
+    active: wire.any_active ?? false,
     scenarios,
   }
 }

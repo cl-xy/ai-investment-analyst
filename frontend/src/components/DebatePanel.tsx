@@ -34,12 +34,13 @@ export default function DebatePanel({ ticker }: DebatePanelProps) {
   const debate = useAnalysisStore((s) => s.debates[ticker])
   const [expanded, setExpanded] = useState(true)
 
-  if (!debate || debate.turns.length === 0) return null
+  if (!debate || (debate.turns.length === 0 && !debate.isActive)) return null
 
   return (
     <div className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
       {/* Header */}
       <button
+        type="button"
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center justify-between px-4 py-3 hover:bg-[var(--surface-elevated)] transition-colors"
         aria-expanded={expanded}
@@ -176,6 +177,7 @@ export default function DebatePanel({ ticker }: DebatePanelProps) {
                 {debate.turns.length === 0 && 'Bull analyst preparing case...'}
                 {debate.turns.length === 1 && 'Bear analyst preparing rebuttal...'}
                 {debate.turns.length === 2 && 'CIO deliberating verdict...'}
+                {debate.turns.length >= 3 && 'Analysts deliberating...'}
               </span>
             </div>
           )}

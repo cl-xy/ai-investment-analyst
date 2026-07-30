@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useAnalysisStore } from '../stores/analysisStore'
 import { API_BASE, authParam } from '../api/config'
 import type {
@@ -14,7 +14,7 @@ const INITIAL_RETRY_DELAY = 1_000
 
 /**
  * Hook for managing SSE connection to the analysis streaming endpoint.
- * Handles reconnection with exponential backoff and progressive event dispatch.
+ * Handles reconnection with a single fixed-delay retry and progressive event dispatch.
  * Uses a generation counter to prevent stale EventSource callbacks from corrupting state.
  */
 export function useAnalysisStream() {
@@ -36,6 +36,8 @@ export function useAnalysisStream() {
   } = useAnalysisStore()
 
   const disconnect = useCallback(() => {
+    // Increment generation to invalidate any queued callbacks from the current connection
+    generationRef.current += 1
     if (retryTimeoutRef.current) {
       clearTimeout(retryTimeoutRef.current)
       retryTimeoutRef.current = null
@@ -49,16 +51,19 @@ export function useAnalysisStream() {
   const connect = useCallback(
     (tickers: string[], isRetry = false) => {
       disconnect()
+      // Always reset state: the backend starts a NEW analysis per connection,
+      // so partial events from a failed run must not mix with the retry's events.
+      reset()
       if (!isRetry) {
-        // Only reset on user-initiated connections, not retries
-        reset()
         retryCountRef.current = 0
       }
 
       // Increment generation so stale callbacks from previous connections are ignored
       const currentGeneration = ++generationRef.current
 
-      const tickerParam = tickers.map((t) => t.trim().toUpperCase()).join(',')
+      // Snapshot tickers to prevent mutation between now and a potential retry timeout
+      const normalizedTickers = tickers.map((t) => t.trim().toUpperCase())
+      const tickerParam = normalizedTickers.join(',')
       const auth = authParam()
       const separator = auth ? '&' : ''
       const url = `${API_BASE}/api/analyze/stream?tickers=${encodeURIComponent(tickerParam)}${separator}${auth}`
@@ -152,6 +157,9 @@ export function useAnalysisStream() {
 
         // Close explicitly to prevent native EventSource auto-reconnect
         es.close()
+        if (eventSourceRef.current === es) {
+          eventSourceRef.current = null
+        }
 
         // Each reconnect starts a NEW analysis run on the backend, which wastes
         // OpenRouter rate-limit budget and causes CORS failures when Fly's proxy
@@ -160,7 +168,7 @@ export function useAnalysisStream() {
         if (retryCountRef.current < 1) {
           const delay = INITIAL_RETRY_DELAY
           retryCountRef.current += 1
-          retryTimeoutRef.current = setTimeout(() => connect(tickers, true), delay)
+          retryTimeoutRef.current = setTimeout(() => connect(normalizedTickers, true), delay)
         } else {
           setError('Connection lost. Please try again.')
         }
@@ -179,6 +187,11 @@ export function useAnalysisStream() {
       setPeerComparison,
     ],
   )
+
+  // Clean up on unmount to prevent leaked connections and stale callbacks
+  useEffect(() => {
+    return () => disconnect()
+  }, [disconnect])
 
   return { connect, disconnect }
 }

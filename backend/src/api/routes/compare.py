@@ -8,9 +8,12 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from src.agent.concurrency import acquire_analysis_slot, release_analysis_slot
 from src.api.schemas import VALID_TICKER_RE, CompareResponse
+from src.logging_config import get_logger
 from src.middleware.auth import limiter
 
 from .analyze import analyze_tickers
+
+log = get_logger("compare")
 
 router = APIRouter()
 
@@ -34,6 +37,9 @@ async def compare_tickers(
     """
     ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
 
+    # Deduplicate while preserving order
+    ticker_list = list(dict.fromkeys(ticker_list))
+
     if len(ticker_list) < 2:
         raise HTTPException(status_code=400, detail="At least 2 tickers required for comparison")
     if len(ticker_list) > 3:
@@ -42,6 +48,10 @@ async def compare_tickers(
     invalid = [t for t in ticker_list if not VALID_TICKER_RE.match(t)]
     if invalid:
         raise HTTPException(status_code=400, detail=f"Invalid ticker symbols: {', '.join(invalid)}")
+
+    # Read mcp_tools BEFORE acquiring the slot so an AttributeError here
+    # doesn't leak a concurrency slot (only 3 available globally).
+    mcp_tools = request.app.state.mcp_tools
 
     # Acquire concurrency slot to respect the global 3-slot limit
     slot_acquired = await acquire_analysis_slot()
@@ -52,7 +62,6 @@ async def compare_tickers(
         )
 
     # Run analysis with timeout (will use cache if available)
-    mcp_tools = request.app.state.mcp_tools
     try:
         result = await asyncio.wait_for(
             analyze_tickers(ticker_list, mcp_tools, force_refresh=False),
@@ -66,7 +75,13 @@ async def compare_tickers(
                 "Free-tier LLM models are slow; run individual analyses first "
                 "(streaming bypasses this limit) to populate the cache, then compare."
             ),
-        )
+        ) from None
+    except Exception as exc:
+        log.error("compare_analysis_failed", tickers=ticker_list, error=str(exc))
+        raise HTTPException(
+            status_code=502,
+            detail="Analysis failed; try again or run individual analyses first.",
+        ) from None
     finally:
         release_analysis_slot()
 

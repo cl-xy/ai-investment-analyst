@@ -1,7 +1,7 @@
 import { useAnalysisStore } from '../stores/analysisStore'
 import { TraceEvent } from './TraceEvent'
 import { Activity, CheckCircle2, XCircle, Clock, Copy, Check } from 'lucide-react'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 
 /**
  * Real-time agent execution trace panel.
@@ -21,7 +21,9 @@ export default function AgentTracePanel() {
 
   const isComplete = !isStreaming && events.some((e) => e.type === 'run_completed')
   const hasError = events.some(
-    (e) => e.type === 'error' && !(e.payload as { recoverable?: boolean }).recoverable,
+    (e) =>
+      e.type === 'error' &&
+      !(e.payload && typeof e.payload === 'object' && (e.payload as { recoverable?: boolean }).recoverable),
   )
 
   return (
@@ -50,7 +52,7 @@ export default function AgentTracePanel() {
 
       {/* Accessible status summary - announces milestones only, not every event */}
       <p className="sr-only" aria-live="polite" aria-atomic="true">
-        {isComplete ? 'Analysis complete' : hasError ? 'Analysis failed' : isStreaming ? `Agent running: ${currentNode || 'initializing'}` : ''}
+        {hasError ? 'Analysis failed' : isComplete ? 'Analysis complete' : isStreaming ? `Agent running: ${currentNode || 'initializing'}` : ''}
       </p>
 
       {/* Timeline */}
@@ -135,11 +137,24 @@ function StatusBadge({
 
 function CorrelationIdBadge({ correlationId }: { correlationId: string }) {
   const [copied, setCopied] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Reset copied state when correlationId changes
+  useEffect(() => {
+    setCopied(false)
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [correlationId])
 
   const handleCopy = useCallback(() => {
+    if (!navigator.clipboard?.writeText) return
     navigator.clipboard.writeText(correlationId).then(() => {
+      if (timerRef.current) clearTimeout(timerRef.current)
       setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      timerRef.current = setTimeout(() => setCopied(false), 2000)
+    }).catch(() => {
+      // Clipboard write failed (insecure context or denied permission)
     })
   }, [correlationId])
 

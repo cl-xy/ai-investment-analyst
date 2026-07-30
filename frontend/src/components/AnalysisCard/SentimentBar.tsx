@@ -8,7 +8,8 @@ interface Props {
 export default function SentimentBar({ score }: Props) {
   const [showTooltip, setShowTooltip] = useState(false)
   const tooltipId = useId()
-  const clamped = Math.max(-1, Math.min(1, score))
+  const safe = Number.isFinite(score) ? score : 0
+  const clamped = Math.max(-1, Math.min(1, safe))
 
   const color =
     clamped >= 0.3 ? 'bg-emerald-500' : clamped <= -0.3 ? 'bg-red-500' : 'bg-amber-400'

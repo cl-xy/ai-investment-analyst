@@ -31,7 +31,7 @@ Rules:
 
 Return ONLY valid JSON."""
 
-BULL_HUMAN = """Construct the bull case for {ticker}:
+BULL_HUMAN = """Construct the bull case for {ticker} (current date: {current_date}):
 
 PRICE DATA (source_id: {price_source_id}):
 {price_data}
@@ -80,7 +80,7 @@ Rules:
 
 Return ONLY valid JSON."""
 
-BEAR_HUMAN = """Construct the bear case for {ticker}, rebutting this bull thesis:
+BEAR_HUMAN = """Construct the bear case for {ticker} (current date: {current_date}), rebutting this bull thesis:
 
 BULL CASE:
 {bull_thesis}
@@ -120,7 +120,7 @@ You MUST return valid JSON matching this schema:
   "ticker": "<TICKER>",
   "signal": "<buy|hold|sell|insufficient_data>",
   "confidence": "<high|medium|low>",
-  "sentiment_score": <float from -1.0 to 1.0>,
+  "sentiment_score": 0.0,
   "thesis": "<2-3 sentence final investment thesis incorporating both sides>",
   "bull_case": ["<strongest surviving bull arguments>"],
   "bear_case": ["<strongest surviving bear arguments>"],
@@ -142,7 +142,8 @@ Rules:
 6. Your bear_case should contain only the bear arguments that survived scrutiny.
 7. Cap confidence at "medium" if the two sides agree on facts but disagree on interpretation.
 8. Signal "insufficient_data" if fewer than 2 data sources are available.
-9. Retail sentiment (StockTwits) is supplementary context, not a primary driver — weigh fundamentals and evidence-backed arguments far more heavily than message-board chatter.
+9. Retail sentiment (StockTwits) is supplementary context, not a primary driver -- weigh fundamentals and evidence-backed arguments far more heavily than message-board chatter.
+10. sentiment_score must be a float between -1.0 (strongly bearish) and 1.0 (strongly bullish), consistent with your signal and confidence.
 
 Signal guidelines:
 - buy: bull case is materially stronger, catalysts are near-term, risks are manageable

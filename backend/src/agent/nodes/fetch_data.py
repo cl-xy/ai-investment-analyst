@@ -25,7 +25,7 @@ TOOL_TIMEOUT = 30  # seconds per tool call
 _GLOBAL_TOOL_SEMAPHORE = asyncio.Semaphore(21)
 
 
-def _unwrap(result) -> dict | list:
+def _unwrap(result) -> dict | list | None:
     """Unwrap LangChain MCP content-block format: [{'type':'text','text':'<json>'}]."""
     if isinstance(result, list) and result and isinstance(result[0], dict) and "type" in result[0]:
         for block in result:
@@ -34,7 +34,8 @@ def _unwrap(result) -> dict | list:
                     return json.loads(block["text"])
                 except (json.JSONDecodeError, ValueError):
                     return {"_raw_text": block["text"]}
-        return {}
+        # No text block found in content-block list — treat as empty/failed
+        return None
     if isinstance(result, str):
         try:
             return json.loads(result)
@@ -62,6 +63,10 @@ async def _call_tool_raw(tools: dict, name: str, **kwargs) -> tuple[dict | list,
         raw = await asyncio.wait_for(tool.ainvoke(kwargs), timeout=TOOL_TIMEOUT)
         duration_ms = int((time.monotonic() - start) * 1000)
         unwrapped = _unwrap(raw)
+        # Detect None (failed to extract usable content) or empty responses
+        if unwrapped is None:
+            log.warning("tool_returned_empty tool=%s", name)
+            return {}, False, duration_ms
         # Detect error dicts that slipped through as "successful" responses
         if _is_error_response(unwrapped):
             assert isinstance(unwrapped, dict)
@@ -123,19 +128,20 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
     if not tickers:
         return {}
 
-    # Per-provider budget check: only degrade the provider that's exhausted
+    # Per-provider budget check: only degrade the provider that's exhausted.
+    # Only check providers that appear in tool_calls and have daily limits.
     budget_exhausted: set[str] = set()
     try:
         from src.cache.budget import check_budget
 
-        newsapi_ok, llm_ok = await asyncio.gather(
+        newsapi_ok, stocktwits_ok = await asyncio.gather(
             check_budget("newsapi"),
-            check_budget("openrouter"),
+            check_budget("stocktwits"),
         )
         if not newsapi_ok:
             budget_exhausted.add("newsapi")
-        if not llm_ok:
-            budget_exhausted.add("openrouter")
+        if not stocktwits_ok:
+            budget_exhausted.add("stocktwits")
         _log.info(
             "fetch_data_budget_check",
             budget_exhausted=list(budget_exhausted) or "none",
@@ -194,6 +200,8 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
         results: list[tuple[dict | list, bool, int, bool]] = [({}, False, 0, False)] * len(
             tool_calls
         )
+        # Track which indices already have budget-exhausted gaps to avoid duplicates
+        budget_gap_indices: set[int] = set()
         for idx, (i, (provider, tool_name, _kwargs)) in enumerate(
             zip(indices_cache, [tool_calls[j] for j in indices_cache])
         ):
@@ -202,6 +210,7 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
                 results[i] = (data, True, 0, True)
             else:
                 gaps.append(f"{tool_name} unavailable for {ticker} (budget exhausted)")
+                budget_gap_indices.add(i)
                 results[i] = ({} if "news" not in tool_name else [], False, 0, False)
 
         for idx, i in enumerate(indices_live):
@@ -215,28 +224,34 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
         earnings_data, earnings_ok, _, _ = results[5]
         sentiment_data, sentiment_ok, _, _ = results[6]
 
-        # Track gaps for failed sources
+        # Track gaps for failed sources (skip if already recorded by budget-exhausted path)
         if not news_ok:
-            gaps.append(f"News data unavailable for {ticker}")
+            if 0 not in budget_gap_indices:
+                gaps.append(f"News data unavailable for {ticker}")
             news_data = []
         if not quote_ok:
-            gaps.append(f"Price quote unavailable for {ticker}")
+            if 1 not in budget_gap_indices:
+                gaps.append(f"Price quote unavailable for {ticker}")
             quote_data = {}
         if not fundamentals_ok:
-            gaps.append(f"Fundamentals unavailable for {ticker}")
+            if 2 not in budget_gap_indices:
+                gaps.append(f"Fundamentals unavailable for {ticker}")
             fundamentals_data = {}
         if not filing_ok:
-            gaps.append(f"SEC filing unavailable for {ticker}")
+            if 3 not in budget_gap_indices:
+                gaps.append(f"SEC filing unavailable for {ticker}")
             filing_data = {}
         if not indicators_ok:
-            gaps.append(f"Technical indicators unavailable for {ticker}")
+            if 4 not in budget_gap_indices:
+                gaps.append(f"Technical indicators unavailable for {ticker}")
             indicators_data = {}
         if not earnings_ok:
             # Not a real gap worth surfacing to the user — many tickers simply
             # have no confirmed upcoming earnings date. Just default to empty.
             earnings_data = {}
         if not sentiment_ok:
-            gaps.append(f"Retail sentiment unavailable for {ticker}")
+            if 6 not in budget_gap_indices:
+                gaps.append(f"Retail sentiment unavailable for {ticker}")
             sentiment_data = {}
 
         news = news_data if isinstance(news_data, list) else []

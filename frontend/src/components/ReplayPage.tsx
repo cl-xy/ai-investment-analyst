@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTraceReplay, type ReplaySpeed } from '../hooks/useTraceReplay'
 import { useAnalysisStore } from '../stores/analysisStore'
@@ -51,32 +51,63 @@ export default function ReplayPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filterTicker, setFilterTicker] = useState('')
+  const [debouncedTicker, setDebouncedTicker] = useState('')
   const [activeTrace, setActiveTrace] = useState<TraceDetail | null>(null)
   const [loadingTrace, setLoadingTrace] = useState(false)
 
   const replay = useTraceReplay()
-  const { analyses, debates, peerComparison } = useAnalysisStore()
+  const { analyses, debates, peerComparison, reset: resetStore } = useAnalysisStore()
+
+  // Keep stable refs to avoid unstable [replay] dependency (hook returns new object each render)
+  const replayRef = useRef(replay)
+  useEffect(() => {
+    replayRef.current = replay
+  })
+
+  // Abort controllers for in-flight requests
+  const fetchTracesAbortRef = useRef<AbortController | null>(null)
+  const loadTraceAbortRef = useRef<AbortController | null>(null)
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      fetchTracesAbortRef.current?.abort()
+      loadTraceAbortRef.current?.abort()
+    }
+  }, [])
+
+  // Debounce filter input (300ms)
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebouncedTicker(filterTicker.trim()), 300)
+    return () => window.clearTimeout(id)
+  }, [filterTicker])
 
   // Fetch trace list
   const fetchTraces = useCallback(async () => {
+    fetchTracesAbortRef.current?.abort()
+    const controller = new AbortController()
+    fetchTracesAbortRef.current = controller
+
     setLoading(true)
     setError(null)
     try {
       const params = new URLSearchParams()
-      if (filterTicker.trim()) {
-        params.set('ticker', filterTicker.trim().toUpperCase())
+      if (debouncedTicker) {
+        params.set('ticker', debouncedTicker.toUpperCase())
       }
       const url = `${API_BASE}/api/replay/traces?${params.toString()}`
-      const res = await fetch(url, { headers: authHeaders() })
+      const res = await fetch(url, { headers: authHeaders(), signal: controller.signal })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
+      if (controller.signal.aborted) return
       setTraces(data.traces || [])
     } catch (err) {
+      if ((err as DOMException).name === 'AbortError') return
       setError(err instanceof Error ? err.message : 'Failed to load traces')
     } finally {
-      setLoading(false)
+      if (!controller.signal.aborted) setLoading(false)
     }
-  }, [filterTicker])
+  }, [debouncedTicker])
 
   useEffect(() => {
     fetchTraces()
@@ -84,53 +115,71 @@ export default function ReplayPage() {
 
   // Load a specific trace
   const loadTrace = useCallback(async (traceId: string) => {
+    loadTraceAbortRef.current?.abort()
+    const controller = new AbortController()
+    loadTraceAbortRef.current = controller
+
     setLoadingTrace(true)
     setError(null)
+    resetStore()
     try {
-      const url = `${API_BASE}/api/replay/${traceId}`
-      const res = await fetch(url, { headers: authHeaders() })
+      const url = `${API_BASE}/api/replay/${encodeURIComponent(traceId)}`
+      const res = await fetch(url, { headers: authHeaders(), signal: controller.signal })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data: TraceDetail = await res.json()
+      if (controller.signal.aborted) return
       setActiveTrace(data)
-      replay.loadTrace(data.events)
+      replayRef.current.loadTrace(data.events)
     } catch (err) {
+      if ((err as DOMException).name === 'AbortError') return
       setError(err instanceof Error ? err.message : 'Failed to load trace')
     } finally {
-      setLoadingTrace(false)
+      if (!controller.signal.aborted) setLoadingTrace(false)
     }
-  }, [replay])
+  }, [resetStore])
 
   // Load featured trace (instant mode)
   const loadFeatured = useCallback(async () => {
+    loadTraceAbortRef.current?.abort()
+    const controller = new AbortController()
+    loadTraceAbortRef.current = controller
+
     setLoadingTrace(true)
     setError(null)
+    resetStore()
     try {
       const url = `${API_BASE}/api/replay/featured`
-      const res = await fetch(url, { headers: authHeaders() })
+      const res = await fetch(url, { headers: authHeaders(), signal: controller.signal })
       if (!res.ok) {
         if (res.status === 404) {
-          setError('No featured trace available yet. Run an analysis first.')
-          setLoadingTrace(false)
+          if (!controller.signal.aborted) {
+            setError('No featured trace available yet. Run an analysis first.')
+            setLoadingTrace(false)
+          }
           return
         }
         throw new Error(`HTTP ${res.status}`)
       }
       const data: TraceDetail = await res.json()
+      if (controller.signal.aborted) return
       setActiveTrace(data)
-      replay.loadInstant(data.events)
+      replayRef.current.loadInstant(data.events)
     } catch (err) {
+      if ((err as DOMException).name === 'AbortError') return
       setError(err instanceof Error ? err.message : 'Failed to load featured trace')
     } finally {
-      setLoadingTrace(false)
+      if (!controller.signal.aborted) setLoadingTrace(false)
     }
-  }, [replay])
+  }, [resetStore])
 
   // Back to trace list
   const exitReplay = useCallback(() => {
-    replay.pause()
+    loadTraceAbortRef.current?.abort()
+    replayRef.current.pause()
+    replayRef.current.loadTrace([])
+    resetStore()
     setActiveTrace(null)
-    replay.loadTrace([])
-  }, [replay])
+  }, [resetStore])
 
   // Active replay view
   if (activeTrace) {
@@ -196,7 +245,7 @@ export default function ReplayPage() {
             {peerComparison && <ReplaySectorPeers peerComparison={peerComparison} />}
 
             {/* Timeline visualization */}
-            <TimelineView events={replay.events} position={replay.position} onSeek={replay.seekTo} />
+            <TimelineView events={replay.events} position={replay.position} totalEvents={replay.totalEvents} onSeek={replay.seekTo} />
           </div>
         </div>
       </div>
@@ -225,7 +274,7 @@ export default function ReplayPage() {
         <div className="text-left flex-1">
           <p className="text-sm font-medium text-[var(--accent)]">Featured Demo</p>
           <p className="text-xs text-[var(--text-muted)] mt-0.5">
-            Pre-cached NVDA analysis. Loads instantly, shows the full pipeline.
+            Pre-cached analysis. Loads instantly, shows the full pipeline.
           </p>
         </div>
         <ChevronRight className="w-5 h-5 text-[var(--accent)]" />
@@ -413,10 +462,12 @@ function ReplayControls({
 function TimelineView({
   events,
   position,
+  totalEvents,
   onSeek,
 }: {
   events: StreamEvent[]
   position: number
+  totalEvents: number
   onSeek: (pos: number) => void
 }) {
   if (events.length === 0) return null
@@ -482,10 +533,10 @@ function TimelineView({
         </div>
 
         {/* Position indicator */}
-        {events.length > 0 && (
+        {totalEvents > 0 && (
           <div
             className="absolute top-0 w-0.5 h-6 bg-white/80 pointer-events-none"
-            style={{ left: `${(position / events.length) * 100}%` }}
+            style={{ left: `${(position / totalEvents) * 100}%` }}
           />
         )}
       </div>
@@ -520,6 +571,8 @@ function ReplayAnalysisCard({ analysis }: { analysis: AnalysisOutput }) {
   }
 
   const signal = signalColors[analysis.signal] || signalColors.insufficient_data
+  const riskFlags = analysis.risk_flags ?? []
+  const sentimentScore = typeof analysis.sentiment_score === 'number' ? analysis.sentiment_score : null
 
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-6 animate-fade-in">
@@ -548,17 +601,19 @@ function ReplayAnalysisCard({ analysis }: { analysis: AnalysisOutput }) {
       <div className="mb-5">
         <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-1">
           <span>Bearish</span>
-          <span className="font-mono">{analysis.sentiment_score.toFixed(2)}</span>
+          <span className="font-mono">{sentimentScore !== null ? sentimentScore.toFixed(2) : 'N/A'}</span>
           <span>Bullish</span>
         </div>
         <div className="h-1.5 bg-[var(--surface)] rounded-full overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all duration-300"
-            style={{
-              width: `${((analysis.sentiment_score + 1) / 2) * 100}%`,
-              backgroundColor: analysis.sentiment_score >= 0 ? 'var(--bullish)' : 'var(--bearish)',
-            }}
-          />
+          {sentimentScore !== null && (
+            <div
+              className="h-full rounded-full transition-all duration-300"
+              style={{
+                width: `${((sentimentScore + 1) / 2) * 100}%`,
+                backgroundColor: sentimentScore >= 0 ? 'var(--bullish)' : 'var(--bearish)',
+              }}
+            />
+          )}
         </div>
       </div>
 
@@ -597,13 +652,13 @@ function ReplayAnalysisCard({ analysis }: { analysis: AnalysisOutput }) {
       </div>
 
       {/* Risk flags */}
-      {analysis.risk_flags.length > 0 && (
+      {riskFlags.length > 0 && (
         <div>
           <h3 className="text-xs font-medium text-amber-500 uppercase tracking-wider mb-2">
             Risk Flags
           </h3>
           <div className="flex flex-wrap gap-1.5">
-            {analysis.risk_flags.map((flag, i) => (
+            {riskFlags.map((flag, i) => (
               <span
                 key={i}
                 className="text-xs px-2 py-0.5 rounded bg-amber-500/10 text-amber-500"
@@ -665,7 +720,8 @@ function StatusPill({ status, signal }: { status: string; signal: string | null 
     failed: { bg: 'bg-red-500/10', text: 'text-red-500' },
   }
 
-  const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.success
+  const neutralConfig = { bg: 'bg-zinc-500/10', text: 'text-zinc-400' }
+  const config = statusConfig[status as keyof typeof statusConfig] || neutralConfig
 
   return (
     <div className="flex items-center gap-2">

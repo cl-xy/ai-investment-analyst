@@ -46,7 +46,7 @@ class TestCacheManager:
 
         assert data == {"price": 875.0}
         assert cached is False
-        assert "yfinance:NVDA:" in source_id
+        assert "yfinance:get_quote:NVDA:" in source_id
         fetch_fn.assert_called_once()
         mock_execute.assert_called_once()
 

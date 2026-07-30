@@ -8,10 +8,10 @@ export async function getDashboardResults(): Promise<AnalysisListItem[]> {
 }
 
 export async function getDashboardResult(id: string): Promise<AnalyzeResponse> {
-  const response = await axios.get<AnalyzeResponse>(`${API_BASE}/api/dashboard/${id}`, { headers: authHeaders() })
+  const response = await axios.get<AnalyzeResponse>(`${API_BASE}/api/dashboard/${encodeURIComponent(id)}`, { headers: authHeaders() })
   return response.data
 }
 
 export async function deleteAnalysis(id: string): Promise<void> {
-  await axios.delete(`${API_BASE}/api/dashboard/${id}`, { headers: authHeaders() })
+  await axios.delete(`${API_BASE}/api/dashboard/${encodeURIComponent(id)}`, { headers: authHeaders() })
 }

@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef, useCallback, type KeyboardEvent } from 'react'
+import { useMemo, useState, useRef, useCallback, useEffect, type KeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, Loader2, Plus, X, Scale } from 'lucide-react'
 
@@ -6,6 +6,7 @@ import { API_BASE, authHeaders } from '../api/config'
 import { useCompareStore } from '../stores/compareStore'
 
 const POPULAR_TICKERS = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'TSLA', 'META', 'SPY', 'QQQ', 'BRK.B']
+const TICKER_PATTERN = /^[A-Z0-9][A-Z0-9.]{0,9}$/
 
 interface CompareAnalysis {
   ticker: string
@@ -81,7 +82,16 @@ export default function ComparePage() {
   const [error, setError] = useState<string | null>(null)
   const [focusedInput, setFocusedInput] = useState<number | null>(null)
   const [activeDescendant, setActiveDescendant] = useState(-1)
-  const listboxRefs = useRef<(HTMLDivElement | null)[]>([])
+  const abortRef = useRef<AbortController | null>(null)
+
+  // Abort in-flight request on unmount
+  useEffect(() => {
+    return () => { abortRef.current?.abort() }
+  }, [])
+
+  const updateTicker = useCallback((idx: number, value: string) => {
+    setTicker(idx, value.toUpperCase())
+  }, [setTicker])
 
   const suggestions = useMemo(() => {
     if (focusedInput === null) return []
@@ -97,7 +107,7 @@ export default function ComparePage() {
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       setActiveDescendant((prev) => Math.max(prev - 1, -1))
-    } else if (e.key === 'Enter' && activeDescendant >= 0) {
+    } else if (e.key === 'Enter' && activeDescendant >= 0 && activeDescendant < suggestions.length) {
       e.preventDefault()
       updateTicker(idx, suggestions[activeDescendant])
       setFocusedInput(null)
@@ -106,7 +116,7 @@ export default function ComparePage() {
       setFocusedInput(null)
       setActiveDescendant(-1)
     }
-  }, [focusedInput, suggestions, activeDescendant])
+  }, [focusedInput, suggestions, activeDescendant, updateTicker])
 
   const handleInputBlur = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
     // Keep dropdown open if focus moves to an element inside the same combobox container
@@ -116,35 +126,42 @@ export default function ComparePage() {
     setActiveDescendant(-1)
   }, [])
 
-  const updateTicker = (idx: number, value: string) => {
-    setTicker(idx, value.toUpperCase())
-  }
-
   const handleCompare = async () => {
-    const valid = tickers.filter((t) => t.trim())
+    const valid = [...new Set(tickers.map((t) => t.trim().toUpperCase()).filter((t) => t && TICKER_PATTERN.test(t)))]
     if (valid.length < 2) return
+
+    // Abort any in-flight request
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
 
     setLoading(true)
     setError(null)
+    setResult(null)
     try {
       const res = await fetch(
         `${API_BASE}/api/compare?tickers=${encodeURIComponent(valid.join(','))}`,
-        { headers: authHeaders() }
+        { headers: authHeaders(), signal: controller.signal }
       )
       if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.detail || 'Comparison failed')
+        let message = 'Comparison failed'
+        try {
+          const data = await res.json()
+          if (data.detail && typeof data.detail === 'string') message = data.detail
+        } catch { /* non-JSON error body, use default message */ }
+        throw new Error(message)
       }
       setResult(await res.json())
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
       setError(err instanceof Error ? err.message : 'Comparison failed')
     } finally {
-      setLoading(false)
+      if (!controller.signal.aborted) setLoading(false)
     }
   }
 
-  const signalColor = (signal: string) => {
-    switch (signal) {
+  const signalColor = (signal: string | undefined) => {
+    switch (signal?.toLowerCase()) {
       case 'buy': return 'text-[var(--bullish)]'
       case 'sell': return 'text-[var(--bearish)]'
       case 'hold': return 'text-[var(--neutral)]'
@@ -192,9 +209,9 @@ export default function ComparePage() {
               />
               {isOpen && (
                 <div
-                  ref={(el) => { listboxRefs.current[idx] = el }}
                   id={listboxId}
                   role="listbox"
+                  aria-label="Ticker suggestions"
                   className="absolute top-full left-0 mt-1 w-32 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] shadow-lg py-1 z-50"
                 >
                   {suggestions.map((s, i) => (
@@ -227,6 +244,7 @@ export default function ComparePage() {
         {tickers.length < 3 && (
           <button
             onClick={addSlot}
+            aria-label="Add ticker"
             className="w-10 h-10 rounded-lg border border-dashed border-[var(--border)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors"
           >
             <Plus className="w-4 h-4" />
@@ -235,7 +253,7 @@ export default function ComparePage() {
 
         <button
           onClick={handleCompare}
-          disabled={loading || tickers.filter((t) => t.trim()).length < 2}
+          disabled={loading || [...new Set(tickers.map((t) => t.trim().toUpperCase()).filter((t) => t && TICKER_PATTERN.test(t)))].length < 2}
           className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[var(--accent)] text-white text-sm font-medium hover:bg-[var(--accent)]/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus-ring"
         >
           {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Comparing...</> : 'Compare'}
@@ -245,13 +263,13 @@ export default function ComparePage() {
 
       {/* Error */}
       {error && (
-        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 mb-6 text-sm text-red-500">
+        <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 mb-6 text-sm text-red-500">
           {error}
         </div>
       )}
 
       {/* Skeleton loading state */}
-      {loading && !result && <CompareTableSkeleton />}
+      {loading && <CompareTableSkeleton />}
 
       {/* Results table */}
       {result && (
@@ -289,7 +307,8 @@ export default function ComparePage() {
               <tr>
                 <td className="px-5 py-3 text-[var(--text-secondary)]">Sentiment</td>
                 {result.tickers.map((t) => {
-                  const score = result.analyses[t]?.sentiment_score ?? 0
+                  const raw = result.analyses[t]?.sentiment_score
+                  const score = typeof raw === 'number' && isFinite(raw) ? raw : 0
                   return (
                     <td key={t} className={`text-center px-5 py-3 font-mono ${score >= 0 ? 'text-[var(--bullish)]' : 'text-[var(--bearish)]'}`}>
                       {score.toFixed(2)}
@@ -363,7 +382,7 @@ export default function ComparePage() {
       {result && (
         <div className="mt-4 flex flex-wrap gap-2">
           {result.tickers.map((t) => (
-            <Link key={t} to={`/analyze?tickers=${t}`} className="text-xs px-3 py-1.5 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors focus-ring">
+            <Link key={t} to={`/analyze?tickers=${encodeURIComponent(t)}`} className="text-xs px-3 py-1.5 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors focus-ring">
               Analyze {t}
             </Link>
           ))}

@@ -5,9 +5,13 @@ interface Props {
 function fmt(val: unknown, prefix = '', suffix = ''): string {
   if (val === undefined || val === null || val === '') return '-'
   if (typeof val === 'number') {
+    if (!Number.isFinite(val)) return '-'
     return `${prefix}${val.toLocaleString(undefined, { maximumFractionDigits: 2 })}${suffix}`
   }
-  return `${prefix}${String(val)}${suffix}`
+  if (typeof val === 'string') {
+    return `${prefix}${val}${suffix}`
+  }
+  return '-'
 }
 
 export default function PriceMetrics({ priceData }: Props) {

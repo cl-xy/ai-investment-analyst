@@ -71,7 +71,20 @@ async def refresh_portfolio_analyses(
             )
 
     async with _RUN_LOCK:
-        _LAST_REFRESH_STARTED_AT = datetime.now(timezone.utc)
+        # Re-check lock window inside the lock to close TOCTOU race:
+        # two requests can both pass the unlocked check above, but only
+        # one should proceed once the lock is acquired.
+        if _LAST_REFRESH_STARTED_AT is not None:
+            elapsed = (datetime.now(timezone.utc) - _LAST_REFRESH_STARTED_AT).total_seconds()
+            if elapsed < settings.scheduler_refresh_lock_seconds:
+                return ScheduledRefreshResponse(
+                    status="skipped",
+                    message="Refresh skipped due to lock window",
+                    tickers=[],
+                    created_at=datetime.now(timezone.utc),
+                    duration_ms=int((perf_counter() - started) * 1000),
+                )
+
         positions = await fetch_all_positions()
         tickers = _get_unique_portfolio_tickers(positions)
 
@@ -97,6 +110,10 @@ async def refresh_portfolio_analyses(
                 duration_ms=int((perf_counter() - started) * 1000),
             )
 
+        # Only set the lock-window timestamp after slot is acquired, so failed
+        # slot acquisitions don't block future retries during the window.
+        _LAST_REFRESH_STARTED_AT = datetime.now(timezone.utc)
+
         # Hard timeout: same rationale as earnings refresh. Without this, a slow
         # LLM run holds _RUN_LOCK + analysis slot indefinitely.
         _PORTFOLIO_TIMEOUT = 300  # seconds — generous for multi-ticker portfolio
@@ -116,6 +133,18 @@ async def refresh_portfolio_analyses(
             return ScheduledRefreshResponse(
                 status="failed",
                 message=f"Portfolio refresh timed out after {_PORTFOLIO_TIMEOUT}s",
+                tickers=tickers,
+                created_at=datetime.now(timezone.utc),
+                duration_ms=int((perf_counter() - started) * 1000),
+            )
+        except Exception:
+            logger.exception(
+                "scheduled_refresh_error tickers=%s",
+                tickers,
+            )
+            return ScheduledRefreshResponse(
+                status="failed",
+                message="Portfolio refresh failed unexpectedly",
                 tickers=tickers,
                 created_at=datetime.now(timezone.utc),
                 duration_ms=int((perf_counter() - started) * 1000),
@@ -174,7 +203,7 @@ async def _ticker_due_for_earnings_refresh(ticker: str) -> bool:
     except ValueError:
         return False
 
-    return next_date < date.today()
+    return next_date < datetime.now(timezone.utc).date()
 
 
 @router.post("/scheduled/refresh-earnings", response_model=ScheduledRefreshResponse)
@@ -222,9 +251,10 @@ async def refresh_earnings_tickers(
             )
 
         due_flags = await asyncio.gather(
-            *[_ticker_due_for_earnings_refresh(t) for t in all_tickers]
+            *[_ticker_due_for_earnings_refresh(t) for t in all_tickers],
+            return_exceptions=True,
         )
-        due_tickers = [t for t, due in zip(all_tickers, due_flags) if due]
+        due_tickers = [t for t, result in zip(all_tickers, due_flags) if result is True]
 
         if not due_tickers:
             logger.info("earnings_refresh_check_none_due tickers_checked=%s", all_tickers)
@@ -268,6 +298,18 @@ async def refresh_earnings_tickers(
             return ScheduledRefreshResponse(
                 status="failed",
                 message=f"Earnings refresh timed out after {_EARNINGS_TIMEOUT}s",
+                tickers=due_tickers,
+                created_at=datetime.now(timezone.utc),
+                duration_ms=int((perf_counter() - started) * 1000),
+            )
+        except Exception:
+            logger.exception(
+                "earnings_refresh_error tickers=%s",
+                due_tickers,
+            )
+            return ScheduledRefreshResponse(
+                status="failed",
+                message="Earnings refresh failed unexpectedly",
                 tickers=due_tickers,
                 created_at=datetime.now(timezone.utc),
                 duration_ms=int((perf_counter() - started) * 1000),

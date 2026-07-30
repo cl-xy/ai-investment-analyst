@@ -8,6 +8,6 @@ export async function getExploreStocks(): Promise<ExploreResponse> {
 }
 
 export async function getStockDetail(ticker: string): Promise<StockDetail> {
-  const response = await axios.get<StockDetail>(`${API_BASE}/api/explore/${ticker}/detail`, { headers: authHeaders() })
+  const response = await axios.get<StockDetail>(`${API_BASE}/api/explore/${encodeURIComponent(ticker)}/detail`, { headers: authHeaders() })
   return response.data
 }

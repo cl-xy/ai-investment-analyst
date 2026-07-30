@@ -22,9 +22,10 @@ const _subscribe = (cb: () => void) => {
   return () => observer.disconnect()
 }
 const _getSnapshot = () => document.documentElement.getAttribute('data-theme') ?? 'petroleum'
+const _getServerSnapshot = () => 'petroleum'
 
 function useThemeColors() {
-  const theme = useSyncExternalStore(_subscribe, _getSnapshot)
+  const theme = useSyncExternalStore(_subscribe, _getSnapshot, _getServerSnapshot)
   return useMemo(() => {
     const root = document.documentElement
     const get = (v: string) => getComputedStyle(root).getPropertyValue(v).trim() || undefined
@@ -38,7 +39,8 @@ function useThemeColors() {
 
 function ChangeBadge({ changePct }: { changePct: number | null }) {
   if (changePct === null) return <span className="text-[var(--text-muted)] text-sm">-</span>
-  const positive = changePct >= 0
+  const rounded = Math.round(changePct * 100) / 100
+  const positive = rounded >= 0
   return (
     <span
       className={[
@@ -46,7 +48,7 @@ function ChangeBadge({ changePct }: { changePct: number | null }) {
         positive ? 'text-[var(--bullish)]' : 'text-[var(--bearish)]',
       ].join(' ')}
     >
-      {positive ? '+' : ''}{changePct.toFixed(2)}%
+      {positive ? '+' : ''}{rounded.toFixed(2)}%
     </span>
   )
 }
@@ -56,7 +58,8 @@ function PriceChart({ history, changePct, ticker }: { history: StockDetail['pric
   const isPositive = changePct === null || changePct >= 0
   const color = isPositive ? bullish : bearish
   // #34: Unique gradient IDs to prevent collision across multiple charts
-  const gradId = `grad-${ticker}-${isPositive ? 'up' : 'down'}`
+  const safeTicker = ticker.replace(/[^a-zA-Z0-9]/g, '_')
+  const gradId = `grad-${safeTicker}-${isPositive ? 'up' : 'down'}`
 
   if (!history || history.length === 0) {
     return <div className="flex items-center justify-center h-32 text-[var(--text-muted)] text-sm">No price data available</div>
@@ -65,6 +68,7 @@ function PriceChart({ history, changePct, ticker }: { history: StockDetail['pric
   const minClose = Math.min(...history.map((p) => p.close))
   const maxClose = Math.max(...history.map((p) => p.close))
   const padding = (maxClose - minClose) * 0.1 || 1
+  const domainMin = Math.max(0, minClose - padding)
 
   return (
     <ResponsiveContainer width="100%" height={140}>
@@ -88,7 +92,7 @@ function PriceChart({ history, changePct, ticker }: { history: StockDetail['pric
           interval="preserveStartEnd"
         />
         <YAxis
-          domain={[minClose - padding, maxClose + padding]}
+          domain={[domainMin, maxClose + padding]}
           tick={{ fontSize: 10, fill: textMuted }}
           tickLine={false}
           axisLine={false}
@@ -121,6 +125,7 @@ function DetailPanel({ ticker, changePct }: { ticker: string; changePct: number 
   const [detail, setDetail] = useState<StockDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [retryCount, setRetryCount] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -135,7 +140,7 @@ function DetailPanel({ ticker, changePct }: { ticker: string; changePct: number 
         }
       })
     return () => { cancelled = true }
-  }, [ticker])
+  }, [ticker, retryCount])
 
   if (loading) {
     return (
@@ -156,7 +161,7 @@ function DetailPanel({ ticker, changePct }: { ticker: string; changePct: number 
           <div>
             <p className="text-[var(--error)]">{error}</p>
             <button
-              onClick={() => { setError(null); setLoading(true); getStockDetail(ticker).then((d) => { setDetail(d); setLoading(false) }).catch((err: unknown) => { setError(err instanceof Error ? err.message : 'Failed to load details'); setLoading(false) }) }}
+              onClick={() => setRetryCount((c) => c + 1)}
               className="mt-1.5 text-xs text-[var(--accent)] hover:underline focus-ring rounded"
             >
               Retry
@@ -226,7 +231,7 @@ function DetailPanel({ ticker, changePct }: { ticker: string; changePct: number 
       )}
 
       <Link
-        to={`/analyze?tickers=${ticker}`}
+        to={`/analyze?tickers=${encodeURIComponent(ticker)}`}
         className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg bg-[var(--accent-bg)] text-[var(--accent)] border border-[var(--accent)]/20 hover:bg-[var(--accent)]/20 transition-colors focus-ring mt-4"
       >
         <Sparkles className="w-3.5 h-3.5" />
@@ -304,6 +309,7 @@ export default function ExplorePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expandedTicker, setExpandedTicker] = useState<string | null>(null)
+  const [retryCount, setRetryCount] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -318,7 +324,7 @@ export default function ExplorePage() {
         }
       })
     return () => { cancelled = true }
-  }, [])
+  }, [retryCount])
 
   const updatedAt = data?.updated_at
     ? new Date(data.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -344,6 +350,12 @@ export default function ExplorePage() {
       {error && (
         <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-5 py-4 text-red-500 text-sm">
           {error}
+          <button
+            onClick={() => setRetryCount((c) => c + 1)}
+            className="ml-3 text-xs font-medium text-[var(--accent)] hover:underline focus-ring rounded"
+          >
+            Retry
+          </button>
         </div>
       )}
 

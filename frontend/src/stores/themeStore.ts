@@ -17,20 +17,54 @@ export const themes: ThemeMeta[] = [
 
 const STORAGE_KEY = 'invest-theme'
 
+function safeGetItem(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function safeSetItem(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // Storage unavailable (disabled, quota exceeded, sandboxed iframe)
+  }
+}
+
+function isValidTheme(value: string | null): value is ThemeId {
+  return value !== null && themes.some(t => t.id === value)
+}
+
 function getInitialTheme(): ThemeId {
   if (typeof window === 'undefined') return 'petroleum'
-  const stored = localStorage.getItem(STORAGE_KEY)
-  if (stored && themes.some(t => t.id === stored)) return stored as ThemeId
+  const stored = safeGetItem(STORAGE_KEY)
+  if (isValidTheme(stored)) return stored
   return 'petroleum'
 }
 
+let transitionTimeout: ReturnType<typeof setTimeout> | null = null
+
 function applyTheme(id: ThemeId, animate = false): void {
+  if (typeof document === 'undefined') return
   const el = document.documentElement
-  if (animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+
+  if (transitionTimeout !== null) {
+    clearTimeout(transitionTimeout)
+    transitionTimeout = null
+    el.removeAttribute('data-theme-transitioning')
+  }
+
+  if (animate && typeof window !== 'undefined'
+    && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === false) {
     el.setAttribute('data-theme-transitioning', '')
     el.setAttribute('data-theme', id)
     // Remove after transition completes (320ms = --motion-surface)
-    setTimeout(() => el.removeAttribute('data-theme-transitioning'), 350)
+    transitionTimeout = setTimeout(() => {
+      el.removeAttribute('data-theme-transitioning')
+      transitionTimeout = null
+    }, 350)
   } else {
     el.setAttribute('data-theme', id)
   }
@@ -49,8 +83,9 @@ export const useThemeStore = create<ThemeStore>((set) => {
   return {
     theme: initial,
     setTheme: (id) => {
+      if (!isValidTheme(id)) return
       applyTheme(id, true)
-      localStorage.setItem(STORAGE_KEY, id)
+      safeSetItem(STORAGE_KEY, id)
       set({ theme: id })
     },
   }

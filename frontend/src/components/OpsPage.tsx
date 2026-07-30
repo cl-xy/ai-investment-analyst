@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import {
   Activity,
   Shield,
@@ -38,23 +38,27 @@ export default function OpsPage() {
   const [confirmingChaos, setConfirmingChaos] = useState<string | null>(null)
 
   const fetchAll = useCallback(async () => {
-    try {
-      const [h, s, m, c] = await Promise.allSettled([
-        getHealth(),
-        getSLO(),
-        getMetrics(),
-        getChaosState(),
-      ])
-      if (h.status === 'fulfilled') setHealth(h.value)
-      if (s.status === 'fulfilled') setSLO(s.value)
-      if (m.status === 'fulfilled') setMetrics(m.value)
-      if (c.status === 'fulfilled') setChaos(c.value)
+    const [h, s, m, c] = await Promise.allSettled([
+      getHealth(),
+      getSLO(),
+      getMetrics(),
+      getChaosState(),
+    ])
+    if (h.status === 'fulfilled') setHealth(h.value)
+    if (s.status === 'fulfilled') setSLO(s.value)
+    if (m.status === 'fulfilled') setMetrics(m.value)
+    if (c.status === 'fulfilled') setChaos(c.value)
+
+    const failures = [h, s, m, c].filter((r) => r.status === 'rejected')
+    if (failures.length > 0) {
+      const reasons = failures.map((f) =>
+        f.status === 'rejected' ? (f.reason instanceof Error ? f.reason.message : 'Unknown error') : ''
+      )
+      setError(`Partial failure: ${reasons.join(', ')}`)
+    } else {
       setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load ops data')
-    } finally {
-      setLoading(false)
     }
+    setLoading(false)
   }, [])
 
   useEffect(() => {
@@ -77,22 +81,39 @@ export default function OpsPage() {
 
     const newEnabled = !scenario.enabled
     // Optimistic update
-    const updated: ChaosState = {
-      ...chaos,
-      scenarios: chaos.scenarios.map((s) =>
+    setChaos((prev) => {
+      if (!prev) return prev
+      const updatedScenarios = prev.scenarios.map((s) =>
         s.id === scenarioId ? { ...s, enabled: newEnabled } : s
-      ),
-      active: chaos.scenarios.some((s) => (s.id === scenarioId ? newEnabled : s.enabled)),
-    }
-    setChaos(updated)
+      )
+      return {
+        ...prev,
+        scenarios: updatedScenarios,
+        active: updatedScenarios.some((s) => s.enabled),
+      }
+    })
     try {
       await toggleChaosScenario(scenarioId, newEnabled)
-      // Refetch to get authoritative state
-      const fresh = await getChaosState()
-      setChaos(fresh)
+      // Refetch to get authoritative state (separate try so toggle success isn't rolled back)
+      try {
+        const fresh = await getChaosState()
+        setChaos(fresh)
+      } catch {
+        // Refetch failed but toggle succeeded; let next poll reconcile
+      }
     } catch {
-      // Rollback on failure
-      setChaos(chaos)
+      // Rollback only the toggled scenario using functional update
+      setChaos((prev) => {
+        if (!prev) return prev
+        const rolledBack = prev.scenarios.map((s) =>
+          s.id === scenarioId ? { ...s, enabled: !newEnabled } : s
+        )
+        return {
+          ...prev,
+          scenarios: rolledBack,
+          active: rolledBack.some((s) => s.enabled),
+        }
+      })
     }
   }
 
@@ -222,7 +243,7 @@ function HealthPanel({ health }: { health: HealthStatus }) {
               <div className="flex items-center gap-2.5">
                 <Icon className="w-4 h-4 text-[var(--text-muted)]" />
                 <span className="text-sm text-[var(--text-secondary)] capitalize">
-                  {key.replace('_', ' ')}
+                  {key.replace(/_/g, ' ')}
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -306,8 +327,8 @@ function SLOGauge({
   inverted?: boolean
 }) {
   const pct = inverted
-    ? Math.min(100, (target / current) * 100)
-    : Math.min(100, (current / target) * 100)
+    ? (current > 0 ? Math.min(100, (target / current) * 100) : 0)
+    : (target > 0 ? Math.min(100, (current / target) * 100) : 0)
 
   return (
     <div>
@@ -396,7 +417,7 @@ function RateLimitPanel({ limits }: { limits: MetricsData['rate_limits'] }) {
 }
 
 function RateLimitBar({ label, used, limit }: { label: string; used: number; limit: number }) {
-  const pct = (used / limit) * 100
+  const pct = limit > 0 ? (used / limit) * 100 : 0
   const critical = pct > 80
 
   return (
@@ -484,8 +505,9 @@ function ChaosPanel({
 }
 
 function LatencyChart({ entries }: { entries: LatencyEntry[] }) {
-  const chartData = entries.slice(-20).map((e) => ({
+  const chartData = entries.slice(-20).map((e, index) => ({
     name: e.ticker,
+    key: `${e.ticker}-${index}`,
     fetch_data: Math.round(e.stages.fetch_data_ms / 1000),
     debate: Math.round(e.stages.debate_ms / 1000),
     report: Math.round(e.stages.report_ms / 1000),
@@ -544,7 +566,7 @@ function LatencyChart({ entries }: { entries: LatencyEntry[] }) {
           </thead>
           <tbody>
             {chartData.map((d) => (
-              <tr key={d.name}>
+              <tr key={d.key}>
                 <td>{d.name}</td>
                 <td>{d.fetch_data}</td>
                 <td>{d.debate}</td>
@@ -560,11 +582,22 @@ function LatencyChart({ entries }: { entries: LatencyEntry[] }) {
 
 function ErrorsPanel({ errors }: { errors: RecentError[] }) {
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    }
+  }, [])
 
   const copyCorrelationId = (id: string) => {
+    if (!navigator.clipboard) return
     navigator.clipboard.writeText(id).then(() => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
       setCopiedId(id)
-      setTimeout(() => setCopiedId(null), 2000)
+      timeoutRef.current = setTimeout(() => setCopiedId(null), 2000)
+    }).catch(() => {
+      // Clipboard write failed (permissions, non-HTTPS, etc.)
     })
   }
 

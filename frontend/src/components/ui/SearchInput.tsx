@@ -16,7 +16,7 @@ export default function SearchInput({ value, onChange, placeholder = 'Search...'
 
   return (
     <div className={`relative ${className}`}>
-      <Search className={`absolute ${iconLeft} top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)]`} />
+      <Search aria-hidden="true" className={`pointer-events-none absolute ${iconLeft} top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)]`} />
       <input
         type="text"
         value={value}

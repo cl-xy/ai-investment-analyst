@@ -6,7 +6,7 @@ Prevents exceeding free-tier rate limits on external APIs.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 from src.db import fetchrow
 
@@ -23,12 +23,12 @@ DAILY_LIMITS: dict[str, int] = {
 
 
 async def check_budget(provider: str) -> bool:
-    """Return True if the provider has remaining budget for today."""
+    """Return True if the provider has remaining budget for today (advisory, not atomic)."""
     limit = DAILY_LIMITS.get(provider)
     if limit is None:
         return True
 
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     row = await fetchrow(
         "SELECT count FROM budget WHERE provider = $1 AND date = $2",
         provider,
@@ -39,8 +39,12 @@ async def check_budget(provider: str) -> bool:
 
 
 async def increment_budget(provider: str) -> int:
-    """Increment today's usage counter. Returns new count."""
-    today = date.today()
+    """Increment today's usage counter. Returns new count.
+
+    NOTE: This does NOT enforce DAILY_LIMITS. Use use_budget() for atomic
+    check-and-consume. This function is for unconditional tracking only.
+    """
+    today = datetime.now(timezone.utc).date()
     now = datetime.now(timezone.utc)
 
     row = await fetchrow(
@@ -54,7 +58,9 @@ async def increment_budget(provider: str) -> int:
         today,
         now,
     )
-    return row["count"] if row else 1
+    if row is None:
+        raise RuntimeError(f"budget increment for {provider} returned no row")
+    return row["count"]
 
 
 async def use_budget(provider: str) -> bool:
@@ -62,8 +68,10 @@ async def use_budget(provider: str) -> bool:
     limit = DAILY_LIMITS.get(provider)
     if limit is None:
         return True
+    if limit <= 0:
+        return False
 
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     now = datetime.now(timezone.utc)
 
     row = await fetchrow(
@@ -87,7 +95,7 @@ async def get_budget_status() -> dict[str, dict]:
     """Return current budget status for all tracked providers."""
     from src.db import fetch
 
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
 
     # Single query for all providers instead of N sequential roundtrips
     rows = await fetch(

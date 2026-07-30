@@ -7,9 +7,21 @@ Single retry on validation failure. Sends errors back to the model.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+def _normalize_literal(v: object) -> object:
+    """Lowercase string values before Literal matching (LLMs emit 'Buy', 'HIGH', etc.)."""
+    if isinstance(v, str):
+        return v.strip().lower()
+    return v
+
+
+def _normalize_ticker(v: str) -> str:
+    """Strip whitespace, remove leading '$', uppercase for consistent lookups."""
+    return v.strip().lstrip("$").upper()
 
 
 class Citation(BaseModel):
@@ -19,7 +31,14 @@ class Citation(BaseModel):
         description="References a tool_result source_id (e.g. 'yfinance:NVDA:1706140800')"
     )
     claim: str = Field(description="The specific claim being cited")
-    provider: str = Field(description="Data provider: yfinance, newsapi, sec_edgar, rss")
+    provider: Literal["yfinance", "newsapi", "sec_edgar", "alpha_vantage", "rss"] = Field(
+        description="Data provider"
+    )
+
+    @field_validator("provider", mode="before")
+    @classmethod
+    def _normalize_provider(cls, v: object) -> object:
+        return _normalize_literal(v)
 
 
 class AnalysisOutput(BaseModel):
@@ -37,8 +56,20 @@ class AnalysisOutput(BaseModel):
     data_gaps: list[str] = Field(default_factory=list, description="What data was unavailable")
     price_data: dict = Field(default_factory=dict)
     fundamentals: dict = Field(default_factory=dict)
-    sec_notes: str = ""
-    news_summary: str = ""
+    sec_notes: str | None = None
+    news_summary: str | None = None
+
+    @field_validator("ticker", mode="before")
+    @classmethod
+    def _normalize_ticker(cls, v: object) -> object:
+        if isinstance(v, str):
+            return _normalize_ticker(v)
+        return v
+
+    @field_validator("signal", "confidence", mode="before")
+    @classmethod
+    def _normalize_literals(cls, v: object) -> object:
+        return _normalize_literal(v)
 
 
 class RouterOutput(BaseModel):
@@ -54,3 +85,24 @@ class RouterOutput(BaseModel):
     ]
     tickers: list[str] = Field(default_factory=list)
     reasoning: str = Field(default="", description="Brief explanation of classification")
+
+    @field_validator("intent", mode="before")
+    @classmethod
+    def _normalize_intent(cls, v: object) -> object:
+        return _normalize_literal(v)
+
+    @field_validator("tickers", mode="before")
+    @classmethod
+    def _normalize_tickers(cls, v: object) -> object:
+        if isinstance(v, list):
+            return [_normalize_ticker(t) if isinstance(t, str) else t for t in v]
+        return v
+
+    @model_validator(mode="after")
+    def _check_intent_tickers(self) -> RouterOutput:
+        """Ensure ticker-dependent intents have at least one ticker."""
+        needs_ticker = {"single_ticker", "add_position", "remove_position"}
+        if self.intent in needs_ticker and not self.tickers:
+            msg = f"intent '{self.intent}' requires at least one ticker"
+            raise ValueError(msg)
+        return self

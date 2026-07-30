@@ -26,21 +26,40 @@ export default function StreamingAnalysisPage() {
   const toolResults = useMemo(() => events.filter((e) => e.type === 'tool_result'), [events])
 
   const tickerParam = searchParams.get('tickers') || ''
-  const tickers = tickerParam.split(',').filter(Boolean)
+  const tickers = useMemo(() => {
+    const seen = new Set<string>()
+    return tickerParam
+      .split(',')
+      .map((t) => t.trim().toUpperCase())
+      .filter((t) => {
+        if (!t || seen.has(t)) return false
+        seen.add(t)
+        return true
+      })
+  }, [tickerParam])
 
   // Only treat as "already active" if actively streaming for THIS ticker set
-  const currentTickerKey = tickers.map((t) => t.toUpperCase()).sort().join(',')
-  const storeTickerKey = Object.keys(analyses).sort().join(',')
+  const currentTickerKey = [...tickers].sort().join(',')
+  const storeTickerKey = Object.keys(analyses).map((k) => k.toUpperCase()).sort().join(',')
   const alreadyActive = isStreaming && storeTickerKey === currentTickerKey
+
+  // Reset confirmation when the ticker set changes (React Router reuses component)
+  const prevTickerKeyRef = useRef(currentTickerKey)
+  useEffect(() => {
+    if (prevTickerKeyRef.current !== currentTickerKey) {
+      prevTickerKeyRef.current = currentTickerKey
+      setConfirmed(false)
+      hasConnectedRef.current = false
+    }
+  }, [currentTickerKey])
 
   useEffect(() => {
     if (!confirmed && !alreadyActive) return
     if (hasConnectedRef.current) return
-    const tickerList = tickerParam.split(',').filter(Boolean)
-    if (tickerList.length > 0) {
+    if (tickers.length > 0) {
       hasConnectedRef.current = true
-      connect(tickerList)
-      document.title = `Analyzing ${tickerList.join(', ')}... | AI Investment Analyst`
+      connect(tickers)
+      document.title = `Analyzing ${tickers.join(', ')}... | AI Investment Analyst`
     }
     return () => {
       disconnect()
@@ -48,7 +67,7 @@ export default function StreamingAnalysisPage() {
       document.title = 'AI Investment Analyst'
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tickerParam, confirmed])
+  }, [currentTickerKey, confirmed])
 
   if (tickers.length === 0) {
     return (
@@ -80,7 +99,7 @@ export default function StreamingAnalysisPage() {
                   key={t}
                   className="font-mono text-sm px-3 py-1 rounded-full bg-[var(--accent-bg)] text-[var(--accent)] font-medium"
                 >
-                  {t.toUpperCase()}
+                  {t}
                 </span>
               ))}
             </div>
@@ -144,30 +163,31 @@ export default function StreamingAnalysisPage() {
         {/* Analysis cards (progressive) */}
         <div className="space-y-6">
           {/* Debate panels (render during active debate before analysis completes) */}
-          {tickers.map((t) => {
-            const ticker = t.toUpperCase()
+          {tickers.map((ticker) => {
             if (debates[ticker] && debates[ticker].turns.length > 0) {
               return <DebatePanel key={`debate-${ticker}`} ticker={ticker} />
             }
             return null
           })}
 
-          {Object.entries(analyses).map(([ticker, analysis]) => (
+          {tickers
+            .filter((t) => analyses[t])
+            .map((t) => (
             <StreamAnalysisCard
-              key={ticker}
-              analysis={analysis}
+              key={t}
+              analysis={analyses[t]}
               onCitationClick={setActiveCitation}
             />
           ))}
 
           {/* Sector peers (single-ticker analyses only) */}
-          {peerComparison && <SectorPeersCard peerComparison={peerComparison} />}
+          {peerComparison && tickers.length === 1 && <SectorPeersCard peerComparison={peerComparison} />}
 
           {/* Skeleton cards for pending tickers */}
           {tickers
-            .filter((t) => !analyses[t.toUpperCase()])
+            .filter((t) => !analyses[t])
             .map((ticker) => (
-              <SkeletonCard key={ticker} ticker={ticker.toUpperCase()} />
+              <SkeletonCard key={ticker} ticker={ticker} />
             ))}
 
           {/* Error state */}
@@ -179,7 +199,12 @@ export default function StreamingAnalysisPage() {
                   <p className="text-sm font-medium text-[var(--error)]">Analysis failed</p>
                   <p className="text-sm text-[var(--text-secondary)] mt-1">{error}</p>
                   <button
-                    onClick={() => connect(tickers)}
+                    onClick={() => {
+                      disconnect()
+                      hasConnectedRef.current = false
+                      connect(tickers)
+                      hasConnectedRef.current = true
+                    }}
                     className="mt-3 text-sm text-[var(--accent)] hover:underline focus-ring rounded"
                   >
                     Retry analysis
@@ -190,7 +215,7 @@ export default function StreamingAnalysisPage() {
           )}
 
           {/* Next steps CTAs (shown after analysis completes) */}
-          {!isStreaming && Object.keys(analyses).length > 0 && (
+          {!isStreaming && tickers.some((t) => analyses[t]) && (
             <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-5">
               <p className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-3">Next Steps</p>
               <div className="flex flex-wrap gap-2">
@@ -321,7 +346,7 @@ function StreamAnalysisCard({ analysis, onCitationClick }: { analysis: AnalysisO
           <span className="text-xs font-medium px-2 py-1 rounded-full bg-[var(--surface)] text-[var(--text-muted)]">
             {analysis.confidence}
           </span>
-          <DataFreshness retrievedAt={analysis.price_data?.retrieved_at as string} />
+          <DataFreshness retrievedAt={analysis.price_data?.retrieved_at ?? undefined} />
         </div>
       </div>
 
@@ -329,15 +354,15 @@ function StreamAnalysisCard({ analysis, onCitationClick }: { analysis: AnalysisO
       <div className="mb-5">
         <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-1">
           <span>Bearish</span>
-          <span className="font-mono">{analysis.sentiment_score.toFixed(2)}</span>
+          <span className="font-mono">{(analysis.sentiment_score ?? 0).toFixed(2)}</span>
           <span>Bullish</span>
         </div>
         <div className="h-1.5 bg-[var(--surface)] rounded-full overflow-hidden">
           <div
             className="h-full rounded-full transition-all duration-300"
             style={{
-              width: `${((analysis.sentiment_score + 1) / 2) * 100}%`,
-              backgroundColor: analysis.sentiment_score >= 0 ? 'var(--bullish)' : 'var(--bearish)',
+              width: `${((Math.max(-1, Math.min(1, analysis.sentiment_score ?? 0)) + 1) / 2) * 100}%`,
+              backgroundColor: (analysis.sentiment_score ?? 0) >= 0 ? 'var(--bullish)' : 'var(--bearish)',
             }}
           />
         </div>
@@ -378,7 +403,7 @@ function StreamAnalysisCard({ analysis, onCitationClick }: { analysis: AnalysisO
       </div>
 
       {/* Risk flags */}
-      {analysis.risk_flags.length > 0 && (
+      {analysis.risk_flags && analysis.risk_flags.length > 0 && (
         <div className="mb-4">
           <h3 className="text-xs font-medium text-amber-500 uppercase tracking-wider mb-2">
             Risk Flags

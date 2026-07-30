@@ -39,7 +39,8 @@ def _as_dict(value) -> dict:
         return value
     if isinstance(value, str) and value:
         try:
-            return json.loads(value)
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
         except (json.JSONDecodeError, ValueError):
             return {}
     return {}
@@ -84,7 +85,7 @@ async def _fundamentals_only_peer(ticker: str) -> PeerSnapshot | None:
             asyncio.to_thread(yf_client.get_fundamentals, ticker),
         )
     except Exception as e:
-        log.warning("peer_fundamentals_fetch_failed ticker=%s error=%s", ticker, e)
+        log.warning("peer_fundamentals_fetch_failed", ticker=ticker, error=str(e))
         return None
 
     if not quote and not fundamentals:
@@ -128,18 +129,30 @@ async def peer_compare_node(state: InvestmentAnalystState) -> dict:
     if not sector:
         return {}
 
-    peer_tickers = get_sector_peers(sector, exclude={primary}, limit=_MAX_PEERS)
+    try:
+        peer_tickers = get_sector_peers(sector, exclude={primary}, limit=_MAX_PEERS)
+    except Exception as e:
+        _log.warning("peer_compare_failed", error=str(e))
+        return {}
     if not peer_tickers:
         return {}
 
     try:
-        results = await asyncio.gather(*[_get_peer_snapshot(t) for t in peer_tickers])
+        results = await asyncio.gather(
+            *[_get_peer_snapshot(t) for t in peer_tickers],
+            return_exceptions=True,
+        )
     except Exception as e:
         # Supplementary only — never block the analysis on peer enrichment.
         _log.warning("peer_compare_failed", error=str(e))
         return {}
 
-    peers = [p for p in results if p is not None]
+    peers = []
+    for r in results:
+        if isinstance(r, Exception):
+            _log.warning("peer_snapshot_failed", error=str(r))
+        elif r is not None:
+            peers.append(r)
     if not peers:
         return {}
 

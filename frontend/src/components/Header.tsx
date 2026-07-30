@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { TrendingUp, Menu, X, ChevronDown } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { ThemeSwitcher } from './ThemeSwitcher'
@@ -24,6 +24,26 @@ const OPS_NAV = [
 
 export default function Header() {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
+  const { pathname } = useLocation()
+
+  // Close mobile drawer on route change
+  useEffect(() => {
+    setMobileOpen(false)
+  }, [pathname])
+
+  // Close all dropdowns on route change
+  useEffect(() => {
+    setOpenDropdownId(null)
+  }, [pathname])
+
+  const handleDropdownToggle = useCallback((id: string) => {
+    setOpenDropdownId((prev) => (prev === id ? null : id))
+  }, [])
+
+  const handleDropdownClose = useCallback(() => {
+    setOpenDropdownId(null)
+  }, [])
 
   return (
     <header className="border-b border-[var(--border)] bg-[var(--surface)]">
@@ -46,18 +66,33 @@ export default function Header() {
             {PRIMARY_NAV.map((item) => (
               <NavLink key={item.to} to={item.to} label={item.label} />
             ))}
-            <NavDropdown label="History" items={HISTORY_NAV} />
-            <NavDropdown label="Ops" items={OPS_NAV} />
+            <NavDropdown
+              id="history"
+              label="History"
+              items={HISTORY_NAV}
+              isOpen={openDropdownId === 'history'}
+              onToggle={handleDropdownToggle}
+              onClose={handleDropdownClose}
+            />
+            <NavDropdown
+              id="ops"
+              label="Ops"
+              items={OPS_NAV}
+              isOpen={openDropdownId === 'ops'}
+              onToggle={handleDropdownToggle}
+              onClose={handleDropdownClose}
+            />
           </nav>
 
           <ThemeSwitcher />
 
           {/* Mobile hamburger */}
           <button
-            onClick={() => setMobileOpen(!mobileOpen)}
+            onClick={() => setMobileOpen((prev) => !prev)}
             className="md:hidden min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg hover:bg-[var(--surface-elevated)] transition-colors focus-ring"
             aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
             aria-expanded={mobileOpen}
+            aria-controls="mobile-nav"
           >
             {mobileOpen ? <X className="w-5 h-5 text-[var(--text-secondary)]" /> : <Menu className="w-5 h-5 text-[var(--text-secondary)]" />}
           </button>
@@ -66,7 +101,7 @@ export default function Header() {
 
       {/* Mobile nav drawer */}
       {mobileOpen && (
-        <nav className="md:hidden border-t border-[var(--border)] bg-[var(--surface)] px-4 py-3 space-y-1 animate-fade-in" aria-label="Main navigation">
+        <nav id="mobile-nav" className="md:hidden border-t border-[var(--border)] bg-[var(--surface)] px-4 py-3 space-y-1 animate-fade-in" aria-label="Mobile navigation">
           <p className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider px-3 pt-1 pb-2">Main</p>
           {PRIMARY_NAV.map((item) => (
             <NavLink key={item.to} to={item.to} label={item.label} mobile onClick={() => setMobileOpen(false)} />
@@ -85,25 +120,39 @@ export default function Header() {
   )
 }
 
-function NavDropdown({ label, items }: { label: string; items: ReadonlyArray<{ to: string; label: string }> }) {
-  const [open, setOpen] = useState(false)
+function NavDropdown({
+  id,
+  label,
+  items,
+  isOpen,
+  onToggle,
+  onClose,
+}: {
+  id: string
+  label: string
+  items: ReadonlyArray<{ to: string; label: string }>
+  isOpen: boolean
+  onToggle: (id: string) => void
+  onClose: () => void
+}) {
   const ref = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const { pathname } = useLocation()
 
   const hasActiveChild = items.some((item) => pathname === item.to)
+  const panelId = `dropdown-panel-${id}`
 
-  // Close on click outside or Escape
+  // Close on click outside or Escape (scoped to when focus is within)
   useEffect(() => {
-    if (!open) return
+    if (!isOpen) return
     function handleClick(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false)
+        onClose()
       }
     }
     function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        setOpen(false)
+      if (e.key === 'Escape' && ref.current?.contains(document.activeElement)) {
+        onClose()
         triggerRef.current?.focus()
       }
     }
@@ -113,14 +162,23 @@ function NavDropdown({ label, items }: { label: string; items: ReadonlyArray<{ t
       document.removeEventListener('mousedown', handleClick)
       document.removeEventListener('keydown', handleKey)
     }
-  }, [open])
+  }, [isOpen, onClose])
+
+  // Close when focus leaves the dropdown entirely
+  function handleFocusOut(e: React.FocusEvent) {
+    if (ref.current && !ref.current.contains(e.relatedTarget as Node)) {
+      onClose()
+    }
+  }
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative" onBlur={handleFocusOut}>
       <button
         ref={triggerRef}
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
+        onClick={() => onToggle(id)}
+        aria-expanded={isOpen}
+        aria-controls={panelId}
+        aria-haspopup="true"
         className={[
           'text-sm font-medium rounded-md transition-colors focus-ring min-h-[44px] px-3 py-2 inline-flex items-center gap-1',
           hasActiveChild
@@ -129,18 +187,18 @@ function NavDropdown({ label, items }: { label: string; items: ReadonlyArray<{ t
         ].join(' ')}
       >
         {label}
-        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      {open && (
-        <div className="absolute right-0 top-full mt-1 w-44 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] shadow-lg py-1 z-50 animate-fade-in">
+      {isOpen && (
+        <div id={panelId} className="absolute right-0 top-full mt-1 w-44 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] shadow-lg py-1 z-50 animate-fade-in">
           {items.map((item) => {
             const isActive = pathname === item.to
             return (
               <Link
                 key={item.to}
                 to={item.to}
-                onClick={() => setOpen(false)}
+                onClick={onClose}
                 aria-current={isActive ? 'page' : undefined}
                 className={[
                   'block px-4 py-2.5 text-sm transition-colors',

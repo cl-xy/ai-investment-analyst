@@ -1,4 +1,6 @@
 import logging
+import math
+import threading
 from datetime import date as _date
 
 import requests
@@ -6,18 +8,25 @@ import yfinance as yf
 
 log = logging.getLogger(__name__)
 
-# yfinance uses requests internally but does not set a timeout by default.
-# Create a session with a reasonable timeout to prevent zombie threads in the
-# ThreadPoolExecutor when Yahoo Finance is unresponsive.
-_SESSION = requests.Session()
-_SESSION.request = lambda *args, **kwargs: requests.Session.request(  # type: ignore[method-assign, misc]
-    _SESSION, *args, timeout=kwargs.pop("timeout", 20), **kwargs
-)
+# Thread-local storage for requests sessions. requests.Session is not
+# thread-safe, and this module is called from FastAPI's thread pool.
+_LOCAL = threading.local()
+
+
+def _get_session() -> requests.Session:
+    """Return a per-thread requests.Session with a default timeout."""
+    if not hasattr(_LOCAL, "session"):
+        s = requests.Session()
+        s.request = lambda *args, **kwargs: requests.Session.request(  # type: ignore[method-assign, misc]
+            s, *args, timeout=kwargs.pop("timeout", 20), **kwargs
+        )
+        _LOCAL.session = s
+    return _LOCAL.session
 
 
 def _ticker(symbol: str) -> yf.Ticker:
     """Create a Ticker with a timeout-enforcing session."""
-    return yf.Ticker(symbol, session=_SESSION)
+    return yf.Ticker(symbol, session=_get_session())
 
 
 def _download_fallback(ticker: str) -> dict:
@@ -44,7 +53,7 @@ def _download_fallback(ticker: str) -> dict:
             volume = int(df["Volume"].iloc[-1]) if "Volume" in df.columns else None
 
         change_pct = None
-        if prev_close:
+        if prev_close is not None and prev_close != 0:
             change_pct = round((price - prev_close) / prev_close * 100, 2)
 
         log.info("download_fallback_success ticker=%s price=%s", ticker, price)
@@ -68,14 +77,19 @@ def get_quote(ticker: str) -> dict:
     t = _ticker(ticker)
     price = None
     prev_close = None
+    info = None
     full: dict = {}
 
-    # Primary path: fast_info + info
+    # Primary path: fast_info (lightweight) then info (heavier quoteSummary)
     try:
         info = t.fast_info
-        full = t.info
         price = getattr(info, "last_price", None)
         prev_close = getattr(info, "previous_close", None)
+    except Exception as e:
+        log.warning("yfinance_fast_info_failed ticker=%s error=%s", ticker, e)
+
+    try:
+        full = t.info
         if price is None:
             price = full.get("currentPrice") or full.get("regularMarketPrice")
     except Exception as e:
@@ -97,7 +111,7 @@ def get_quote(ticker: str) -> dict:
         return _download_fallback(ticker)
 
     change_pct = None
-    if price is not None and prev_close:
+    if price is not None and prev_close is not None and prev_close != 0:
         change_pct = round((price - prev_close) / prev_close * 100, 2)
 
     # Build result from whatever info/full we managed to get
@@ -109,11 +123,16 @@ def get_quote(ticker: str) -> dict:
     currency = "USD"
 
     try:
-        volume = getattr(info, "three_month_average_volume", None)
-        market_cap = getattr(info, "market_cap", None) or full.get("marketCap")
+        if info is not None:
+            volume = getattr(info, "three_month_average_volume", None)
+            market_cap = getattr(info, "market_cap", None) or full.get("marketCap")
+            high_52w = getattr(info, "year_high", None) or full.get("fiftyTwoWeekHigh")
+            low_52w = getattr(info, "year_low", None) or full.get("fiftyTwoWeekLow")
+        else:
+            market_cap = full.get("marketCap")
+            high_52w = full.get("fiftyTwoWeekHigh")
+            low_52w = full.get("fiftyTwoWeekLow")
         pe_ratio = full.get("trailingPE")
-        high_52w = getattr(info, "year_high", None) or full.get("fiftyTwoWeekHigh")
-        low_52w = getattr(info, "year_low", None) or full.get("fiftyTwoWeekLow")
         currency = full.get("currency", "USD")
     except Exception:
         pass
@@ -147,13 +166,13 @@ def get_fundamentals(ticker: str) -> dict:
         "beta": info.get("beta"),
         "sector": info.get("sector"),
         "industry": info.get("industry"),
-        "description": info.get("longBusinessSummary", "")[:500],
+        "description": (info.get("longBusinessSummary") or "")[:500],
     }
 
     # If all meaningful fields are None, Yahoo likely returned an empty/blocked
     # response. Raise so the caller can try Alpha Vantage fallback.
     meaningful_keys = ("revenue", "eps", "sector", "beta", "profit_margin")
-    if not any(result.get(k) for k in meaningful_keys):
+    if not any(result.get(k) is not None for k in meaningful_keys):
         raise ValueError(f"yfinance returned no fundamental data for {ticker}")
 
     return result
@@ -200,6 +219,7 @@ def get_price_history(ticker: str, period: str = "3mo") -> list[dict]:
     hist = t.history(period=period)
     records = []
     for date, row in hist.iterrows():
+        vol = row["Volume"]
         records.append(
             {
                 "date": str(date.date()),
@@ -207,7 +227,7 @@ def get_price_history(ticker: str, period: str = "3mo") -> list[dict]:
                 "high": round(row["High"], 4),
                 "low": round(row["Low"], 4),
                 "close": round(row["Close"], 4),
-                "volume": int(row["Volume"]),
+                "volume": int(vol) if not (isinstance(vol, float) and math.isnan(vol)) else 0,
             }
         )
     return records

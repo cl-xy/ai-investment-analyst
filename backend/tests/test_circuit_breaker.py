@@ -128,7 +128,8 @@ class TestCircuitBreakerTransitions:
         assert breaker.state == CircuitState.CLOSED
 
     @pytest.mark.asyncio
-    async def test_success_resets_failures(self, breaker):
+    async def test_success_does_not_clear_sliding_window(self, breaker):
+        """Successes do not reset failure history; failures age out by timestamp."""
         call_count = 0
 
         async def sometimes_fails():
@@ -143,15 +144,51 @@ class TestCircuitBreakerTransitions:
             with pytest.raises(RuntimeError):
                 await breaker.call(sometimes_fails)
 
-        # One success resets
+        # One success does NOT clear the failure window
         result = await breaker.call(sometimes_fails)
         assert result == "ok"
         assert breaker.state == CircuitState.CLOSED
 
-        # Two more failures should not trip (reset happened)
-        call_count = 0
+        # One more failure tips us to threshold (2 prior + 1 new = 3 >= threshold)
+        async def failing():
+            raise RuntimeError("boom")
+
+        with pytest.raises(RuntimeError):
+            await breaker.call(failing)
+
+        assert breaker.state == CircuitState.OPEN
+
+    @pytest.mark.asyncio
+    async def test_aged_out_failures_dont_count(self):
+        """Failures outside the sliding window don't count toward threshold."""
+        breaker = CircuitBreaker(
+            name="aging",
+            failure_threshold=3,
+            window_seconds=0.05,
+            recovery_seconds=1.0,
+        )
+
+        async def failing():
+            raise RuntimeError("boom")
+
+        async def succeeding():
+            return "ok"
+
+        # Two failures
         for _ in range(2):
             with pytest.raises(RuntimeError):
-                await breaker.call(sometimes_fails)
+                await breaker.call(failing)
+
+        # Wait for them to age out of the window
+        await asyncio.sleep(0.1)
+
+        # A success trims the aged-out failures
+        result = await breaker.call(succeeding)
+        assert result == "ok"
+
+        # Two more failures (only these are in the window now: 2 < threshold)
+        for _ in range(2):
+            with pytest.raises(RuntimeError):
+                await breaker.call(failing)
 
         assert breaker.state == CircuitState.CLOSED

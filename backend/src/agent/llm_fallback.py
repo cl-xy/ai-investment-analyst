@@ -22,9 +22,18 @@ from tenacity import (
     wait_exponential,
 )
 
-from .circuit_breaker import CircuitBreakerOpen, llm_breaker
+from .circuit_breaker import CircuitBreaker, CircuitBreakerOpen, llm_breaker
 
 log = logging.getLogger(__name__)
+
+# Separate breaker for fallback model so primary failures don't block fallback.
+# Uses the same shared rate limiter (llm_limiter) inside CircuitBreaker.call().
+_fallback_breaker = CircuitBreaker(
+    name="llm_fallback",
+    failure_threshold=5,
+    window_seconds=60.0,
+    recovery_seconds=30.0,
+)
 
 
 class ErrorSeverity(Enum):
@@ -44,13 +53,15 @@ def _classify_error(exc: BaseException) -> ErrorSeverity:
     exc_str = str(exc).lower()
 
     # Auth/bad request: don't retry at all
-    if any(code in exc_str for code in ("401", "400", "unauthorized", "bad request")):
+    if re.search(r"\b(401|400)\b", exc_str) or any(
+        term in exc_str for term in ("unauthorized", "bad request")
+    ):
         return ErrorSeverity.NOT_RETRYABLE
 
     # Upstream provider capacity: try a different model
-    if "resourceexhausted" in exc_str:
+    if "resource" in exc_str and "exhausted" in exc_str:
         return ErrorSeverity.FALLBACK_TO_OTHER
-    if any(code in exc_str for code in ("502", "503")):
+    if re.search(r"\b(502|503)\b", exc_str):
         return ErrorSeverity.FALLBACK_TO_OTHER
     if "timeout" in exc_str:
         return ErrorSeverity.FALLBACK_TO_OTHER
@@ -77,8 +88,13 @@ def _is_retryable_error(exc: BaseException) -> bool:
 
 
 def _is_fallback_worthy(exc: BaseException) -> bool:
-    """Return True for errors where trying a different model might help."""
-    return _classify_error(exc) == ErrorSeverity.FALLBACK_TO_OTHER
+    """Return True for errors where trying a different model might help.
+
+    Both FALLBACK_TO_OTHER (immediate fallback) and RETRY_SAME_MODEL (after
+    retries are exhausted) should trigger fallback. Only NOT_RETRYABLE errors
+    (auth failures, bad requests) should never fall back.
+    """
+    return _classify_error(exc) != ErrorSeverity.NOT_RETRYABLE
 
 
 @lru_cache(maxsize=8)
@@ -146,13 +162,17 @@ async def invoke_with_fallback(
     primary = primary_model or settings.llm_model
     fallback = fallback_model or settings.llm_model_fallback
 
+    # Disable json_mode when tools are provided: OpenAI rejects requests
+    # combining response_format=json_object with tool definitions.
+    effective_json_mode = json_mode and not tools
+
     # Try primary model
-    primary_llm = _build_llm(primary, temperature, max_tokens, request_timeout, json_mode)
+    primary_llm = _build_llm(primary, temperature, max_tokens, request_timeout, effective_json_mode)
     primary_runnable: ChatOpenAI | Runnable = (
         primary_llm.bind_tools(tools) if tools else primary_llm
     )
     try:
-        return await _invoke_with_retry(primary_runnable, messages)
+        return await _invoke_with_retry(primary_runnable, messages, breaker=llm_breaker)
     except Exception as primary_exc:
         if not _is_fallback_worthy(primary_exc):
             raise
@@ -164,13 +184,15 @@ async def invoke_with_fallback(
             fallback,
         )
 
-    # Try fallback model
-    fallback_llm = _build_llm(fallback, temperature, max_tokens, request_timeout, json_mode)
+    # Try fallback model (uses separate breaker so primary failures don't block it)
+    fallback_llm = _build_llm(fallback, temperature, max_tokens, request_timeout, effective_json_mode)
     fallback_runnable: ChatOpenAI | Runnable = (
         fallback_llm.bind_tools(tools) if tools else fallback_llm
     )
     try:
-        result = await _invoke_with_retry(fallback_runnable, messages)
+        result = await _invoke_with_retry(
+            fallback_runnable, messages, breaker=_fallback_breaker
+        )
         log.info("fallback_model_succeeded model=%s", fallback)
         return result
     except Exception as fallback_exc:
@@ -188,6 +210,11 @@ async def invoke_with_fallback(
     stop=stop_after_attempt(2),
     reraise=True,
 )
-async def _invoke_with_retry(llm: "ChatOpenAI | Runnable", messages: list) -> BaseMessage:
-    """Invoke a specific LLM instance with retry, through the circuit breaker."""
-    return await llm_breaker.call(llm.ainvoke, messages)  # type: ignore[return-value]
+async def _invoke_with_retry(
+    llm: "ChatOpenAI | Runnable",
+    messages: list,
+    *,
+    breaker: "CircuitBreaker" = llm_breaker,
+) -> BaseMessage:
+    """Invoke a specific LLM instance with retry, through the given circuit breaker."""
+    return await breaker.call(llm.ainvoke, messages)  # type: ignore[return-value]

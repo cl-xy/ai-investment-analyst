@@ -7,14 +7,17 @@ Logs every analysis run for observability:
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timezone
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.config import settings
 from src.db import execute
+
+logger = logging.getLogger(__name__)
 
 
 class RunMetrics(BaseModel):
@@ -26,8 +29,10 @@ class RunMetrics(BaseModel):
     completed_at: datetime | None = None
     duration_ms: int = 0
 
-    router_model: str = settings.llm_router_model
-    analysis_model: str = settings.llm_model
+    router_model: str = Field(
+        default_factory=lambda: settings.llm_router_model
+    )
+    analysis_model: str = Field(default_factory=lambda: settings.llm_model)
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
@@ -55,6 +60,7 @@ class CostTracker:
             started_at=datetime.now(timezone.utc),
         )
         self._start_time = time.monotonic()
+        self._persisted = False
 
     def record_tool_call(self, success: bool, cached: bool):
         self.metrics.tool_calls += 1
@@ -75,55 +81,71 @@ class CostTracker:
         self.metrics.cost_usd += (prompt * 0.00000015) + (completion * 0.00000060)
 
     def record_schema_result(self, valid: bool, citations: int, data_gaps: int):
-        self.metrics.schema_valid = valid
-        self.metrics.citations_count = citations
-        self.metrics.data_gaps_count = data_gaps
+        # Accumulate across multiple calls (multi-ticker runs)
+        self.metrics.schema_valid = self.metrics.schema_valid and valid
+        self.metrics.citations_count += citations
+        self.metrics.data_gaps_count += data_gaps
 
     async def persist(self):
-        """Save run metrics to PostgreSQL."""
-        self.metrics.completed_at = datetime.now(timezone.utc)
-        self.metrics.duration_ms = int((time.monotonic() - self._start_time) * 1000)
+        """Save run metrics to PostgreSQL. Best-effort: never crashes the run."""
+        if self._persisted:
+            return
 
-        m = self.metrics
-        await execute(
-            """
-            INSERT INTO runs (
-                run_id, tickers, started_at, completed_at, duration_ms,
-                router_model, analysis_model,
-                prompt_tokens, completion_tokens, total_tokens,
-                tool_calls, tool_successes, tool_failures,
-                cache_hits, cache_misses, cost_usd,
-                schema_valid, citations_count, data_gaps_count
-            ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, $15, $16, $17, $18, $19
+        if self.metrics.completed_at is None:
+            self.metrics.completed_at = datetime.now(timezone.utc)
+            self.metrics.duration_ms = int(
+                (time.monotonic() - self._start_time) * 1000
             )
-            """,
-            m.run_id,
-            m.tickers,
-            m.started_at,
-            m.completed_at,
-            m.duration_ms,
-            m.router_model,
-            m.analysis_model,
-            m.prompt_tokens,
-            m.completion_tokens,
-            m.total_tokens,
-            m.tool_calls,
-            m.tool_successes,
-            m.tool_failures,
-            m.cache_hits,
-            m.cache_misses,
-            m.cost_usd,
-            m.schema_valid,
-            m.citations_count,
-            m.data_gaps_count,
-        )
+
+        try:
+            m = self.metrics
+            await execute(
+                """
+                INSERT INTO runs (
+                    run_id, tickers, started_at, completed_at, duration_ms,
+                    router_model, analysis_model,
+                    prompt_tokens, completion_tokens, total_tokens,
+                    tool_calls, tool_successes, tool_failures,
+                    cache_hits, cache_misses, cost_usd,
+                    schema_valid, citations_count, data_gaps_count
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                    $11, $12, $13, $14, $15, $16, $17, $18, $19
+                )
+                ON CONFLICT (run_id) DO NOTHING
+                """,
+                m.run_id,
+                m.tickers,
+                m.started_at,
+                m.completed_at,
+                m.duration_ms,
+                m.router_model,
+                m.analysis_model,
+                m.prompt_tokens,
+                m.completion_tokens,
+                m.total_tokens,
+                m.tool_calls,
+                m.tool_successes,
+                m.tool_failures,
+                m.cache_hits,
+                m.cache_misses,
+                m.cost_usd,
+                m.schema_valid,
+                m.citations_count,
+                m.data_gaps_count,
+            )
+            self._persisted = True
+        except Exception:
+            logger.exception("Failed to persist run metrics for %s", self.metrics.run_id)
 
     def summary(self) -> dict[str, Any]:
         """Return summary for SSE run_completed event."""
+        if self.metrics.duration_ms > 0:
+            duration = self.metrics.duration_ms
+        else:
+            duration = int((time.monotonic() - self._start_time) * 1000)
         return {
-            "total_duration_ms": int((time.monotonic() - self._start_time) * 1000),
+            "total_duration_ms": duration,
             "total_tokens": self.metrics.total_tokens,
             "cost_usd": round(self.metrics.cost_usd, 6),
             "tool_calls": self.metrics.tool_calls,

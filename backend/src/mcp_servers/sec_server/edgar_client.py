@@ -1,5 +1,6 @@
 import logging
 import re
+import threading
 import time
 
 import httpx
@@ -7,7 +8,6 @@ import httpx
 log = logging.getLogger(__name__)
 
 HEADERS = {"User-Agent": "mcp-investment-analyst contact@example.com"}
-EDGAR_BASE = "https://efts.sec.gov"
 SUBMISSIONS_BASE = "https://data.sec.gov/submissions"
 COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 
@@ -22,30 +22,41 @@ _RETRY_COOLDOWN_SECONDS = 300
 _ticker_to_cik: dict[str, str] = {}
 _ticker_map_loaded: bool = False
 _last_load_attempt: float = 0.0
+_load_lock = threading.Lock()
 
 
 def _load_ticker_map() -> None:
-    global _ticker_map_loaded, _last_load_attempt
+    global _ticker_to_cik, _ticker_map_loaded, _last_load_attempt
     if _ticker_map_loaded:
         return
-    if _last_load_attempt and (time.monotonic() - _last_load_attempt) < _RETRY_COOLDOWN_SECONDS:
-        return
-    _last_load_attempt = time.monotonic()
-    try:
-        r = _client.get(COMPANY_TICKERS_URL)
-        r.raise_for_status()
-        for entry in r.json().values():
-            ticker = entry.get("ticker", "").upper()
-            cik = str(entry.get("cik_str", "")).zfill(10)
-            if ticker:
-                _ticker_to_cik[ticker] = cik
-        _ticker_map_loaded = True
-    except Exception as exc:
-        log.warning(
-            "Failed to load SEC ticker map: %s. Will retry after %ds.",
-            exc,
-            _RETRY_COOLDOWN_SECONDS,
-        )
+    with _load_lock:
+        # Double-check after acquiring lock
+        if _ticker_map_loaded:
+            return
+        if _last_load_attempt and (time.monotonic() - _last_load_attempt) < _RETRY_COOLDOWN_SECONDS:
+            return
+        try:
+            r = _client.get(COMPANY_TICKERS_URL)
+            r.raise_for_status()
+            new_map: dict[str, str] = {}
+            for entry in r.json().values():
+                ticker = entry.get("ticker", "").upper()
+                cik_raw = entry.get("cik_str")
+                if not ticker or not cik_raw:
+                    continue
+                cik = str(cik_raw).zfill(10)
+                new_map[ticker] = cik
+            # Atomic swap: readers never see a partially built dict
+            _ticker_to_cik = new_map
+            _ticker_map_loaded = True
+        except Exception as exc:
+            log.warning(
+                "Failed to load SEC ticker map: %s. Will retry after %ds.",
+                exc,
+                _RETRY_COOLDOWN_SECONDS,
+            )
+        finally:
+            _last_load_attempt = time.monotonic()
 
 
 def get_cik(ticker: str) -> str | None:
@@ -54,6 +65,8 @@ def get_cik(ticker: str) -> str | None:
 
 
 def search_filings(ticker: str, form_type: str = "10-K", count: int = 3) -> list[dict]:
+    if count <= 0:
+        return []
     cik = get_cik(ticker)
     if not cik:
         return []
@@ -81,15 +94,16 @@ def search_filings(ticker: str, form_type: str = "10-K", count: int = 3) -> list
                 if len(results) >= count:
                     break
         return results
-    except Exception:
+    except Exception as exc:
+        log.warning("Failed to search filings for %s: %s", ticker, exc)
         return []
 
 
 def get_filing_text_snippet(accession_number: str, cik: str, max_chars: int = 3000) -> str:
-    acc_clean = accession_number.replace("-", "")
-    cik_int = int(cik)
-    index_url = f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{acc_clean}/{accession_number}-index.htm"
     try:
+        acc_clean = accession_number.replace("-", "")
+        cik_int = int(cik)
+        index_url = f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{acc_clean}/{accession_number}-index.htm"
         r = _client.get(index_url)
         r.raise_for_status()
         # Extract the primary document link from the index page
@@ -103,5 +117,6 @@ def get_filing_text_snippet(accession_number: str, cik: str, max_chars: int = 30
         text = re.sub(r"<[^>]+>", " ", r2.text)
         text = re.sub(r"\s+", " ", text).strip()
         return text[:max_chars]
-    except Exception:
+    except Exception as exc:
+        log.warning("Failed to get filing snippet for %s (CIK %s): %s", accession_number, cik, exc)
         return ""

@@ -17,7 +17,10 @@ export default function DataFreshness({ retrievedAt, className = '' }: DataFresh
 
   const now = new Date()
   const diffMs = now.getTime() - timestamp.getTime()
-  const diffMin = Math.floor(diffMs / 60000)
+
+  // Clamp negative diffs from clock skew or future timestamps to zero
+  const clampedMs = Math.max(0, diffMs)
+  const diffMin = Math.floor(clampedMs / 60000)
   const diffHr = Math.floor(diffMin / 60)
   const diffDay = Math.floor(diffHr / 24)
 

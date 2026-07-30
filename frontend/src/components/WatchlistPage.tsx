@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, type KeyboardEvent } from 'react'
+import { useState, useEffect, useRef, useMemo, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Search, Sparkles, X, AlertCircle } from 'lucide-react'
 import { useRecentTickers } from '../hooks/useRecentTickers'
@@ -19,20 +19,28 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
   const [input, setInput] = useState('')
   // #29: Inline validation error
   const [inputError, setInputError] = useState<string | null>(null)
-  // First-run welcome banner
+  // First-run welcome banner (read-only initializer for render purity)
   const [showWelcome, setShowWelcome] = useState(() => {
     try {
-      // Migration: read legacy key if present
+      return !(
+        localStorage.getItem('invest-state:welcome-dismissed') ||
+        localStorage.getItem('invest-welcome-dismissed')
+      )
+    } catch {
+      return true
+    }
+  })
+
+  // Migrate legacy localStorage key after commit (side effects belong in effects)
+  useEffect(() => {
+    try {
       const legacy = localStorage.getItem('invest-welcome-dismissed')
       if (legacy) {
         localStorage.setItem('invest-state:welcome-dismissed', legacy)
         localStorage.removeItem('invest-welcome-dismissed')
       }
-      return !localStorage.getItem('invest-state:welcome-dismissed')
-    } catch {
-      return true
-    }
-  })
+    } catch { /* storage unavailable, ignore */ }
+  }, [])
 
   const dismissWelcome = () => {
     try {
@@ -58,25 +66,35 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
   ], [tickers.length])
   const { activeHint, dismiss } = useContextualHints(hintDefs)
 
+  const addTicker = (raw: string) => {
+    const value = normalizeTicker(raw)
+    if (!value || tickers.includes(value)) return false
+    onAdd(value)
+    if (activeHint?.id === 'watchlist-first-ticker') dismiss('watchlist-first-ticker')
+    return true
+  }
+
   const handleAdd = () => {
-    const value = normalizeTicker(input)
     const error = getTickerError(input)
     if (error) {
       setInputError(error)
       return
     }
-    if (value && !tickers.includes(value)) onAdd(value)
+    addTicker(input)
     setInput('')
     setInputError(null)
-    // Dismiss onboarding hint on first add
-    if (activeHint?.id === 'watchlist-first-ticker') dismiss('watchlist-first-ticker')
     // Return focus to input after adding
     inputRef.current?.focus()
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') handleAdd()
-    if (inputError) setInputError(null)
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleAdd()
+      return
+    }
+    // Clear error only on actual typing keys (not modifiers, arrows, etc.)
+    if (inputError && e.key.length === 1) setInputError(null)
   }
 
   const handleDemoAnalyze = () => {
@@ -89,6 +107,7 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
       {showWelcome && (
         <div className="w-full rounded-xl border border-[var(--accent)]/20 bg-[var(--accent-bg)] p-5 relative">
           <button
+            type="button"
             onClick={dismissWelcome}
             className="absolute top-3 right-3 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors min-w-[28px] min-h-[28px] flex items-center justify-center"
             aria-label="Dismiss welcome message"
@@ -121,8 +140,9 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
 
       {/* Demo CTA */}
       <button
+        type="button"
         onClick={handleDemoAnalyze}
-        className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[var(--accent-bg)] text-[var(--accent)] text-sm font-medium hover:bg-[var(--accent)]/20 hover:shadow-[0_0_12px_var(--accent-bg)] active:shadow-none active:scale-[0.97] transition-[colors,transform,shadow] duration-150 focus-ring"
+        className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[var(--accent-bg)] text-[var(--accent)] text-sm font-medium hover:bg-[var(--accent)]/20 hover:shadow-[0_0_12px_var(--accent-bg)] active:shadow-none active:scale-[0.97] transition-[color,background-color,transform,box-shadow] duration-150 focus-ring"
       >
         <Sparkles className="w-4 h-4" />
         Try a live analysis (NVDA)
@@ -152,6 +172,7 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
             />
           </div>
           <button
+            type="button"
             onClick={handleAdd}
             className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white px-4 py-3 rounded-lg text-sm font-medium transition-colors focus-ring flex items-center gap-1.5 min-h-[44px] active:scale-[0.98]"
           >
@@ -173,6 +194,7 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
               💡 {activeHint.message}
             </p>
             <button
+              type="button"
               onClick={() => dismiss(activeHint.id)}
               className="shrink-0 text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
               aria-label="Dismiss hint"
@@ -197,6 +219,7 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
               >
                 {ticker}
                 <button
+                  type="button"
                   onClick={() => onRemove(ticker)}
                   className="text-[var(--text-muted)] hover:text-[var(--bearish)] transition-colors min-w-[28px] min-h-[28px] flex items-center justify-center rounded"
                   aria-label={`Remove ${ticker}`}
@@ -212,9 +235,10 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
       {/* Analyze button */}
       {tickers.length > 0 && (
         <button
+          type="button"
           onClick={onAnalyze}
           disabled={loading}
-          className="w-full bg-[var(--bullish)] hover:bg-[var(--bullish)]/90 hover:shadow-[0_0_16px_var(--bullish-bg)] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-3 rounded-lg transition-[colors,transform,shadow] duration-150 text-sm focus-ring active:brightness-90"
+          className="w-full bg-[var(--bullish)] hover:bg-[var(--bullish)]/90 hover:shadow-[0_0_16px_var(--bullish-bg)] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-3 rounded-lg transition-[color,background-color,transform,box-shadow] duration-150 text-sm focus-ring active:brightness-90"
         >
           Analyze {tickers.length} stock{tickers.length > 1 ? 's' : ''}
         </button>
@@ -230,7 +254,8 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
             {suggestions.map((ticker) => (
               <button
                 key={ticker}
-                onClick={() => onAdd(ticker)}
+                type="button"
+                onClick={() => addTicker(ticker)}
                 className="text-xs font-mono font-medium px-2.5 py-1.5 rounded-md bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent)] transition-colors focus-ring min-h-[36px]"
               >
                 {ticker}

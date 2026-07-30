@@ -12,8 +12,11 @@ export function useOnlineStatus(): boolean {
   const [online, setOnline] = useState(navigator.onLine)
   const failCountRef = useRef(0)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const activeControllerRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
+    let cancelled = false
+
     const handleOnline = () => {
       failCountRef.current = 0
       setOnline(true)
@@ -25,19 +28,26 @@ export function useOnlineStatus(): boolean {
 
     const checkHealth = async () => {
       if (!navigator.onLine) return
+      // Abort any previous in-flight check to prevent races
+      activeControllerRef.current?.abort()
+      const controller = new AbortController()
+      activeControllerRef.current = controller
+      const timeout = setTimeout(() => controller.abort(), HEALTH_TIMEOUT)
       try {
-        const controller = new AbortController()
-        const timeout = setTimeout(() => controller.abort(), HEALTH_TIMEOUT)
-        await fetch(`${API_BASE}/api/health`, {
+        const res = await fetch(`${API_BASE}/api/health`, {
           signal: controller.signal,
           cache: 'no-store',
         })
-        clearTimeout(timeout)
+        if (!res.ok) throw new Error(`Health check failed: ${res.status}`)
+        if (cancelled) return
         failCountRef.current = 0
         setOnline(true)
       } catch {
+        if (cancelled) return
         failCountRef.current += 1
         if (failCountRef.current >= 2) setOnline(false)
+      } finally {
+        clearTimeout(timeout)
       }
     }
 
@@ -64,9 +74,14 @@ export function useOnlineStatus(): boolean {
     }
 
     document.addEventListener('visibilitychange', handleVisibility)
-    if (!document.hidden) startPolling()
+    if (!document.hidden) {
+      checkHealth() // immediate check on mount
+      startPolling()
+    }
 
     return () => {
+      cancelled = true
+      activeControllerRef.current?.abort()
       stopPolling()
       document.removeEventListener('visibilitychange', handleVisibility)
       window.removeEventListener('online', handleOnline)

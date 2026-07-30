@@ -2,6 +2,9 @@
  * Stream event types matching the backend domain event schema.
  */
 
+export type Signal = 'buy' | 'hold' | 'sell' | 'insufficient_data'
+export type Confidence = 'high' | 'medium' | 'low'
+
 export type EventType =
   | 'run_started'
   | 'node_started'
@@ -62,8 +65,8 @@ export interface Citation {
 
 export interface AnalysisOutput {
   ticker: string
-  signal: 'buy' | 'hold' | 'sell' | 'insufficient_data'
-  confidence: 'high' | 'medium' | 'low'
+  signal: Signal
+  confidence: Confidence
   sentiment_score: number
   thesis?: string
   bull_case?: string[]
@@ -93,7 +96,7 @@ export interface DebateTurnPayload {
   ticker: string
   role: 'bull' | 'bear' | 'moderator'
   thesis: string
-  confidence: 'high' | 'medium' | 'low'
+  confidence: Confidence
   key_arguments: string[]
   turn_index: number
   duration_ms: number
@@ -101,8 +104,8 @@ export interface DebateTurnPayload {
 
 export interface DebateVerdictPayload {
   ticker: string
-  signal: 'buy' | 'hold' | 'sell' | 'insufficient_data'
-  confidence: 'high' | 'medium' | 'low'
+  signal: Signal
+  confidence: Confidence
   verdict_rationale: string
   key_disagreements: string[]
   duration_ms: number
@@ -113,8 +116,8 @@ export interface DebateVerdictPayload {
 export interface PeerSnapshot {
   ticker: string
   source: 'cached_analysis' | 'fundamentals_only'
-  signal?: string | null
-  confidence?: string | null
+  signal?: Signal | null
+  confidence?: Confidence | null
   current_price?: number | null
   pe_ratio?: number | null
   revenue_growth_yoy?: number | null

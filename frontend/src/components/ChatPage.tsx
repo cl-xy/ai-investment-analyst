@@ -34,15 +34,22 @@ export default function ChatPage() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [, setTick] = useState(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const threadId = useRef(`chat-${Date.now()}`)
+  // #5: Persist threadId so backend context survives refresh
+  const [threadId, setThreadId] = useRestorableState('chat-thread-id', `chat-${Date.now()}`)
+  const threadIdRef = useRef(threadId)
   // #2: Store EventSource ref for cleanup on unmount
   const esRef = useRef<EventSource | null>(null)
   const mountedRef = useRef(true)
   const inputRef = useRef(input)
+  // #6: Synchronous guard to prevent double-send race
+  const sendingRef = useRef(false)
+  // #2/#4: Track active assistant message ID for stream targeting
+  const activeAssistantIdRef = useRef<string | null>(null)
   const reducedMotion = usePrefersReducedMotion()
 
-  // Keep input ref current for stable sendMessage
+  // Keep refs current for stable sendMessage
   inputRef.current = input
+  threadIdRef.current = threadId
 
   // Strip stale isStreaming from restored messages on mount
   useEffect(() => {
@@ -79,23 +86,25 @@ export default function ChatPage() {
   const stopStreaming = useCallback(() => {
     esRef.current?.close()
     esRef.current = null
+    sendingRef.current = false
+    activeAssistantIdRef.current = null
     setIsStreaming(false)
-    setMessages((prev) => {
-      const updated = [...prev]
-      const last = updated[updated.length - 1]
-      if (last?.role === 'assistant' && last.isStreaming) {
-        updated[updated.length - 1] = { ...last, isStreaming: false }
-      }
-      return updated
-    })
+    setMessages((prev) =>
+      prev.map((m) => m.isStreaming ? { ...m, isStreaming: false } : m)
+    )
   }, [])
 
   const sendMessage = useCallback(() => {
     const text = inputRef.current.trim()
-    if (!text || isStreaming) return
+    // #6: Synchronous ref guard prevents double-send race
+    if (!text || sendingRef.current) return
+
+    sendingRef.current = true
+    const assistantId = `asst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    activeAssistantIdRef.current = assistantId
 
     const userMsg: ChatMessage = { id: `user-${Date.now()}`, role: 'user', content: text }
-    const assistantMsg: ChatMessage = { id: `asst-${Date.now()}`, role: 'assistant', content: '', isStreaming: true, toolCalls: [] }
+    const assistantMsg: ChatMessage = { id: assistantId, role: 'assistant', content: '', isStreaming: true, toolCalls: [] }
 
     setMessages((prev) => [...prev, userMsg, assistantMsg])
     setInput('')
@@ -105,70 +114,63 @@ export default function ChatPage() {
     esRef.current?.close()
 
     const auth = authParam()
-    const url = `${API_BASE}/api/chat/stream?message=${encodeURIComponent(text)}&thread_id=${threadId.current}${auth ? '&' + auth : ''}`
+    const url = `${API_BASE}/api/chat/stream?message=${encodeURIComponent(text)}&thread_id=${encodeURIComponent(threadIdRef.current)}${auth ? '&' + auth : ''}`
     const es = new EventSource(url)
     esRef.current = es
 
     es.addEventListener('llm_token', (e) => {
-      if (!mountedRef.current) return
-      const data = JSON.parse(e.data)
-      const token = data.payload?.text || ''
-      setMessages((prev) => {
-        const updated = [...prev]
-        const last = updated[updated.length - 1]
-        if (last.role === 'assistant') {
-          updated[updated.length - 1] = { ...last, content: last.content + token }
-        }
-        return updated
-      })
+      if (!mountedRef.current || esRef.current !== es) return
+      try {
+        const data = JSON.parse((e as MessageEvent).data)
+        const token = data.payload?.text || ''
+        setMessages((prev) =>
+          prev.map((m) => m.id === assistantId ? { ...m, content: m.content + token } : m)
+        )
+      } catch { /* malformed SSE event, ignore */ }
     })
 
     es.addEventListener('tool_call', (e) => {
-      if (!mountedRef.current) return
-      const data = JSON.parse(e.data)
-      const toolName = data.payload?.tool_name || ''
-      setMessages((prev) => {
-        const updated = [...prev]
-        const last = updated[updated.length - 1]
-        if (last.role === 'assistant') {
-          const calls = [...(last.toolCalls || []), { name: toolName, args: data.payload?.args || {} }]
-          updated[updated.length - 1] = { ...last, toolCalls: calls }
-        }
-        return updated
-      })
+      if (!mountedRef.current || esRef.current !== es) return
+      try {
+        const data = JSON.parse((e as MessageEvent).data)
+        const toolName = data.payload?.tool_name || ''
+        setMessages((prev) =>
+          prev.map((m) => m.id === assistantId
+            ? { ...m, toolCalls: [...(m.toolCalls || []), { name: toolName, args: data.payload?.args || {} }] }
+            : m
+          )
+        )
+      } catch { /* malformed SSE event, ignore */ }
     })
 
     es.addEventListener('run_completed', () => {
-      if (!mountedRef.current) return
-      setMessages((prev) => {
-        const updated = [...prev]
-        const last = updated[updated.length - 1]
-        if (last.role === 'assistant') {
-          updated[updated.length - 1] = { ...last, isStreaming: false }
-        }
-        return updated
-      })
+      if (!mountedRef.current || esRef.current !== es) return
+      setMessages((prev) =>
+        prev.map((m) => m.id === assistantId ? { ...m, isStreaming: false } : m)
+      )
       setIsStreaming(false)
+      sendingRef.current = false
+      activeAssistantIdRef.current = null
       es.close()
-      esRef.current = null
+      if (esRef.current === es) esRef.current = null
     })
 
     es.onerror = () => {
-      if (!mountedRef.current) return
+      if (!mountedRef.current || esRef.current !== es) return
       setIsStreaming(false)
-      setMessages((prev) => {
-        const updated = [...prev]
-        const last = updated[updated.length - 1]
-        if (last.role === 'assistant' && last.isStreaming) {
-          updated[updated.length - 1] = { ...last, isStreaming: false, content: last.content || 'Connection error. Please try again.' }
-        }
-        return updated
-      })
+      sendingRef.current = false
+      activeAssistantIdRef.current = null
+      setMessages((prev) =>
+        prev.map((m) => m.id === assistantId && m.isStreaming
+          ? { ...m, isStreaming: false, content: m.content || 'Connection error. Please try again.' }
+          : m
+        )
+      )
       es.close()
-      esRef.current = null
+      if (esRef.current === es) esRef.current = null
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- setInput is identity-stable (useState setter)
-  }, [isStreaming])
+  }, [])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -189,7 +191,11 @@ export default function ChatPage() {
         </div>
         {messages.length > 0 && (
           <button
-            onClick={() => setMessages([])}
+            onClick={() => {
+              stopStreaming()
+              setMessages([])
+              setThreadId(`chat-${Date.now()}`)
+            }}
             className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors focus-ring rounded px-2 py-1.5 min-h-[32px]"
             aria-label="Clear chat history"
           >

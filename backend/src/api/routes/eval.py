@@ -3,6 +3,7 @@ Evaluation metrics API. PostgreSQL-backed.
 Serves data for the eval dashboard.
 """
 
+import math
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter
@@ -16,7 +17,13 @@ router = APIRouter(prefix="/eval", tags=["eval"])
 @router.get("/summary", response_model=EvalSummary)
 async def eval_summary():
     """Return latest eval metrics summary for the dashboard."""
-    rows = await fetch("SELECT * FROM runs ORDER BY started_at DESC LIMIT 100")
+    rows = await fetch(
+        """
+        SELECT started_at, schema_valid, duration_ms, tool_calls,
+               tool_successes, cache_hits, citations_count
+        FROM runs ORDER BY started_at DESC LIMIT 100
+        """
+    )
 
     if not rows:
         return {
@@ -32,19 +39,23 @@ async def eval_summary():
 
     total = len(rows)
     schema_valid = sum(1 for r in rows if r["schema_valid"])
-    latencies = sorted([r["duration_ms"] for r in rows])
-    total_tool_calls = sum(r["tool_calls"] for r in rows)
-    total_successes = sum(r["tool_successes"] for r in rows)
-    total_cache_hits = sum(r["cache_hits"] for r in rows)
-    total_citations = sum(r["citations_count"] for r in rows)
+    latencies = sorted(
+        r["duration_ms"] for r in rows if r["duration_ms"] is not None
+    )
+    total_tool_calls = sum(r["tool_calls"] or 0 for r in rows)
+    total_successes = sum(r["tool_successes"] or 0 for r in rows)
+    total_cache_hits = sum(r["cache_hits"] or 0 for r in rows)
+    total_citations = sum(r["citations_count"] or 0 for r in rows)
 
-    p95_idx = int(total * 0.95)
+    # Nearest-rank P95: ceil(0.95 * n) - 1, clamped to valid bounds
+    n_latencies = len(latencies)
+    p95_idx = max(0, math.ceil(0.95 * n_latencies) - 1) if n_latencies else 0
 
     return {
         "total_runs": total,
         "schema_validation_rate": round(schema_valid / total * 100, 1) if total else 0,
-        "avg_latency_ms": round(sum(latencies) / total) if total else 0,
-        "p95_latency_ms": latencies[min(p95_idx, total - 1)] if latencies else 0,
+        "avg_latency_ms": round(sum(latencies) / n_latencies) if n_latencies else 0,
+        "p95_latency_ms": latencies[p95_idx] if latencies else 0,
         "citation_coverage": round(total_citations / max(total, 1), 1),
         "tool_success_rate": round(total_successes / max(total_tool_calls, 1) * 100, 1),
         "cache_hit_rate": round(total_cache_hits / max(total_tool_calls, 1) * 100, 1),

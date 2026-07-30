@@ -10,15 +10,15 @@ class PeerSnapshot(BaseModel):
 
     ticker: str
     source: Literal["cached_analysis", "fundamentals_only"]
-    signal: str | None = None
-    confidence: str | None = None
-    current_price: float | None = None
-    pe_ratio: float | None = None
-    revenue_growth_yoy: float | None = None
-    profit_margin: float | None = None
+    signal: Literal["buy", "hold", "sell", "insufficient_data"] | None = None
+    confidence: Literal["high", "medium", "low"] | None = None
+    current_price: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    pe_ratio: float | None = Field(default=None, allow_inf_nan=False)
+    revenue_growth_yoy: float | None = Field(default=None, allow_inf_nan=False)
+    profit_margin: float | None = Field(default=None, allow_inf_nan=False)
 
 
 class PeerComparisonResult(BaseModel):
     primary: str
     sector: str
-    peers: list[PeerSnapshot] = Field(default_factory=list)
+    peers: list[PeerSnapshot] = Field(default_factory=list, max_length=10)

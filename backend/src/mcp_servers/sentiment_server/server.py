@@ -4,7 +4,7 @@ load_dotenv()
 
 from fastmcp import FastMCP
 
-from .cache import _sentiment_cache
+from .cache import get_cached_sentiment, set_cached_sentiment
 from .sources import stocktwits
 
 mcp = FastMCP("sentiment-server")
@@ -17,13 +17,16 @@ def get_ticker_sentiment(ticker: str) -> dict:
     Returns message_count, bullish_count, bearish_count, unlabeled_count,
     bullish_ratio, sample_messages. Returns {} if unavailable.
     """
-    cache_key = ticker.upper()
-    if cache_key in _sentiment_cache:
-        return _sentiment_cache[cache_key]
+    cache_key = ticker.strip().upper()
+    cached = get_cached_sentiment(cache_key)
+    if cached is not None:
+        return cached
     data = stocktwits.get_ticker_sentiment(cache_key)
-    if data:
-        _sentiment_cache[cache_key] = data
-    return data
+    # Cache both successful and empty results to prevent repeated API calls
+    # for unavailable tickers within the TTL window
+    result = data or {}
+    set_cached_sentiment(cache_key, result)
+    return result
 
 
 if __name__ == "__main__":

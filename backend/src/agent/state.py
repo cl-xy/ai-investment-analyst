@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 
 class TickerAnalysis(TypedDict):
@@ -48,22 +48,24 @@ class InvestmentAnalystState(TypedDict):
     tickers_to_analyze: list[str]
     portfolio: list[PortfolioPosition]
 
-    ticker_analyses: dict[str, TickerAnalysis]
+    # Populated by debate node (one ticker at a time, read-modify-write)
+    ticker_analyses: NotRequired[dict[str, TickerAnalysis]]
 
-    raw_news: dict[str, list[dict]]
-    raw_prices: dict[str, dict]
-    raw_filings: dict[str, str]
-    raw_earnings: dict[str, dict]
-    raw_sentiment: dict[str, dict]
+    # Populated by fetch_data node
+    raw_news: NotRequired[dict[str, list[dict]]]
+    raw_prices: NotRequired[dict[str, dict]]
+    raw_filings: NotRequired[dict[str, str]]
+    raw_earnings: NotRequired[dict[str, dict]]
+    raw_sentiment: NotRequired[dict[str, dict]]
 
-    # Graceful degradation: tracks what data was unavailable
-    data_gaps: list[str]
+    # Graceful degradation: tracks what data was unavailable (set by fetch_data)
+    data_gaps: NotRequired[list[str]]
 
-    report_markdown: str
-    comparison: dict  # Optional comparative analysis (populated when 2+ tickers)
-    peer_comparison: dict | None  # Auto sector-peer context (populated for single-ticker runs)
-    current_ticker: str | None
-    error: str | None
+    report_markdown: NotRequired[str]
+    comparison: NotRequired[dict | None]  # Populated when 2+ tickers analyzed
+    peer_comparison: NotRequired[dict | None]  # Auto sector-peer context (single-ticker runs)
+    current_ticker: NotRequired[str | None]
+    error: NotRequired[str | None]
 
     # Correlation ID propagated from the request middleware for end-to-end tracing
-    correlation_id: str | None
+    correlation_id: NotRequired[str | None]

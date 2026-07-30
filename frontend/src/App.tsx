@@ -1,4 +1,4 @@
-import { Suspense, useEffect } from 'react'
+import { Suspense, useEffect, useRef } from 'react'
 import { Link, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { FileQuestion } from 'lucide-react'
 import Footer from './components/Footer'
@@ -11,17 +11,17 @@ import { useRecentTickers } from './hooks/useRecentTickers'
 import { lazyRetry } from './utils/lazyRetry'
 
 // #24: Code-split routes with chunk-hash recovery
-const WatchlistPage = lazyRetry(() => import('./components/WatchlistPage'))
-const StreamingAnalysisPage = lazyRetry(() => import('./components/StreamingAnalysisPage'))
-const DashboardPage = lazyRetry(() => import('./components/DashboardPage'))
-const ExplorePage = lazyRetry(() => import('./components/ExplorePage'))
-const EvalPage = lazyRetry(() => import('./components/EvalPage'))
-const ComparePage = lazyRetry(() => import('./components/ComparePage'))
-const BacktestPage = lazyRetry(() => import('./components/BacktestPage'))
-const ChatPage = lazyRetry(() => import('./components/ChatPage'))
-const CalibrationPage = lazyRetry(() => import('./components/CalibrationPage'))
-const OpsPage = lazyRetry(() => import('./components/OpsPage'))
-const ReplayPage = lazyRetry(() => import('./components/ReplayPage'))
+const WatchlistPage = lazyRetry(() => import('./components/WatchlistPage'), 'WatchlistPage')
+const StreamingAnalysisPage = lazyRetry(() => import('./components/StreamingAnalysisPage'), 'StreamingAnalysisPage')
+const DashboardPage = lazyRetry(() => import('./components/DashboardPage'), 'DashboardPage')
+const ExplorePage = lazyRetry(() => import('./components/ExplorePage'), 'ExplorePage')
+const EvalPage = lazyRetry(() => import('./components/EvalPage'), 'EvalPage')
+const ComparePage = lazyRetry(() => import('./components/ComparePage'), 'ComparePage')
+const BacktestPage = lazyRetry(() => import('./components/BacktestPage'), 'BacktestPage')
+const ChatPage = lazyRetry(() => import('./components/ChatPage'), 'ChatPage')
+const CalibrationPage = lazyRetry(() => import('./components/CalibrationPage'), 'CalibrationPage')
+const OpsPage = lazyRetry(() => import('./components/OpsPage'), 'OpsPage')
+const ReplayPage = lazyRetry(() => import('./components/ReplayPage'), 'ReplayPage')
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -65,23 +65,58 @@ function NotFoundPage() {
   )
 }
 
+// Validate ticker format: 1-10 alphanumeric chars, dots, hyphens
+const TICKER_PATTERN = /^[A-Z0-9.-]{1,10}$/
+
+function normalizeTicker(raw: string): string | null {
+  const cleaned = raw.trim().toUpperCase()
+  if (!cleaned || !TICKER_PATTERN.test(cleaned)) return null
+  return cleaned
+}
+
+// Defensive: ensure restored sessionStorage value is a valid string[]
+function validateTickers(restored: unknown): string[] {
+  if (!Array.isArray(restored)) return []
+  return restored.filter((item): item is string => typeof item === 'string' && item.length > 0)
+}
+
 export default function App() {
   const navigate = useNavigate()
+  const { pathname } = useLocation()
   // #22: Persist watchlist state across refreshes
-  const [tickers, setTickers] = useRestorableState<string[]>('watchlist', [])
+  const [rawTickers, setTickers] = useRestorableState<string[]>('watchlist', [])
   const { recordUsage } = useRecentTickers()
 
+  // Defensive validation of restored state
+  const tickers = validateTickers(rawTickers)
+
+  // Keep a ref to latest tickers to avoid stale-closure in handleAnalyze
+  const tickersRef = useRef(tickers)
+  tickersRef.current = tickers
+
   const addTicker = (ticker: string) => {
-    setTickers((prev) => (prev.includes(ticker) ? prev : [...prev, ticker]))
-    recordUsage(ticker)
+    const normalized = normalizeTicker(ticker)
+    if (!normalized) return
+    const current = validateTickers(tickersRef.current)
+    if (current.includes(normalized)) return
+    setTickers((prev) => {
+      const valid = validateTickers(prev)
+      if (valid.includes(normalized)) return valid
+      return [...valid, normalized]
+    })
+    recordUsage(normalized)
   }
 
-  const removeTicker = (ticker: string) =>
-    setTickers((prev) => prev.filter((t) => t !== ticker))
+  const removeTicker = (ticker: string) => {
+    const normalized = normalizeTicker(ticker)
+    if (!normalized) return
+    setTickers((prev) => validateTickers(prev).filter((t) => t !== normalized))
+  }
 
   const handleAnalyze = () => {
-    if (tickers.length === 0) return
-    const tickerParam = tickers.map((t) => t.toUpperCase()).join(',')
+    const current = tickersRef.current
+    if (current.length === 0) return
+    const tickerParam = current.join(',')
     navigate(`/analyze?tickers=${encodeURIComponent(tickerParam)}`)
   }
 
@@ -102,7 +137,7 @@ export default function App() {
       <ScrollToTop />
 
       <main id="main-content" className="flex-1 animate-fade-in" tabIndex={-1}>
-        <ErrorBoundary>
+        <ErrorBoundary key={pathname}>
           <Suspense fallback={<RouteLoadingBar />}>
             <Routes>
               <Route

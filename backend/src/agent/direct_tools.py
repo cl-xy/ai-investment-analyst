@@ -6,11 +6,16 @@ Used in production where subprocess spawning is unreliable (Docker/Fly.io).
 
 import asyncio
 import json
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
+
+from src.numeric import sanitize_floats
+
+logger = logging.getLogger(__name__)
 
 # Explicit bounded thread pool for sync tool calls.
 # Default pool is min(32, cpu_count+4) which can be as low as 5 on Fly.io shared-cpu-1x.
@@ -32,19 +37,19 @@ class PriceHistoryInput(BaseModel):
 
 class NewsInput(BaseModel):
     ticker: str = Field(description="Stock ticker symbol")
-    days_back: int = Field(default=7, description="How many days back to search")
-    max_articles: int = Field(default=10, description="Maximum articles to return")
+    days_back: int = Field(default=7, ge=1, le=90, description="How many days back to search")
+    max_articles: int = Field(default=10, ge=1, le=50, description="Maximum articles to return")
 
 
 class HeadlinesInput(BaseModel):
     category: str = Field(default="business", description="News category")
-    limit: int = Field(default=20, description="Maximum headlines")
+    limit: int = Field(default=20, ge=1, le=100, description="Maximum headlines")
 
 
 class SECInput(BaseModel):
     ticker: str = Field(description="Stock ticker symbol")
     form_type: str = Field(default="10-K", description="SEC form type")
-    count: int = Field(default=3, description="Number of filings to return")
+    count: int = Field(default=3, ge=1, le=20, description="Number of filings to return")
 
 
 class SECSummaryInput(BaseModel):
@@ -69,6 +74,12 @@ class UpdatePositionInput(BaseModel):
     cost_basis: float | None = None
 
 
+class EmptyInput(BaseModel):
+    """Schema for tools that take no arguments."""
+
+    pass
+
+
 def _wrap_sync(fn, **kwargs) -> str:
     """Call a sync function and return JSON string (MCP content-block format).
 
@@ -76,7 +87,7 @@ def _wrap_sync(fn, **kwargs) -> str:
     and avoid caching error responses.
     """
     result = fn(**kwargs)
-    return json.dumps(result, default=str)
+    return json.dumps(sanitize_floats(result), default=str, allow_nan=False)
 
 
 async def _wrap_async(fn, **kwargs) -> str:
@@ -86,7 +97,7 @@ async def _wrap_async(fn, **kwargs) -> str:
     and avoid caching error responses.
     """
     result = await fn(**kwargs)
-    return json.dumps(result, default=str)
+    return json.dumps(sanitize_floats(result), default=str, allow_nan=False)
 
 
 async def _run_in_pool(fn, **kwargs) -> str:
@@ -131,7 +142,9 @@ def _make_async_tool(
     """Factory for creating a StructuredTool that wraps an async function."""
 
     def _sync(*args, **kwargs):
-        return json.dumps([])
+        raise NotImplementedError(
+            f"Tool '{name}' is async-only. Use ainvoke() instead of invoke()."
+        )
 
     async def _async(*args, **kwargs):
         return await _wrap_async(fn, **kwargs)
@@ -192,8 +205,8 @@ def load_direct_tools() -> dict:
             description="Get the next earnings date for a ticker. Returns next_earnings_date, days_until_earnings, eps_estimate.",
             args_schema=TickerInput,
         )
-    except Exception as e:
-        print(f"[direct_tools] Failed to load market tools: {e}")
+    except Exception:
+        logger.exception("Failed to load market tools")
 
     # --- News tools ---
     try:
@@ -211,8 +224,8 @@ def load_direct_tools() -> dict:
             description="Get current market news headlines.",
             args_schema=HeadlinesInput,
         )
-    except Exception as e:
-        print(f"[direct_tools] Failed to load news tools: {e}")
+    except Exception:
+        logger.exception("Failed to load news tools")
 
     # --- Sentiment tools ---
     try:
@@ -224,8 +237,8 @@ def load_direct_tools() -> dict:
             description="Get recent StockTwits retail sentiment for a ticker. Returns message_count, bullish_count, bearish_count, bullish_ratio, sample_messages.",
             args_schema=TickerInput,
         )
-    except Exception as e:
-        print(f"[direct_tools] Failed to load sentiment tools: {e}")
+    except Exception:
+        logger.exception("Failed to load sentiment tools")
 
     # --- SEC tools ---
     try:
@@ -243,8 +256,8 @@ def load_direct_tools() -> dict:
             description="Get a summary of the latest SEC filing for a ticker.",
             args_schema=SECSummaryInput,
         )
-    except Exception as e:
-        print(f"[direct_tools] Failed to load SEC tools: {e}")
+    except Exception:
+        logger.exception("Failed to load SEC tools")
 
     # --- Portfolio tools ---
     try:
@@ -260,6 +273,7 @@ def load_direct_tools() -> dict:
             get_portfolio,
             name="get_portfolio",
             description="Get all positions in the portfolio.",
+            args_schema=EmptyInput,
         )
         tools["add_position"] = _make_async_tool(
             add_position,
@@ -285,7 +299,7 @@ def load_direct_tools() -> dict:
             description="Calculate total portfolio value given current prices.",
             args_schema=PortfolioPricesInput,
         )
-    except Exception as e:
-        print(f"[direct_tools] Failed to load portfolio tools: {e}")
+    except Exception:
+        logger.exception("Failed to load portfolio tools")
 
     return tools

@@ -17,9 +17,11 @@ export default function DashboardPage() {
   const [loadingList, setLoadingList] = useState(true)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [listError, setListError] = useState<string | null>(null)
+  const [detailError, setDetailError] = useState<string | null>(null)
   const deleteTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const mountedRef = useRef(true)
+  const detailReqIdRef = useRef(0)
 
   // Cleanup pending delete timers on unmount
   useEffect(() => {
@@ -60,12 +62,16 @@ export default function DashboardPage() {
   useEffect(() => {
     getDashboardResults()
       .then((data) => {
+        if (!mountedRef.current) return
         setSessions(Array.isArray(data) ? data : [])
       })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : 'Failed to load dashboard')
+        if (!mountedRef.current) return
+        setListError(err instanceof Error ? err.message : 'Failed to load dashboard')
       })
-      .finally(() => setLoadingList(false))
+      .finally(() => {
+        if (mountedRef.current) setLoadingList(false)
+      })
   }, [])
 
   // Auto-select first ticker once list loads
@@ -73,34 +79,46 @@ export default function DashboardPage() {
     if (uniqueTickers.length > 0 && selectedTicker === null) {
       selectTicker(uniqueTickers[0])
     }
-  }, [uniqueTickers])
+  }, [uniqueTickers, selectedTicker])
 
   async function selectTicker(ticker: string) {
-    setSelectedTicker(ticker)
     const session = tickerSessionMap.get(ticker)
-    if (!session) return
+    if (!session) {
+      setSelectedTicker(ticker)
+      setSessionDetail(null)
+      setLoadingDetail(false)
+      return
+    }
+    setSelectedTicker(ticker)
+    setDetailError(null)
     setLoadingDetail(true)
     setSessionDetail(null)
+    const reqId = ++detailReqIdRef.current
     try {
       const data = await getDashboardResult(session.id)
+      if (!mountedRef.current || reqId !== detailReqIdRef.current) return
       setSessionDetail(data)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load analysis')
+      if (!mountedRef.current || reqId !== detailReqIdRef.current) return
+      setDetailError(err instanceof Error ? err.message : 'Failed to load analysis')
     } finally {
-      setLoadingDetail(false)
+      if (mountedRef.current && reqId === detailReqIdRef.current) {
+        setLoadingDetail(false)
+      }
     }
   }
 
   async function handleDelete() {
     if (!sessionDetail || !selectedTicker) return
 
-    // Capture immutable snapshot at delete time
+    // Guard against double-click while a delete is already pending for this session
     const deletedId = sessionDetail.id
-    const deletedTicker = selectedTicker
-    const snapshotSessions = sessions
-    const snapshotDetail = sessionDetail
+    if (deleteTimersRef.current.has(deletedId)) return
 
-    // #4: Optimistic remove with undo toast
+    const deletedTicker = selectedTicker
+    const deletedSession = sessions.find((s) => s.id === deletedId)
+
+    // Optimistic remove with undo toast
     setSessions((prev) => prev.filter((s) => s.id !== deletedId))
     setSessionDetail(null)
     setSelectedTicker(null)
@@ -115,9 +133,13 @@ export default function DashboardPage() {
         clearTimeout(timer)
         deleteTimersRef.current.delete(deletedId)
       }
-      // Restore from snapshot (uses captured values, not stale closure)
-      setSessions(snapshotSessions)
-      setSessionDetail(snapshotDetail)
+      if (!mountedRef.current) return
+      // Restore only the specific deleted session, not the whole snapshot
+      if (deletedSession) {
+        setSessions((prev) =>
+          prev.some((s) => s.id === deletedId) ? prev : [...prev, deletedSession]
+        )
+      }
       setSelectedTicker(deletedTicker)
     })
 
@@ -131,10 +153,12 @@ export default function DashboardPage() {
         if (mountedRef.current) toastSuccess('Analysis deleted')
       } catch (err: unknown) {
         if (!mountedRef.current) return
-        // Rollback on failure using snapshot
-        setSessions(snapshotSessions)
-        setSessionDetail(snapshotDetail)
-        setSelectedTicker(deletedTicker)
+        // Rollback on failure: re-insert only the deleted session
+        if (deletedSession) {
+          setSessions((prev) =>
+            prev.some((s) => s.id === deletedId) ? prev : [...prev, deletedSession]
+          )
+        }
         toastError(err instanceof Error ? err.message : 'Failed to delete analysis')
       } finally {
         if (mountedRef.current) setDeletingId(null)
@@ -145,11 +169,11 @@ export default function DashboardPage() {
 
   if (loadingList) return <LoadingSpinner />
 
-  if (error) {
+  if (listError) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-16">
         <div className="bg-red-500/10 border border-red-500/20 text-red-500 rounded-xl px-5 py-4 text-sm">
-          <strong>Error:</strong> {error}
+          <strong>Error:</strong> {listError}
         </div>
       </div>
     )
@@ -176,6 +200,7 @@ export default function DashboardPage() {
 
   const analysis = selectedTicker && sessionDetail ? (sessionDetail.analyses ?? {})[selectedTicker] : null
   const sessionDate = tickerSessionMap.get(selectedTicker ?? '')?.created_at
+  const reanalyzeUrl = selectedTicker ? `/analyze?tickers=${encodeURIComponent(selectedTicker)}` : '#'
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 flex flex-col md:flex-row gap-6">
@@ -220,6 +245,20 @@ export default function DashboardPage() {
       <div className="flex-1 min-w-0">
         {loadingDetail ? (
           <LoadingSpinner />
+        ) : detailError ? (
+          <div className="flex flex-col items-center gap-4 py-16 text-center">
+            <div className="bg-red-500/10 border border-red-500/20 text-red-500 rounded-xl px-5 py-4 text-sm max-w-sm">
+              <strong>Error:</strong> {detailError}
+            </div>
+            {selectedTicker && (
+              <button
+                onClick={() => selectTicker(selectedTicker)}
+                className="text-sm text-[var(--accent)] hover:underline"
+              >
+                Retry
+              </button>
+            )}
+          </div>
         ) : analysis ? (
           <div className="space-y-5">
             <div className="flex items-center justify-between">
@@ -234,7 +273,7 @@ export default function DashboardPage() {
               <div className="flex items-center gap-3">
                 {selectedTicker && (
                   <Link
-                    to={`/analyze?tickers=${selectedTicker}`}
+                    to={reanalyzeUrl}
                     className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
@@ -269,7 +308,7 @@ export default function DashboardPage() {
               Re-run it to get the complete breakdown.
             </p>
             <Link
-              to={`/analyze?tickers=${selectedTicker}`}
+              to={reanalyzeUrl}
               className="mt-2 inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 transition-opacity"
             >
               <RefreshCw className="w-4 h-4" />

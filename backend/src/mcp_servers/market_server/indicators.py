@@ -4,14 +4,14 @@ from __future__ import annotations
 
 
 def _sma(closes: list[float], period: int) -> float | None:
-    if len(closes) < period:
+    if period <= 0 or len(closes) < period:
         return None
     return round(sum(closes[-period:]) / period, 4)
 
 
 def _ema(closes: list[float], period: int) -> list[float]:
-    """Return a list of EMA values (same length as closes, None-padded at the start)."""
-    if len(closes) < period:
+    """Return a list of EMA values (length = len(closes) - period + 1)."""
+    if len(closes) < period or period <= 0:
         return []
     k = 2 / (period + 1)
     emas: list[float] = []
@@ -23,7 +23,7 @@ def _ema(closes: list[float], period: int) -> list[float]:
 
 
 def compute_rsi(closes: list[float], period: int = 14) -> float | None:
-    if len(closes) < period + 1:
+    if period <= 0 or len(closes) < period + 1:
         return None
     deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
     gains = [d if d > 0 else 0.0 for d in deltas]
@@ -34,7 +34,7 @@ def compute_rsi(closes: list[float], period: int = 14) -> float | None:
         avg_gain = (avg_gain * (period - 1) + gains[i]) / period
         avg_loss = (avg_loss * (period - 1) + losses[i]) / period
     if avg_loss == 0:
-        return 100.0
+        return 50.0 if avg_gain == 0 else 100.0
     rs = avg_gain / avg_loss
     return round(100 - (100 / (1 + rs)), 2)
 
@@ -46,7 +46,9 @@ def compute_macd(
     signal: int = 9,
 ) -> dict | None:
     """Return {macd_line, signal_line, histogram} or None if insufficient data."""
-    if len(closes) < slow + signal:
+    if slow <= 0 or fast <= 0 or signal <= 0 or fast >= slow:
+        return None
+    if len(closes) < slow + signal - 1:
         return None
     fast_emas = _ema(closes, fast)
     slow_emas = _ema(closes, slow)

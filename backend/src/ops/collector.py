@@ -77,8 +77,9 @@ class OpsCollector:
 
         # LLM call tracking
         self._llm_durations: deque[float] = deque(maxlen=500)
-        self._llm_token_counts: deque[dict[str, int]] = deque(maxlen=500)
         self._llm_call_count: int = 0
+        self._total_prompt_tokens: int = 0
+        self._total_completion_tokens: int = 0
 
         # Circuit breaker events
         self._cb_events: deque[CircuitBreakerEvent] = deque(maxlen=100)
@@ -134,12 +135,8 @@ class OpsCollector:
         """Record an LLM API call with timing and token usage."""
         with self._lock:
             self._llm_durations.append(duration_ms)
-            self._llm_token_counts.append(
-                {
-                    "prompt": prompt_tokens,
-                    "completion": completion_tokens,
-                }
-            )
+            self._total_prompt_tokens += prompt_tokens
+            self._total_completion_tokens += completion_tokens
             self._llm_call_count += 1
 
     def record_circuit_breaker_change(
@@ -175,63 +172,74 @@ class OpsCollector:
             total_requests = sum(self._request_counts.values())
             total_errors = sum(self._error_counts.values())
 
-            # Latency percentiles
-            latencies = sorted(self._latencies)
-            n = len(latencies)
-            if n > 0:
-                p50 = latencies[int(n * 0.50)]
-                p95 = latencies[min(int(n * 0.95), n - 1)]
-            else:
-                p50 = 0.0
-                p95 = 0.0
+            # Copy data under lock, sort outside
+            latencies_copy = list(self._latencies)
+            llm_durations_copy = list(self._llm_durations)
+            total_prompt_tokens = self._total_prompt_tokens
+            total_completion_tokens = self._total_completion_tokens
+            llm_call_count = self._llm_call_count
+            cb_states = dict(self._cb_current_states)
+            cache_hits = self._cache_hits
+            cache_misses = self._cache_misses
+            by_endpoint = dict(self._request_counts)
+            errors_by_endpoint = dict(self._error_counts)
 
-            # LLM metrics
-            llm_durations = sorted(self._llm_durations)
-            llm_n = len(llm_durations)
-            if llm_n > 0:
-                llm_p50 = llm_durations[int(llm_n * 0.50)]
-                llm_p95 = llm_durations[min(int(llm_n * 0.95), llm_n - 1)]
-            else:
-                llm_p50 = 0.0
-                llm_p95 = 0.0
+        # Latency percentiles (outside lock)
+        latencies = sorted(latencies_copy)
+        n = len(latencies)
+        if n > 0:
+            p50 = latencies[min(int(n * 0.50), n - 1)]
+            p95 = latencies[min(int(n * 0.95), n - 1)]
+        else:
+            p50 = 0.0
+            p95 = 0.0
 
-            total_prompt_tokens = sum(t["prompt"] for t in self._llm_token_counts)
-            total_completion_tokens = sum(t["completion"] for t in self._llm_token_counts)
+        # LLM metrics (outside lock)
+        llm_durations = sorted(llm_durations_copy)
+        llm_n = len(llm_durations)
+        if llm_n > 0:
+            llm_p50 = llm_durations[min(int(llm_n * 0.50), llm_n - 1)]
+            llm_p95 = llm_durations[min(int(llm_n * 0.95), llm_n - 1)]
+        else:
+            llm_p50 = 0.0
+            llm_p95 = 0.0
 
-            # Cache hit rate
-            cache_total = self._cache_hits + self._cache_misses
-            cache_hit_rate = (self._cache_hits / cache_total) if cache_total > 0 else 0.0
+        # Cache hit rate
+        cache_total = cache_hits + cache_misses
+        cache_hit_rate = (cache_hits / cache_total) if cache_total > 0 else 0.0
 
-            return {
-                "requests": {
-                    "total": total_requests,
-                    "errors": total_errors,
-                    "by_endpoint": dict(self._request_counts),
-                    "errors_by_endpoint": dict(self._error_counts),
-                },
-                "latency": {
-                    "p50_ms": round(p50, 1),
-                    "p95_ms": round(p95, 1),
-                    "observations": n,
-                },
-                "llm": {
-                    "total_calls": self._llm_call_count,
-                    "duration_p50_ms": round(llm_p50, 1),
-                    "duration_p95_ms": round(llm_p95, 1),
-                    "total_prompt_tokens": total_prompt_tokens,
-                    "total_completion_tokens": total_completion_tokens,
-                },
-                "circuit_breakers": dict(self._cb_current_states),
-                "cache": {
-                    "hits": self._cache_hits,
-                    "misses": self._cache_misses,
-                    "hit_rate": round(cache_hit_rate, 4),
-                },
-                "uptime_seconds": round(time.time() - self._started_at, 1),
-            }
+        return {
+            "requests": {
+                "total": total_requests,
+                "errors": total_errors,
+                "by_endpoint": by_endpoint,
+                "errors_by_endpoint": errors_by_endpoint,
+            },
+            "latency": {
+                "p50_ms": round(p50, 1),
+                "p95_ms": round(p95, 1),
+                "observations": n,
+            },
+            "llm": {
+                "total_calls": llm_call_count,
+                "duration_p50_ms": round(llm_p50, 1),
+                "duration_p95_ms": round(llm_p95, 1),
+                "total_prompt_tokens": total_prompt_tokens,
+                "total_completion_tokens": total_completion_tokens,
+            },
+            "circuit_breakers": cb_states,
+            "cache": {
+                "hits": cache_hits,
+                "misses": cache_misses,
+                "hit_rate": round(cache_hit_rate, 4),
+            },
+            "uptime_seconds": round(time.time() - self._started_at, 1),
+        }
 
     def get_recent_traces(self, limit: int = 20) -> list[dict[str, Any]]:
         """Return the most recent traces."""
+        if limit <= 0:
+            return []
         with self._lock:
             traces = list(self._recent_traces)[-limit:]
         return [
@@ -250,6 +258,10 @@ class OpsCollector:
     def compute_slo(self) -> dict[str, Any]:
         """Compute SLO targets vs actuals over the rolling 7-day window."""
         with self._lock:
+            # Trim stale records before computing (traffic may have stopped)
+            cutoff = time.time() - _ROLLING_WINDOW_SECONDS
+            while self._requests and self._requests[0].timestamp < cutoff:
+                self._requests.popleft()
             records = list(self._requests)
 
         total = len(records)
@@ -286,22 +298,17 @@ class OpsCollector:
 
         # Error budget burn
         budget_total = self.slo_targets["error_budget_monthly"]
-        budget_consumed = error_rate
+        # Budget consumed as fraction of allowed budget
+        budget_consumed = min(error_rate, budget_total)
         budget_remaining = max(0.0, budget_total - budget_consumed)
 
-        # Burn rate: how fast we're consuming budget relative to a 30-day month
-        # If we consume all budget in 7 days, burn rate = 30/7 = 4.3x
-        window_fraction = 7 / 30  # 7 days out of 30-day month
-        expected_consumption = budget_total * window_fraction
-        burn_rate = (budget_consumed / expected_consumption) if expected_consumption > 0 else 0.0
+        # Burn rate: ratio of observed error rate to allowed error rate
+        # burn_rate = 1.0 means consuming budget at exactly the sustainable pace
+        # burn_rate > 1.0 means budget will be exhausted before the month ends
+        burn_rate = (error_rate / budget_total) if budget_total > 0 else 0.0
 
-        # Determine overall SLO status
-        if (
-            availability >= self.slo_targets["availability"]
-            and latency_p95 <= self.slo_targets["latency_p95_ms"]
-        ):
-            slo_status = "healthy"
-        elif burn_rate > 2.0:
+        # Determine overall SLO status (check critical first to avoid masking)
+        if burn_rate > 2.0:
             slo_status = "critical"
         elif (
             availability < self.slo_targets["availability"]
@@ -340,7 +347,7 @@ class OpsCollector:
                 INSERT INTO ops_metrics_snapshots (recorded_at, metrics)
                 VALUES (NOW(), $1)
                 """,
-                json.dumps(snapshot),
+                json.dumps(snapshot, allow_nan=False),
             )
         except Exception as exc:
             log.warning("metrics_snapshot_persist_failed", error=str(exc))

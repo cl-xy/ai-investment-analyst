@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any, Callable, Coroutine, TypeVar
 
 import asyncpg
 from asyncpg import Pool
@@ -18,12 +19,37 @@ from src.config import settings
 log = logging.getLogger(__name__)
 
 _pool: Pool | None = None
-_pool_lock = asyncio.Lock()
+_pool_lock: asyncio.Lock | None = None
+
+# Transient connection errors worth retrying once (Neon idle kills, network blips)
+_RETRYABLE = (
+    asyncpg.ConnectionDoesNotExistError,
+    asyncpg.InterfaceError,
+    asyncpg.PostgresConnectionError,
+    ConnectionResetError,
+    ConnectionError,
+    OSError,
+)
+
+T = TypeVar("T")
+
+
+def _get_lock() -> asyncio.Lock:
+    """Lazily create the lock on the running event loop (avoids 3.10+ binding issues)."""
+    global _pool_lock
+    if _pool_lock is None:
+        _pool_lock = asyncio.Lock()
+    return _pool_lock
 
 
 async def _init_connection(conn: asyncpg.Connection) -> None:
-    """Validate each connection when acquired from the pool."""
-    # Lightweight query to detect stale connections (Neon closes idle ones)
+    """Run once per physical connection creation (codecs, session settings)."""
+    # Placeholder for any per-connection setup (type codecs, search_path, etc.)
+    pass
+
+
+async def _check_connection(conn: asyncpg.Connection) -> None:
+    """Validate connection on each acquire from pool (detects Neon idle kills)."""
     await conn.execute("SELECT 1")
 
 
@@ -31,7 +57,7 @@ async def get_pool() -> Pool:
     """Get or create the connection pool (double-checked locking)."""
     global _pool
     if _pool is None:
-        async with _pool_lock:
+        async with _get_lock():
             if _pool is None:
                 for attempt in range(3):
                     try:
@@ -42,6 +68,8 @@ async def get_pool() -> Pool:
                             # Close idle connections before Neon's 5-min timeout kills them
                             max_inactive_connection_lifetime=120.0,
                             command_timeout=30.0,
+                            init=_init_connection,
+                            setup=_check_connection,
                         )
                         break
                     except (OSError, asyncpg.PostgresError) as exc:
@@ -55,33 +83,44 @@ async def get_pool() -> Pool:
 async def close_pool() -> None:
     """Close the connection pool (call on shutdown)."""
     global _pool
-    if _pool is not None:
-        await _pool.close()
-        _pool = None
+    async with _get_lock():
+        if _pool is not None:
+            await _pool.close()
+            _pool = None
+
+
+async def _with_retry(
+    fn: Callable[..., Coroutine[Any, Any, T]], *args: Any
+) -> T:
+    """Execute a pool operation with one retry on transient connection errors."""
+    pool = await get_pool()
+    try:
+        return await fn(pool, *args)
+    except _RETRYABLE as exc:
+        log.warning("db_retry query=%s error=%s", args[0] if args else "?", exc)
+        # Re-acquire from pool (setup callback will validate the new connection)
+        pool = await get_pool()
+        return await fn(pool, *args)
 
 
 async def execute(query: str, *args) -> str:
     """Execute a query and return the status."""
-    pool = await get_pool()
-    return await pool.execute(query, *args)
+    return await _with_retry(lambda p, q, *a: p.execute(q, *a), query, *args)
 
 
 async def fetch(query: str, *args) -> list[asyncpg.Record]:
     """Fetch multiple rows."""
-    pool = await get_pool()
-    return await pool.fetch(query, *args)
+    return await _with_retry(lambda p, q, *a: p.fetch(q, *a), query, *args)
 
 
 async def fetchrow(query: str, *args) -> asyncpg.Record | None:
     """Fetch a single row."""
-    pool = await get_pool()
-    return await pool.fetchrow(query, *args)
+    return await _with_retry(lambda p, q, *a: p.fetchrow(q, *a), query, *args)
 
 
 async def fetchval(query: str, *args):
     """Fetch a single value."""
-    pool = await get_pool()
-    return await pool.fetchval(query, *args)
+    return await _with_retry(lambda p, q, *a: p.fetchval(q, *a), query, *args)
 
 
 SCHEMA_SQL = """

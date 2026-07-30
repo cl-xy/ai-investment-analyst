@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 
 const STORAGE_PREFIX = 'invest-hint-dismissed:'
 
@@ -9,6 +9,30 @@ interface HintDef {
   condition?: () => boolean
 }
 
+function safeGetItem(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function safeSetItem(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // Storage unavailable (private mode, quota, policy)
+  }
+}
+
+function safeQuerySelector(selector: string): Element | null {
+  try {
+    return document.querySelector(selector)
+  } catch {
+    return null
+  }
+}
+
 /**
  * Sequential one-shot contextual hints.
  * Each hint fires once per user, stored in localStorage.
@@ -16,23 +40,30 @@ interface HintDef {
  */
 export function useContextualHints(hints: HintDef[]) {
   const [activeHint, setActiveHint] = useState<HintDef | null>(null)
+  const [dismissVersion, setDismissVersion] = useState(0)
+  const hintsRef = useRef(hints)
+  hintsRef.current = hints
+
+  // Derive a stable key from hint IDs so inline arrays don't restart the effect
+  const hintsKey = hints.map((h) => h.id).join('|')
 
   const isDismissed = useCallback((id: string): boolean => {
-    return localStorage.getItem(`${STORAGE_PREFIX}${id}`) === '1'
+    return safeGetItem(`${STORAGE_PREFIX}${id}`) === '1'
   }, [])
 
   const dismiss = useCallback((id: string) => {
-    localStorage.setItem(`${STORAGE_PREFIX}${id}`, '1')
+    safeSetItem(`${STORAGE_PREFIX}${id}`, '1')
     setActiveHint(null)
+    setDismissVersion((v) => v + 1)
   }, [])
 
   useEffect(() => {
     // Find first undismissed hint whose condition passes and target exists
     const timer = setTimeout(() => {
-      for (const hint of hints) {
+      for (const hint of hintsRef.current) {
         if (isDismissed(hint.id)) continue
         if (hint.condition && !hint.condition()) continue
-        if (!document.querySelector(hint.target)) continue
+        if (!safeQuerySelector(hint.target)) continue
         setActiveHint(hint)
         return
       }
@@ -40,7 +71,10 @@ export function useContextualHints(hints: HintDef[]) {
     }, 800) // Delay to let DOM settle
 
     return () => clearTimeout(timer)
-  }, [hints, isDismissed])
+    // hintsKey: re-scan when hint definitions change (by id)
+    // dismissVersion: re-scan after a hint is dismissed
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hintsKey, dismissVersion, isDismissed])
 
   return { activeHint, dismiss }
 }

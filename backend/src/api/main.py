@@ -67,7 +67,7 @@ async def _lifespan(app: FastAPI):
 
     # Set bounded thread pool as default executor so asyncio.to_thread uses it.
     # Prevents thread exhaustion on low-CPU deployments (Fly.io shared-cpu-1x).
-    asyncio.get_event_loop().set_default_executor(_TOOL_EXECUTOR)
+    asyncio.get_running_loop().set_default_executor(_TOOL_EXECUTOR)
 
     await init_schema()
     log.info("database_ready")
@@ -77,11 +77,12 @@ async def _lifespan(app: FastAPI):
     app.state.mcp_tools = load_direct_tools()
     log.info("tools_ready", count=len(app.state.mcp_tools))
 
-    yield
-
-    await close_pool()
-    _TOOL_EXECUTOR.shutdown(wait=False)
-    log.info("shutdown_complete")
+    try:
+        yield
+    finally:
+        _TOOL_EXECUTOR.shutdown(wait=True, cancel_futures=True)
+        await close_pool()
+        log.info("shutdown_complete")
 
 
 app = FastAPI(
@@ -131,7 +132,7 @@ def start() -> None:
         "src.api.main:app",
         host="0.0.0.0",
         port=settings.port,
-        reload=True,
+        reload=not _is_production,
     )
 
 

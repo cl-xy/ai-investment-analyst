@@ -6,15 +6,26 @@ Protected by scheduler secret token.
 from __future__ import annotations
 
 import os
+import re
 import secrets
 
 from fastapi import APIRouter, Header, HTTPException
 
 from src.cache.budget import get_budget_status
 
+_TICKER_RE = re.compile(r"^[A-Za-z0-9.]{1,10}$")
+
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 DEMO_TICKERS = ["AAPL", "NVDA", "TSLA", "MSFT", "GOOGL", "AMZN", "META", "SPY"]
+
+
+def _validate_ticker(ticker: str) -> str:
+    """Validate and normalize ticker input. Alphanumeric + dots, max 10 chars."""
+    ticker = ticker.upper()
+    if not _TICKER_RE.match(ticker):
+        raise HTTPException(status_code=400, detail="Invalid ticker format")
+    return ticker
 
 
 def _verify_token(authorization: str | None) -> None:
@@ -89,12 +100,13 @@ async def purge_empty_cache(authorization: str | None = Header(default=None)):
 async def inspect_cache(ticker: str, authorization: str | None = Header(default=None)):
     """Inspect all cache entries for a ticker to diagnose data pipeline issues."""
     _verify_token(authorization)
+    ticker = _validate_ticker(ticker)
 
     from src.db import fetch
 
     rows = await fetch(
         "SELECT key, data, source_id, provider, fetched_at, stale_at, expires_at FROM cache WHERE key LIKE $1",
-        f"%:{ticker.upper()}",
+        f"%:{ticker}",
     )
     entries = []
     for row in rows:
@@ -115,18 +127,19 @@ async def inspect_cache(ticker: str, authorization: str | None = Header(default=
                 "provider": row["provider"],
                 "data_summary": summary,
                 "data_is_empty": data in ({}, [], "", None),
-                "fetched_at": str(row["fetched_at"]),
-                "stale_at": str(row["stale_at"]),
-                "expires_at": str(row["expires_at"]),
+                "fetched_at": str(row["fetched_at"]) if row["fetched_at"] is not None else None,
+                "stale_at": str(row["stale_at"]) if row["stale_at"] is not None else None,
+                "expires_at": str(row["expires_at"]) if row["expires_at"] is not None else None,
             }
         )
-    return {"ticker": ticker.upper(), "entries": entries, "count": len(entries)}
+    return {"ticker": ticker, "entries": entries, "count": len(entries)}
 
 
 @router.get("/tool-test/{ticker}")
 async def test_tool_live(ticker: str, authorization: str | None = Header(default=None)):
     """Call get_quote directly (bypassing cache) to diagnose tool failures."""
     _verify_token(authorization)
+    ticker = _validate_ticker(ticker)
 
     import asyncio
     import time
@@ -135,7 +148,7 @@ async def test_tool_live(ticker: str, authorization: str | None = Header(default
 
     start = time.monotonic()
     try:
-        result = await asyncio.to_thread(get_quote, ticker.upper())
+        result = await asyncio.to_thread(get_quote, ticker)
         duration_ms = int((time.monotonic() - start) * 1000)
         return {"status": "ok", "duration_ms": duration_ms, "data": result}
     except Exception as e:

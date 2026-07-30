@@ -44,14 +44,28 @@ def _route_after_router(
 def _route_after_debate(
     state: InvestmentAnalystState,
 ) -> Literal["debate", "peer_compare", "generate_report"]:
-    analyzed = set(state.get("ticker_analyses", {}).keys())
-    remaining = [t for t in state.get("tickers_to_analyze", []) if t not in analyzed]
+    tickers_to_analyze = state.get("tickers_to_analyze", [])
+    analyzed = set((state.get("ticker_analyses") or {}).keys())
+    remaining = [t for t in tickers_to_analyze if t not in analyzed]
     if remaining:
         return "debate"
     # Auto sector-peer comparison only makes sense for a single analyzed ticker.
-    if len(state.get("tickers_to_analyze", [])) == 1:
+    if len(tickers_to_analyze) == 1:
         return "peer_compare"
     return "generate_report"
+
+
+def _route_after_report(
+    state: InvestmentAnalystState,
+) -> Literal["compare", "__end__"]:
+    """Run comparison when multiple tickers were analyzed."""
+    tickers_to_analyze = state.get("tickers_to_analyze", [])
+    analyses = state.get("ticker_analyses") or {}
+    # Only compare if 2+ of the requested tickers were successfully analyzed
+    analyzed_requested = [t for t in tickers_to_analyze if t in analyses]
+    if len(analyzed_requested) >= 2:
+        return "compare"
+    return "__end__"
 
 
 def build_graph(mcp_tools: dict) -> StateGraph:
@@ -95,13 +109,6 @@ def build_graph(mcp_tools: dict) -> StateGraph:
         },
     )
     graph.add_edge("peer_compare", "generate_report")
-
-    def _route_after_report(state: InvestmentAnalystState) -> Literal["compare", "__end__"]:
-        """Run comparison when multiple tickers were analyzed."""
-        analyses = state.get("ticker_analyses", {})
-        if len(analyses) >= 2:
-            return "compare"
-        return "__end__"
 
     graph.add_conditional_edges(
         "generate_report",

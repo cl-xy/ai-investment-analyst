@@ -38,18 +38,22 @@ export default function CalibrationPage() {
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'correct' | 'incorrect'>('all')
 
-  async function fetchData() {
+  async function fetchData(signal?: AbortSignal) {
     setError(null)
     setLoading(true)
     try {
       const auth = authParam()
       const [calRes, predRes] = await Promise.all([
-        fetch(`${API_BASE}/api/calibration?${auth}`),
-        fetch(`${API_BASE}/api/calibration/predictions?limit=100&${auth}`),
+        fetch(`${API_BASE}/api/calibration?${auth}`, { signal }),
+        fetch(`${API_BASE}/api/calibration/predictions?limit=100&${auth}`, { signal }),
       ])
-      if (calRes.ok) setData(await calRes.json())
-      if (predRes.ok) setPredictions(await predRes.json())
-    } catch {
+      if (!calRes.ok || !predRes.ok) {
+        throw new Error(`Request failed: ${calRes.status}/${predRes.status}`)
+      }
+      setData(await calRes.json())
+      setPredictions(await predRes.json())
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return
       setError('Unable to load calibration data')
     } finally {
       setLoading(false)
@@ -57,7 +61,9 @@ export default function CalibrationPage() {
   }
 
   useEffect(() => {
-    fetchData()
+    const controller = new AbortController()
+    fetchData(controller.signal)
+    return () => controller.abort()
   }, [])
 
   if (loading) {
@@ -65,7 +71,7 @@ export default function CalibrationPage() {
       <div className="max-w-6xl mx-auto px-6 py-12">
         <div className="animate-pulse space-y-6">
           <div className="h-8 w-64 rounded bg-[var(--surface-elevated)]" />
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => (
               <div key={i} className="h-24 rounded-xl bg-[var(--surface-elevated)]" />
             ))}
@@ -159,7 +165,7 @@ export default function CalibrationPage() {
         />
         <StatCard
           label="Brier Score"
-          value={data.brier_score !== null ? data.brier_score.toFixed(3) : 'N/A'}
+          value={data.brier_score != null ? data.brier_score.toFixed(3) : 'N/A'}
           subtitle="Lower is better"
           icon={<Activity className="w-4 h-4" />}
           color="var(--accent)"
@@ -209,8 +215,8 @@ export default function CalibrationPage() {
                   {calibrationChartData.map((entry, i) => (
                     <Cell
                       key={i}
-                      fill={entry.hit_rate >= entry.expected ? 'var(--bullish)' : 'var(--bearish)'}
-                      fillOpacity={0.8}
+                      fill={entry.count === 0 ? 'var(--text-muted)' : entry.hit_rate >= entry.expected ? 'var(--bullish)' : 'var(--bearish)'}
+                      fillOpacity={entry.count === 0 ? 0.3 : 0.8}
                     />
                   ))}
                   <LabelList dataKey="hit_rate" position="top" formatter={(v) => `${v}%`} style={{ fill: 'var(--text-secondary)', fontSize: 10 }} />
@@ -314,6 +320,7 @@ export default function CalibrationPage() {
               <button
                 key={f}
                 onClick={() => setFilter(f)}
+                aria-pressed={filter === f}
                 className={`text-xs px-2.5 py-1 rounded-md transition-colors ${
                   filter === f
                     ? 'bg-[var(--accent)]/15 text-[var(--accent)] font-medium'
@@ -406,7 +413,7 @@ function PredictionRow({ prediction }: { prediction: Prediction }) {
   const SignalIcon = signal.icon
   const OutcomeIcon = outcome?.icon || AlertCircle
 
-  const returnPct = prediction.realized_return !== null
+  const returnPct = prediction.realized_return != null
     ? `${prediction.realized_return >= 0 ? '+' : ''}${(prediction.realized_return * 100).toFixed(1)}%`
     : null
 
@@ -434,7 +441,7 @@ function PredictionRow({ prediction }: { prediction: Prediction }) {
       </td>
       <td className="px-4 py-3">
         <span className="text-xs font-mono text-[var(--text-secondary)]">
-          {prediction.price_at_prediction !== null ? `$${prediction.price_at_prediction.toFixed(2)}` : '-'}
+          {prediction.price_at_prediction != null ? `$${prediction.price_at_prediction.toFixed(2)}` : '-'}
         </span>
       </td>
       <td className="px-4 py-3">

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hmac
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -27,6 +28,11 @@ from src.ops.trace_store import get_trace_by_id, get_trace_events, query_traces
 log = get_logger("ops.routes")
 
 router = APIRouter(prefix="/ops", tags=["ops"])
+
+# Validation patterns
+_TICKER_RE = re.compile(r"^[A-Z0-9.\-]{1,10}$")
+_TRACE_ID_RE = re.compile(r"^[a-zA-Z0-9\-_]{1,64}$")
+_VALID_STATUSES = {"success", "degraded", "failed"}
 
 
 def _check_ops_auth(request: Request) -> bool:
@@ -58,7 +64,8 @@ async def ops_health():
         result = await fetchval("SELECT 1")
         components["database"] = {"status": "up", "connected": result == 1}
     except Exception as exc:
-        components["database"] = {"status": "down", "error": str(exc)[:100]}
+        log.error("health_db_check_failed", error=str(exc))
+        components["database"] = {"status": "down", "error": "connection_failed"}
         overall = "unhealthy"
 
     # LLM provider (circuit breaker + rate limiter)
@@ -150,16 +157,32 @@ async def ops_traces(
     Returns the last N traces from both in-memory buffer and Postgres.
     Supports filtering by ticker and status.
     """
+    # Validate ticker format
+    if ticker:
+        ticker = ticker.upper()
+        if not _TICKER_RE.match(ticker):
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Invalid ticker format. Must be 1-10 alphanumeric characters."},
+            )
+
+    # Validate status filter
+    if status and status not in _VALID_STATUSES:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": f"Invalid status. Must be one of: {', '.join(sorted(_VALID_STATUSES))}"},
+        )
+
     # First, try in-memory recent traces
-    recent = collector.get_recent_traces(limit=limit)
+    recent = collector.get_recent_traces(limit=limit + offset)
 
     # Also query persisted traces from Postgres
     try:
         persisted = await query_traces(
             ticker=ticker,
             status=status,
-            limit=limit,
-            offset=offset,
+            limit=limit + offset,
+            offset=0,
         )
     except Exception as exc:
         log.warning("trace_query_failed", error=str(exc))
@@ -167,25 +190,31 @@ async def ops_traces(
 
     # Merge: prefer persisted (has full data), supplement with in-memory
     # Deduplicate by correlation_id
-    seen_ids = {t["correlation_id"] for t in persisted}
+    seen_ids = {t.get("correlation_id") for t in persisted if t.get("correlation_id")}
     for trace in recent:
-        if trace["correlation_id"] not in seen_ids:
+        trace_cid = trace.get("correlation_id")
+        if not trace_cid:
+            continue
+        if trace_cid not in seen_ids:
             # Apply filters if provided
-            if ticker and trace.get("ticker", "").upper() != ticker.upper():
+            if ticker and (trace.get("ticker") or "").upper() != ticker:
                 continue
             if status and trace.get("status") != status:
                 continue
             persisted.append(trace)
-            seen_ids.add(trace["correlation_id"])
+            seen_ids.add(trace_cid)
 
-    # Sort by time descending and limit
+    # Sort by time descending, apply offset and limit to merged result
     persisted.sort(key=lambda t: t.get("started_at") or t.get("created_at") or "", reverse=True)
-    return {"traces": persisted[:limit], "total": len(persisted)}
+    total = len(persisted)
+    return {"traces": persisted[offset:offset + limit], "total": total}
 
 
 @router.get("/traces/{trace_id}")
 async def ops_trace_detail(trace_id: str):
     """Get a single trace with full event replay."""
+    if not _TRACE_ID_RE.match(trace_id):
+        return JSONResponse(status_code=400, content={"detail": "Invalid trace ID format"})
     trace = await get_trace_by_id(trace_id)
     if not trace:
         return JSONResponse(status_code=404, content={"detail": "Trace not found"})
@@ -195,6 +224,8 @@ async def ops_trace_detail(trace_id: str):
 @router.get("/traces/{trace_id}/replay")
 async def ops_trace_replay(trace_id: str):
     """Return ordered events for a given trace (replay support)."""
+    if not _TRACE_ID_RE.match(trace_id):
+        return JSONResponse(status_code=400, content={"detail": "Invalid trace ID format"})
     events = await get_trace_events(trace_id)
     if not events:
         return JSONResponse(
@@ -249,13 +280,27 @@ async def ops_chaos_toggle(request: Request):
             content={"detail": "Invalid JSON body"},
         )
 
+    # Reject non-object JSON bodies (arrays, strings, null, etc.)
+    if not isinstance(body, dict):
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "Request body must be a JSON object"},
+        )
+
     # Reset all scenarios
     if body.get("reset"):
         chaos_config.reset_all()
         return {"status": "ok", "message": "All chaos scenarios disabled"}
 
     scenario = body.get("scenario", "")
-    enabled = body.get("enabled", False)
+    enabled = body.get("enabled")
+
+    # Validate enabled is a boolean
+    if not isinstance(enabled, bool):
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "'enabled' must be a boolean (true or false)"},
+        )
 
     valid_scenarios = ("llm_timeout", "mcp_failure", "rate_limit_exhausted", "slow_response")
     if scenario not in valid_scenarios:
@@ -266,7 +311,15 @@ async def ops_chaos_toggle(request: Request):
             },
         )
 
-    success = chaos_config.toggle(scenario, enabled)
+    try:
+        success = chaos_config.toggle(scenario, enabled)
+    except Exception as exc:
+        log.error("chaos_toggle_failed", scenario=scenario, error=str(exc))
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Failed to toggle scenario"},
+        )
+
     if not success:
         return JSONResponse(
             status_code=500,

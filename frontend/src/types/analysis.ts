@@ -7,6 +7,7 @@ export interface TickerAnalysis {
   risk_flags: string[]
   price_data: Record<string, unknown>
   fundamentals: Record<string, unknown>
+  earnings: Record<string, unknown>
   sec_notes: string
 }
 
@@ -16,6 +17,8 @@ export interface AnalyzeResponse {
   report_markdown: string
   analyses: Record<string, TickerAnalysis>
   created_at: string
+  comparison: Record<string, unknown> | null
+  peer_comparison: Record<string, unknown> | null
 }
 
 export interface AnalysisListItem {

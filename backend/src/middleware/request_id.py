@@ -37,7 +37,18 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
             request_id=request_id,
         )
 
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception:
+            log.error(
+                "request_failed",
+                method=request.method,
+                path=request.url.path,
+                request_id=request_id,
+                exc_info=True,
+            )
+            raise
+
         response.headers["X-Request-ID"] = request_id
 
         log.info(

@@ -3,6 +3,7 @@ Lightweight in-memory metrics collection.
 
 No external dependencies. Fixed-size sliding window for histograms.
 Resets on restart. For operational visibility, not production monitoring.
+Metrics are per-process (not aggregated across workers).
 
 Usage:
     from src.metrics import metrics
@@ -12,9 +13,10 @@ Usage:
 
 from __future__ import annotations
 
+import math
 import threading
 import time
-from collections import defaultdict
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -25,18 +27,44 @@ router = APIRouter()
 # Sliding window size for histograms
 _WINDOW_SIZE = 1000
 
+# Max distinct label combinations per metric (bounds memory)
+_MAX_CARDINALITY = 1000
+
+# Type alias for the internal canonical label key
+_LabelKey = tuple[tuple[str, str], ...]
+
+
+def _label_key(labels: dict[str, str] | None) -> _LabelKey:
+    """Create a collision-free canonical key from label dict.
+
+    Uses a sorted tuple of (key, value) pairs, avoiding delimiter-based
+    serialization that breaks on values containing commas or equals signs.
+    """
+    if not labels:
+        return ()
+    return tuple(sorted((str(k), str(v)) for k, v in labels.items()))
+
+
+def _label_key_to_str(key: _LabelKey) -> str:
+    """Render a label key as a human-readable string for JSON export."""
+    if not key:
+        return ""
+    return ",".join(f"{k}={v}" for k, v in key)
+
 
 @dataclass
 class Counter:
     """Simple counter with labels."""
 
-    _values: dict[str, int] = field(default_factory=lambda: defaultdict(int))
-    _lock: threading.Lock = field(default_factory=threading.Lock)
+    _values: dict[_LabelKey, int] = field(default_factory=dict)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def inc(self, labels: dict[str, str] | None = None, amount: int = 1) -> None:
         key = _label_key(labels)
         with self._lock:
-            self._values[key] += amount
+            if key not in self._values and len(self._values) >= _MAX_CARDINALITY:
+                return  # drop to prevent memory DoS
+            self._values[key] = self._values.get(key, 0) + amount
 
     def get(self, labels: dict[str, str] | None = None) -> int:
         key = _label_key(labels)
@@ -45,75 +73,64 @@ class Counter:
 
     def snapshot(self) -> dict[str, int]:
         with self._lock:
-            return dict(self._values)
+            return {_label_key_to_str(k): v for k, v in self._values.items()}
 
 
 @dataclass
 class Histogram:
     """Fixed-size sliding window histogram with percentile calculation."""
 
-    _observations: dict[str, list[float]] = field(default_factory=lambda: defaultdict(list))
-    _lock: threading.Lock = field(default_factory=threading.Lock)
+    _observations: dict[_LabelKey, deque] = field(default_factory=dict)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def observe(self, value: float, labels: dict[str, str] | None = None) -> None:
+        if not isinstance(value, (int, float)) or not math.isfinite(value):
+            return  # reject NaN, Inf, non-numeric
         key = _label_key(labels)
         with self._lock:
-            obs = self._observations[key]
-            obs.append(value)
-            # Keep only the last N observations
-            if len(obs) > _WINDOW_SIZE:
-                self._observations[key] = obs[-_WINDOW_SIZE:]
+            if key not in self._observations:
+                if len(self._observations) >= _MAX_CARDINALITY:
+                    return  # drop to prevent memory DoS
+                self._observations[key] = deque(maxlen=_WINDOW_SIZE)
+            self._observations[key].append(float(value))
 
     def percentiles(self, labels: dict[str, str] | None = None) -> dict[str, float | int]:
+        """Compute percentiles for a specific label set."""
         key = _label_key(labels)
         with self._lock:
-            obs = list(self._observations.get(key, []))
+            raw = self._observations.get(key)
+            obs = list(raw) if raw else []
 
-        if not obs:
-            return {"count": 0, "p50": 0, "p95": 0, "p99": 0}
-
-        obs.sort()
-        n = len(obs)
-        return {
-            "count": n,
-            "p50": round(obs[int(n * 0.50)], 3),
-            "p95": round(obs[min(int(n * 0.95), n - 1)], 3),
-            "p99": round(obs[min(int(n * 0.99), n - 1)], 3),
-        }
+        return _compute_percentiles(obs)
 
     def snapshot(self) -> dict[str, dict[str, float | int]]:
+        """Atomic snapshot: copy all data under one lock, compute outside."""
         with self._lock:
-            keys = list(self._observations.keys())
+            copied = {k: list(v) for k, v in self._observations.items()}
 
-        result = {}
-        for key in keys:
-            result[key] = self.percentiles(_parse_label_key(key))
-        return result
+        return {_label_key_to_str(k): _compute_percentiles(v) for k, v in copied.items()}
 
 
-def _label_key(labels: dict[str, str] | None) -> str:
-    """Create a stable string key from label dict."""
-    if not labels:
-        return ""
-    return ",".join(f"{k}={v}" for k, v in sorted(labels.items()))
+def _compute_percentiles(obs: list[float]) -> dict[str, float | int]:
+    """Compute p50/p95/p99 from a list of observations."""
+    if not obs:
+        return {"count": 0, "p50": 0, "p95": 0, "p99": 0}
 
-
-def _parse_label_key(key: str) -> dict[str, str] | None:
-    """Parse a label key back to a dict (for snapshot iteration)."""
-    if not key:
-        return None
-    result = {}
-    for part in key.split(","):
-        k, v = part.split("=", 1)
-        result[k] = v
-    return result
+    obs.sort()
+    n = len(obs)
+    return {
+        "count": n,
+        "p50": round(obs[min(int(n * 0.50), n - 1)], 3),
+        "p95": round(obs[min(int(n * 0.95), n - 1)], 3),
+        "p99": round(obs[min(int(n * 0.99), n - 1)], 3),
+    }
 
 
 class MetricsRegistry:
     """Central registry for all application metrics."""
 
     def __init__(self):
-        self._started_at = time.time()
+        self._started_at = time.monotonic()
 
         # Counters
         self.analyses_total = Counter()
@@ -157,7 +174,7 @@ class MetricsRegistry:
                 "token_usage": self.token_usage.snapshot(),
             },
             "window": "last_1000_observations",
-            "uptime_seconds": round(time.time() - self._started_at, 1),
+            "uptime_seconds": round(time.monotonic() - self._started_at, 1),
         }
 
 

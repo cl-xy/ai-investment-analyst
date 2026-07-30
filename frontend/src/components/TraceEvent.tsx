@@ -89,6 +89,7 @@ function ToolCallEvent({ event }: { event: StreamEvent }) {
 function ToolResultEvent({ event }: { event: StreamEvent }) {
   const [expanded, setExpanded] = useState(false)
   const payload = event.payload as unknown as ToolResultPayload
+  const jsonId = `trace-json-${event.seq}`
 
   return (
     <div className="pl-6">
@@ -108,12 +109,12 @@ function ToolResultEvent({ event }: { event: StreamEvent }) {
             no data
           </span>
         )}
-        {payload.cached && (
+        {!payload.no_data && payload.cached && (
           <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500">
             cached
           </span>
         )}
-        {!payload.cached && payload.success && (
+        {!payload.no_data && !payload.cached && payload.success && (
           <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-500">
             live
           </span>
@@ -124,17 +125,22 @@ function ToolResultEvent({ event }: { event: StreamEvent }) {
           </span>
         )}
         <button
+          type="button"
           onClick={() => setExpanded((e) => !e)}
           className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] px-1 py-0.5 rounded transition-colors focus-ring"
           aria-label={expanded ? 'Hide raw payload' : 'Show raw payload'}
           aria-expanded={expanded}
+          aria-controls={jsonId}
         >
           {expanded ? 'hide' : 'json'}
         </button>
       </div>
       {expanded && (
-        <pre className="mt-1 mb-2 p-2 rounded bg-[var(--surface)] text-[10px] font-mono text-[var(--text-muted)] overflow-x-auto max-h-40 overflow-y-auto border border-[var(--border-subtle)]">
-          {JSON.stringify(event.payload, null, 2)}
+        <pre
+          id={jsonId}
+          className="mt-1 mb-2 p-2 rounded bg-[var(--surface)] text-[10px] font-mono text-[var(--text-muted)] overflow-x-auto max-h-40 overflow-y-auto border border-[var(--border-subtle)]"
+        >
+          {safeStringify(event.payload)}
         </pre>
       )}
     </div>
@@ -164,13 +170,21 @@ function ErrorEvent({ event }: { event: StreamEvent }) {
 }
 
 function WarningEvent({ event }: { event: StreamEvent }) {
-  const message = (event.payload as { message?: string }).message || ''
+  const message = (event.payload as { message?: string }).message || 'Unknown warning'
   return (
     <div className="flex items-center gap-2 py-1.5">
       <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
       <span className="text-sm text-amber-500">{message}</span>
     </div>
   )
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return '[Unable to serialize payload]'
+  }
 }
 
 function formatNodeName(name: string): string {

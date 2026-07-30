@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 
 interface RecentEntry {
   ticker: string
@@ -9,6 +9,7 @@ interface RecentEntry {
 
 const STORAGE_KEY = 'invest-recents'
 const MAX_RECENTS = 8
+const MAX_STORED = 50
 const MS_PER_DAY = 86_400_000
 const STALE_DAYS = 30
 
@@ -18,6 +19,16 @@ const STALE_DAYS = 30
  */
 export function useRecentTickers() {
   const [entries, setEntries] = useState<RecentEntry[]>(() => loadEntries())
+  const isInitialMount = useRef(true)
+
+  // Persist to localStorage after state commits (not inside updater)
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false
+      return
+    }
+    saveEntries(entries)
+  }, [entries])
 
   const recordUsage = useCallback((ticker: string) => {
     setEntries((prev) => {
@@ -38,7 +49,14 @@ export function useRecentTickers() {
         (e) => e.pinned || (now - e.lastUsed) / MS_PER_DAY < STALE_DAYS,
       )
 
-      saveEntries(updated)
+      // Cap storage to prevent unbounded growth
+      if (updated.length > MAX_STORED) {
+        updated = updated
+          .slice()
+          .sort((a, b) => computeScore(b, now) - computeScore(a, now))
+          .slice(0, MAX_STORED)
+      }
+
       return updated
     })
   }, [])
@@ -46,7 +64,7 @@ export function useRecentTickers() {
   const getSuggestions = useCallback(
     (exclude: string[] = []): string[] => {
       const now = Date.now()
-      return entries
+      return [...entries]
         .filter((e) => !exclude.includes(e.ticker))
         .sort((a, b) => computeScore(b, now) - computeScore(a, now))
         .slice(0, MAX_RECENTS)
@@ -64,10 +82,28 @@ function computeScore(entry: RecentEntry, now: number): number {
   return entry.count / Math.pow(daysSince + 1, 1.5)
 }
 
+function isValidEntry(value: unknown): value is RecentEntry {
+  if (typeof value !== 'object' || value === null) return false
+  const obj = value as Record<string, unknown>
+  return (
+    typeof obj.ticker === 'string' &&
+    obj.ticker.length > 0 &&
+    typeof obj.count === 'number' &&
+    Number.isFinite(obj.count) &&
+    obj.count > 0 &&
+    typeof obj.lastUsed === 'number' &&
+    Number.isFinite(obj.lastUsed) &&
+    obj.lastUsed > 0
+  )
+}
+
 function loadEntries(): RecentEntry[] {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
-    return stored ? JSON.parse(stored) : []
+    if (!stored) return []
+    const parsed: unknown = JSON.parse(stored)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(isValidEntry)
   } catch {
     return []
   }
@@ -77,6 +113,6 @@ function saveEntries(entries: RecentEntry[]): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
   } catch {
-    // quota exceeded
+    // quota exceeded or storage unavailable
   }
 }

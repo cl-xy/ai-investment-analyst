@@ -96,16 +96,24 @@ class EventEmitter:
         tool: str | None = None,
         payload: dict | None = None,
     ) -> StreamEvent:
+        # Build the event first; only increment seq after successful construction
+        # to avoid gaps in sequence IDs if validation fails.
+        seq = self._seq + 1
         event = StreamEvent(
             run_id=self.run_id,
-            seq=self._next_seq(),
+            seq=seq,
             type=event_type,
             timestamp=self._now(),
             node=node,
             tool=tool,
-            payload=payload or {},
+            # Shallow-copy payload to prevent caller mutations from corrupting
+            # retained event history. Payloads are flat dicts (strings, numbers,
+            # short lists) so shallow copy is sufficient and avoids GC pressure
+            # from deepcopy on high-frequency token events.
+            payload=(dict(payload) if payload else {}),
             correlation_id=self.correlation_id,
         )
+        self._seq = seq
         self._events.append(event)
         return event
 
@@ -118,7 +126,7 @@ class EventEmitter:
 
     def node_completed(self, node_name: str) -> StreamEvent:
         start = self._node_start_times.pop(node_name, None)
-        duration_ms = int((time.monotonic() - start) * 1000) if start else 0
+        duration_ms = int((time.monotonic() - start) * 1000) if start is not None else 0
         return self._emit(
             EventType.NODE_COMPLETED,
             node=node_name,

@@ -132,7 +132,7 @@ export function useTraceReplay() {
 
     const event = events[pos]
 
-    // Skip heartbeats
+    // Skip heartbeats (defensive; loadTrace already filters them)
     if (event.type === 'heartbeat') {
       positionRef.current = pos + 1
       setState((s) => ({ ...s, position: pos + 1 }))
@@ -140,7 +140,12 @@ export function useTraceReplay() {
       return
     }
 
-    processEvent(event)
+    try {
+      processEvent(event)
+    } catch (e) {
+      // Prevent a single bad event from killing the entire timer chain
+      console.error('[useTraceReplay] processEvent error:', e)
+    }
     positionRef.current = pos + 1
     setState((s) => ({ ...s, position: pos + 1 }))
 
@@ -152,13 +157,11 @@ export function useTraceReplay() {
 
       let deltaMs = 100 // default small gap
       if (currentTs && nextTs) {
-        try {
-          const currDate = new Date(currentTs)
-          const nextDate = new Date(nextTs)
-          deltaMs = nextDate.getTime() - currDate.getTime()
+        const currTime = new Date(currentTs).getTime()
+        const nextTime = new Date(nextTs).getTime()
+        if (Number.isFinite(currTime) && Number.isFinite(nextTime)) {
+          deltaMs = nextTime - currTime
           if (deltaMs < 0) deltaMs = 50
-        } catch {
-          deltaMs = 100
         }
       }
 
@@ -193,7 +196,7 @@ export function useTraceReplay() {
         position: 0,
         totalEvents: meaningful.length,
         speed: speedRef.current,
-        isComplete: false,
+        isComplete: meaningful.length === 0,
         events: meaningful,
       })
     },
@@ -209,6 +212,7 @@ export function useTraceReplay() {
       eventsRef.current = meaningful
       positionRef.current = meaningful.length
       isPlayingRef.current = false
+      speedRef.current = 'instant'
 
       // Process all events at once
       for (const event of meaningful) {
@@ -228,6 +232,7 @@ export function useTraceReplay() {
   )
 
   const play = useCallback(() => {
+    if (isPlayingRef.current) return
     if (positionRef.current >= eventsRef.current.length) return
     isPlayingRef.current = true
     setState((s) => ({ ...s, isPlaying: true }))

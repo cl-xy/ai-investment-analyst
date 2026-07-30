@@ -11,6 +11,8 @@ from ..structured_output import RouterOutput
 
 log = get_logger(__name__)
 
+_VALID_INTENTS = frozenset(RouterOutput.model_fields["intent"].annotation.__args__)
+
 
 async def router_node(state: InvestmentAnalystState) -> dict:
     # If intent was pre-set by the caller (e.g. CLI with known command), skip LLM routing
@@ -23,7 +25,16 @@ async def router_node(state: InvestmentAnalystState) -> dict:
     from ...config import settings
 
     last_message = state["messages"][-1]
-    user_text = last_message.content if hasattr(last_message, "content") else str(last_message)
+    # Handle both string content and list-of-blocks (multimodal) content
+    raw_content = last_message.content if hasattr(last_message, "content") else str(last_message)
+    if isinstance(raw_content, list):
+        # Extract text from content blocks
+        user_text = " ".join(
+            block.get("text", "") if isinstance(block, dict) else str(block)
+            for block in raw_content
+        )
+    else:
+        user_text = str(raw_content) if raw_content is not None else ""
 
     try:
         # Rate limiting is handled by the circuit breaker inside invoke_with_fallback
@@ -44,16 +55,24 @@ async def router_node(state: InvestmentAnalystState) -> dict:
 
     # Try structured validation first
     try:
-        output = RouterOutput.model_validate_json(response.content)
+        content = response.content
+        if not isinstance(content, (str, bytes)):
+            raise TypeError(f"Expected str/bytes content, got {type(content).__name__}")
+        output = RouterOutput.model_validate_json(content)
         intent = output.intent
         tickers = [t.upper() for t in output.tickers]
-    except (ValidationError, ValueError):
+    except (ValidationError, ValueError, TypeError):
         # Fallback to legacy extraction
         try:
-            parsed = extract_json(response.content)
-            intent = parsed.get("intent", "conversational")
+            parsed = extract_json(response.content if isinstance(response.content, str) else "")
+            raw_intent = parsed.get("intent", "conversational")
+            # Validate intent against allowed values
+            intent = raw_intent if raw_intent in _VALID_INTENTS else "conversational"
             raw_tickers = parsed.get("tickers") or []
-            tickers = [t.upper() for t in raw_tickers if isinstance(t, str)]
+            # Guard against tickers being a string (would iterate chars)
+            if isinstance(raw_tickers, str):
+                raw_tickers = [raw_tickers]
+            tickers = [t.upper() for t in raw_tickers if isinstance(t, str) and t.strip()]
         except (ValueError, AttributeError, TypeError):
             intent = "conversational"
             tickers = []

@@ -35,14 +35,23 @@ export default function BacktestPage() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/backtest`, { headers: authHeaders() })
+    const controller = new AbortController()
+    fetch(`${API_BASE}/api/backtest`, { headers: authHeaders(), signal: controller.signal })
       .then((r) => {
         if (!r.ok) throw new Error('Failed to fetch backtest data')
         return r.json()
       })
-      .then(setData)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
+      .then((d) => {
+        if (!controller.signal.aborted) setData(d)
+      })
+      .catch((e) => {
+        if (e.name === 'AbortError') return
+        setError(e instanceof Error ? e.message : String(e))
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => controller.abort()
   }, [])
 
   // Hooks must be called unconditionally (before any early returns)
@@ -129,7 +138,7 @@ export default function BacktestPage() {
       {/* Summary cards (clickable filters) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <button
-          onClick={() => setSignalFilter(signalFilter === 'all' ? 'all' : 'all')}
+          onClick={() => setSignalFilter('all')}
           className={`rounded-lg border bg-[var(--surface-elevated)] p-4 text-left transition-all cursor-pointer ${signalFilter === 'all' ? 'border-[var(--accent)] ring-1 ring-[var(--accent)]' : 'border-[var(--border)] hover:border-[var(--text-muted)]'}`}
           aria-pressed={signalFilter === 'all'}
           aria-label="Show all signals"
@@ -213,8 +222,8 @@ export default function BacktestPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredSignals.map((s, i) => (
-                <tr key={i} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]">
+              {filteredSignals.map((s) => (
+                <tr key={s.analysis_id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]">
                   <td className="px-4 py-3 font-mono font-medium text-[var(--text-primary)]">{s.ticker}</td>
                   <td className="px-4 py-3">
                     <button
@@ -236,7 +245,7 @@ export default function BacktestPage() {
                   <td className="px-4 py-3 text-right font-mono text-[var(--text-muted)]">{s.days_held}d</td>
                   <td className="px-4 py-3 text-right">
                     <Link
-                      to={`/analyze?tickers=${s.ticker}`}
+                      to={`/analyze?tickers=${encodeURIComponent(s.ticker)}`}
                       className="text-xs text-[var(--accent)] hover:underline"
                     >
                       Re-run
