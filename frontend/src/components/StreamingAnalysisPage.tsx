@@ -7,8 +7,8 @@ import DataFreshness from './DataFreshness'
 import DebatePanel from './DebatePanel'
 import EvidenceDrawer from './EvidenceDrawer'
 import InvestmentDisclaimer from './InvestmentDisclaimer'
-import { ArrowLeft, AlertCircle, Play, Clock, Layers } from 'lucide-react'
-import type { AnalysisOutput, Citation, PeerComparisonPayload } from '../types/stream'
+import { ArrowLeft, AlertCircle, Play, Clock, Layers, ChevronDown } from 'lucide-react'
+import type { AnalysisOutput, Citation, PeerComparisonPayload, StreamEvent } from '../types/stream'
 
 /**
  * Streaming analysis page. The centerpiece demo experience.
@@ -133,12 +133,13 @@ export default function StreamingAnalysisPage() {
         <InvestmentDisclaimer />
       </div>
 
+      {/* Progress bar (visible while streaming) */}
+      {isStreaming && <ProgressBar events={events} />}
+
       {/* Main layout: trace left, cards right */}
       <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6">
-        {/* Trace panel */}
-        <div className="lg:sticky lg:top-6 lg:self-start">
-          <AgentTracePanel />
-        </div>
+        {/* Trace panel: collapsible on mobile to save viewport space */}
+        <MobileCollapsibleTrace />
 
         {/* Analysis cards (progressive) */}
         <div className="space-y-6">
@@ -171,11 +172,11 @@ export default function StreamingAnalysisPage() {
 
           {/* Error state */}
           {error && (
-            <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-5">
+            <div className="rounded-xl border border-[var(--error)]/20 bg-[var(--error-bg)] p-5">
               <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 shrink-0" />
+                <AlertCircle className="w-5 h-5 text-[var(--error)] mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-sm font-medium text-red-500">Analysis failed</p>
+                  <p className="text-sm font-medium text-[var(--error)]">Analysis failed</p>
                   <p className="text-sm text-[var(--text-secondary)] mt-1">{error}</p>
                   <button
                     onClick={() => connect(tickers)}
@@ -216,6 +217,68 @@ export default function StreamingAnalysisPage() {
         toolResults={toolResults}
         onClose={() => setActiveCitation(null)}
       />
+    </div>
+  )
+}
+
+// Phase definitions for the progress bar, ordered by pipeline sequence.
+// Progress caps at 95% until run_completed arrives.
+const PHASES = [
+  { node: 'router', label: 'Routing analysis...', progress: 5 },
+  { node: 'fetch_data', label: 'Gathering market data...', progress: 20 },
+  { node: 'analyze', label: 'Analyzing fundamentals...', progress: 45 },
+  { node: 'debate', label: 'Running investment debate...', progress: 70 },
+  { node: 'report', label: 'Synthesizing report...', progress: 90 },
+] as const
+
+function ProgressBar({ events }: { events: StreamEvent[] }) {
+  const [startTime] = useState(() => Date.now())
+  const [elapsed, setElapsed] = useState(0)
+
+  useEffect(() => {
+    const interval = setInterval(() => setElapsed(Date.now() - startTime), 1000)
+    return () => clearInterval(interval)
+  }, [startTime])
+
+  // Determine current phase from the most recent node_started event
+  const currentPhase = useMemo(() => {
+    for (let i = events.length - 1; i >= 0; i--) {
+      const ev = events[i]
+      if (ev.type === 'node_started' && ev.node) {
+        const match = PHASES.find((p) => p.node === ev.node)
+        if (match) return match
+      }
+    }
+    return { node: '', label: 'Starting analysis...', progress: 2 }
+  }, [events])
+
+  const minutes = Math.floor(elapsed / 60000)
+  const seconds = Math.floor((elapsed % 60000) / 1000)
+  const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`
+
+  return (
+    <div className="mb-6">
+      <div className="flex items-center justify-between mb-1.5">
+        <p className="text-sm text-[var(--text-secondary)]">{currentPhase.label}</p>
+        <span className="text-xs text-[var(--text-muted)] font-mono">{timeStr}</span>
+      </div>
+      <div className="h-[2px] w-full rounded-full bg-[var(--surface)] overflow-hidden">
+        <div
+          className="h-full rounded-full progress-bar-fill"
+          style={{ width: `${currentPhase.progress}%` }}
+        />
+      </div>
+      <style>{`
+        .progress-bar-fill {
+          background-color: var(--accent);
+          transition: width 1s ease-out;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .progress-bar-fill {
+            transition: none;
+          }
+        }
+      `}</style>
     </div>
   )
 }
@@ -423,9 +486,34 @@ function SectorPeersCard({ peerComparison }: { peerComparison: PeerComparisonPay
   )
 }
 
+function MobileCollapsibleTrace() {
+  const [collapsed, setCollapsed] = useState(false)
+
+  return (
+    <div className="lg:sticky lg:top-6 lg:self-start">
+      {/* Mobile toggle (hidden on desktop where trace is always visible) */}
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className="lg:hidden w-full flex items-center justify-between px-4 py-3 mb-2 rounded-lg bg-[var(--surface-elevated)] border border-[var(--border)] text-sm font-medium text-[var(--text-secondary)] focus-ring"
+        aria-expanded={!collapsed}
+        aria-controls="trace-panel-content"
+      >
+        <span>Agent Trace</span>
+        <ChevronDown className={`w-4 h-4 transition-transform ${collapsed ? '' : 'rotate-180'}`} />
+      </button>
+      <div
+        id="trace-panel-content"
+        className={collapsed ? 'hidden lg:block' : ''}
+      >
+        <AgentTracePanel />
+      </div>
+    </div>
+  )
+}
+
 function SkeletonCard({ ticker }: { ticker: string }) {
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-6">
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-6 skeleton-delayed">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <span className="text-lg font-semibold font-mono text-[var(--text-primary)]">

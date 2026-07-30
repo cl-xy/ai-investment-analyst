@@ -26,13 +26,28 @@ interface ToastStore {
 
 let counter = 0
 
+const MAX_VISIBLE = 3
+
 export const useToastStore = create<ToastStore>((set, get) => ({
   toasts: [],
 
   addToast: (toast) => {
     const id = `toast-${++counter}-${Date.now()}`
     const newToast: Toast = { ...toast, id }
-    set((state) => ({ toasts: [...state.toasts, newToast] }))
+
+    // Coalesce duplicate messages (same message + type within the visible stack)
+    const existing = get().toasts.find((t) => t.message === toast.message && t.type === toast.type)
+    if (existing) return existing.id
+
+    set((state) => {
+      const updated = [...state.toasts, newToast]
+      // Evict oldest non-persistent toasts when exceeding max visible
+      if (updated.length > MAX_VISIBLE) {
+        const evictable = updated.findIndex((t) => t.tier !== 3)
+        if (evictable >= 0) updated.splice(evictable, 1)
+      }
+      return { toasts: updated }
+    })
 
     const duration = TIER_DURATIONS[toast.tier]
     if (duration !== null) {

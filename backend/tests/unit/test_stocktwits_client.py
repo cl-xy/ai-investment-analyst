@@ -30,7 +30,7 @@ def _message(sentiment=None, body="Looking strong"):
 
 def test_bullish_heavy_stream():
     messages = [_message("Bullish") for _ in range(8)] + [_message("Bearish") for _ in range(2)]
-    with patch.object(stocktwits.httpx, "get", return_value=_mock_response({"messages": messages})):
+    with patch.object(stocktwits._client, "get", return_value=_mock_response({"messages": messages})):
         result = stocktwits.get_ticker_sentiment("NVDA")
 
     assert result["message_count"] == 10
@@ -42,7 +42,7 @@ def test_bullish_heavy_stream():
 
 def test_bearish_heavy_stream():
     messages = [_message("Bearish") for _ in range(7)] + [_message("Bullish") for _ in range(1)]
-    with patch.object(stocktwits.httpx, "get", return_value=_mock_response({"messages": messages})):
+    with patch.object(stocktwits._client, "get", return_value=_mock_response({"messages": messages})):
         result = stocktwits.get_ticker_sentiment("GME")
 
     assert result["bearish_count"] == 7
@@ -51,14 +51,14 @@ def test_bearish_heavy_stream():
 
 
 def test_empty_stream_returns_empty_dict():
-    with patch.object(stocktwits.httpx, "get", return_value=_mock_response({"messages": []})):
+    with patch.object(stocktwits._client, "get", return_value=_mock_response({"messages": []})):
         result = stocktwits.get_ticker_sentiment("ZZZZ")
 
     assert result == {}
 
 
 def test_no_messages_key_returns_empty_dict():
-    with patch.object(stocktwits.httpx, "get", return_value=_mock_response({})):
+    with patch.object(stocktwits._client, "get", return_value=_mock_response({})):
         result = stocktwits.get_ticker_sentiment("ZZZZ")
 
     assert result == {}
@@ -70,14 +70,14 @@ def test_rate_limited_403_returns_empty_dict():
             "403 Forbidden", request=MagicMock(), response=MagicMock(status_code=403)
         )
     )
-    with patch.object(stocktwits.httpx, "get", return_value=resp):
+    with patch.object(stocktwits._client, "get", return_value=resp):
         result = stocktwits.get_ticker_sentiment("NVDA")
 
     assert result == {}
 
 
 def test_network_error_returns_empty_dict():
-    with patch.object(stocktwits.httpx, "get", side_effect=httpx.ConnectError("boom")):
+    with patch.object(stocktwits._client, "get", side_effect=httpx.ConnectError("boom")):
         result = stocktwits.get_ticker_sentiment("NVDA")
 
     assert result == {}
@@ -85,7 +85,7 @@ def test_network_error_returns_empty_dict():
 
 def test_unlabeled_messages_counted_separately():
     messages = [_message(None) for _ in range(3)] + [_message("Bullish")]
-    with patch.object(stocktwits.httpx, "get", return_value=_mock_response({"messages": messages})):
+    with patch.object(stocktwits._client, "get", return_value=_mock_response({"messages": messages})):
         result = stocktwits.get_ticker_sentiment("AAPL")
 
     assert result["unlabeled_count"] == 3
@@ -94,7 +94,7 @@ def test_unlabeled_messages_counted_separately():
 
 def test_all_unlabeled_gives_none_bullish_ratio():
     messages = [_message(None) for _ in range(5)]
-    with patch.object(stocktwits.httpx, "get", return_value=_mock_response({"messages": messages})):
+    with patch.object(stocktwits._client, "get", return_value=_mock_response({"messages": messages})):
         result = stocktwits.get_ticker_sentiment("AAPL")
 
     assert result["bullish_ratio"] is None

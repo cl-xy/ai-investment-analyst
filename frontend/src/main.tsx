@@ -6,11 +6,20 @@ import App from './App.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 // Apply theme before React hydration to prevent flash
-const theme = localStorage.getItem('invest-theme') || 'petroleum'
+let theme = 'petroleum'
+try {
+  theme = localStorage.getItem('invest-theme') || 'petroleum'
+} catch {
+  // Storage blocked (SecurityError in private browsing / sandboxed iframe)
+}
 document.documentElement.setAttribute('data-theme', theme)
 
 // Clear chunk reload flag on successful load
-sessionStorage.removeItem('chunk_reload')
+try {
+  sessionStorage.removeItem('chunk_reload')
+} catch {
+  // Storage unavailable
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -43,22 +43,26 @@ EXECUTION_TIMEOUT_BASE = 30  # base overhead (graph setup, data fetch)
 _recent_runs: dict[str, tuple[float, list[str]]] = {}  # run_id -> (timestamp, [sse_strings])
 _MAX_RUN_AGE = 300  # 5 minutes
 _MAX_STORED_RUNS = 100  # cap total stored runs to prevent unbounded memory growth
+_EVICT_INTERVAL = 30  # seconds between eviction sweeps
+_last_eviction: float = 0.0
 
 
 def _store_event(run_id: str, sse_msg: str):
     """Store SSE message for potential replay."""
+    global _last_eviction
     now = time.time()
     if run_id not in _recent_runs:
         _recent_runs[run_id] = (now, [])
     _recent_runs[run_id] = (now, _recent_runs[run_id][1])
     _recent_runs[run_id][1].append(sse_msg)
-    # Evict old runs and enforce max size
-    expired = [k for k, (ts, _) in _recent_runs.items() if now - ts > _MAX_RUN_AGE]
-    for k in expired:
-        del _recent_runs[k]
-    # Hard cap: evict oldest by insertion order (Python 3.7+ dicts are ordered)
-    while len(_recent_runs) > _MAX_STORED_RUNS:
-        del _recent_runs[next(iter(_recent_runs))]
+    # Evict expired/overflow only periodically, not on every event
+    if now - _last_eviction > _EVICT_INTERVAL:
+        _last_eviction = now
+        expired = [k for k, (ts, _) in _recent_runs.items() if now - ts > _MAX_RUN_AGE]
+        for k in expired:
+            del _recent_runs[k]
+        while len(_recent_runs) > _MAX_STORED_RUNS:
+            del _recent_runs[next(iter(_recent_runs))]
 
 
 def _replay_events(run_id: str, after_seq: int) -> list[str]:

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { Link } from 'react-router-dom'
-import { TrendingUp, Sparkles } from 'lucide-react'
+import { TrendingUp, Sparkles, AlertCircle } from 'lucide-react'
 import {
   Area,
   AreaChart,
@@ -149,7 +149,22 @@ function DetailPanel({ ticker, changePct }: { ticker: string; changePct: number 
   }
 
   if (error) {
-    return <div className="px-5 pb-4 pt-2 text-sm text-[var(--bearish)]">{error}</div>
+    return (
+      <div className="px-5 pb-4 pt-2">
+        <div className="flex items-start gap-2 text-sm">
+          <AlertCircle className="w-4 h-4 text-[var(--error)] mt-0.5 shrink-0" />
+          <div>
+            <p className="text-[var(--error)]">{error}</p>
+            <button
+              onClick={() => { setError(null); setLoading(true); getStockDetail(ticker).then((d) => { setDetail(d); setLoading(false) }).catch((err: unknown) => { setError(err instanceof Error ? err.message : 'Failed to load details'); setLoading(false) }) }}
+              className="mt-1.5 text-xs text-[var(--accent)] hover:underline focus-ring rounded"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   if (!detail) return null
@@ -173,7 +188,15 @@ function DetailPanel({ ticker, changePct }: { ticker: string; changePct: number 
       {/* Price chart */}
       <div>
         <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2">30-Day Price</p>
-        <PriceChart history={detail.price_history ?? []} changePct={changePct} ticker={ticker} />
+        <div role="figure" aria-label={`30-day price chart for ${ticker}`}>
+          <PriceChart history={detail.price_history ?? []} changePct={changePct} ticker={ticker} />
+          {/* Accessible data summary for keyboard/screen-reader users */}
+          {detail.price_history && detail.price_history.length > 0 && (
+            <p className="sr-only">
+              {ticker} 30-day price range: low ${Math.min(...detail.price_history.map(p => p.close)).toFixed(2)}, high ${Math.max(...detail.price_history.map(p => p.close)).toFixed(2)}, latest ${detail.price_history[detail.price_history.length - 1].close.toFixed(2)}.{changePct !== null ? ` Change: ${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%.` : ''}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Trending reason */}
@@ -262,7 +285,7 @@ function StockRow({
 
 function SkeletonRow({ rank }: { rank: number }) {
   return (
-    <div className="flex items-center gap-4 py-3.5 px-5">
+    <div className="flex items-center gap-4 py-3.5 px-5 skeleton-delayed">
       <span className="w-7 text-right text-sm text-[var(--text-muted)] font-mono shrink-0">{rank}</span>
       <div className="flex-1">
         <div className="h-4 bg-[var(--surface)] rounded w-24 animate-shimmer" />

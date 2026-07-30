@@ -122,7 +122,7 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
       {/* Demo CTA */}
       <button
         onClick={handleDemoAnalyze}
-        className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[var(--accent-bg)] text-[var(--accent)] text-sm font-medium hover:bg-[var(--accent)]/20 transition-colors focus-ring"
+        className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[var(--accent-bg)] text-[var(--accent)] text-sm font-medium hover:bg-[var(--accent)]/20 hover:shadow-[0_0_12px_var(--accent-bg)] active:shadow-none active:scale-[0.97] transition-[colors,transform,shadow] duration-150 focus-ring"
       >
         <Sparkles className="w-4 h-4" />
         Try a live analysis (NVDA)
@@ -214,7 +214,7 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
         <button
           onClick={onAnalyze}
           disabled={loading}
-          className="w-full bg-[var(--bullish)] hover:bg-[var(--bullish)]/90 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-3 rounded-lg transition-[colors,transform] duration-100 text-sm focus-ring active:scale-[0.97]"
+          className="w-full bg-[var(--bullish)] hover:bg-[var(--bullish)]/90 hover:shadow-[0_0_16px_var(--bullish-bg)] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-3 rounded-lg transition-[colors,transform,shadow] duration-150 text-sm focus-ring active:brightness-90"
         >
           Analyze {tickers.length} stock{tickers.length > 1 ? 's' : ''}
         </button>

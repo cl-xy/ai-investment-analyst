@@ -48,8 +48,13 @@ export default function AgentTracePanel() {
         </div>
       )}
 
+      {/* Accessible status summary - announces milestones only, not every event */}
+      <p className="sr-only" aria-live="polite" aria-atomic="true">
+        {isComplete ? 'Analysis complete' : hasError ? 'Analysis failed' : isStreaming ? `Agent running: ${currentNode || 'initializing'}` : ''}
+      </p>
+
       {/* Timeline */}
-      <div className="px-5 py-4 space-y-1 max-h-[600px] overflow-y-auto" role="log" aria-label="Agent execution trace" aria-live="polite">
+      <div className="px-5 py-4 space-y-1 max-h-[600px] overflow-y-auto" role="log" aria-label="Agent execution trace" aria-live="off">
         {traceEvents.length === 0 && isStreaming && (
           <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
             <div className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse" />

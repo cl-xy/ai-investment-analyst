@@ -13,11 +13,26 @@ interface ChatMessage {
   isStreaming?: boolean
 }
 
+function formatRelativeTime(timestamp: number): string {
+  const diff = Math.floor((Date.now() - timestamp) / 1000)
+  if (diff < 60) return 'just now'
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  return new Date(timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function extractTimestamp(id: string): number {
+  const parts = id.split('-')
+  const ts = Number(parts[parts.length - 1])
+  return Number.isFinite(ts) && ts > 1e12 ? ts : Date.now()
+}
+
 export default function ChatPage() {
   const [messages, setMessages] = useRestorableState<ChatMessage[]>('chat-messages', [])
   // #22: Persist chat input draft across refresh
   const [input, setInput] = useRestorableState('chat-input', '')
   const [isStreaming, setIsStreaming] = useState(false)
+  const [, setTick] = useState(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const threadId = useRef(`chat-${Date.now()}`)
   // #2: Store EventSource ref for cleanup on unmount
@@ -47,6 +62,12 @@ export default function ChatPage() {
       esRef.current?.close()
       esRef.current = null
     }
+  }, [])
+
+  // Re-render every 30s to keep relative timestamps current
+  useEffect(() => {
+    const interval = setInterval(() => setTick((t) => t + 1), 30_000)
+    return () => clearInterval(interval)
   }, [])
 
   useEffect(() => {
@@ -178,8 +199,13 @@ export default function ChatPage() {
         )}
       </div>
 
-      {/* #26: Messages with aria-live for streaming */}
-      <div className="flex-1 overflow-y-auto space-y-4 pb-4" role="log" aria-label="Chat messages" aria-live="polite">
+      {/* Accessible status summary - announces state changes, not every token */}
+      <p className="sr-only" aria-live="polite" aria-atomic="true">
+        {isStreaming ? 'Assistant is responding...' : messages.length > 0 ? `${messages.length} messages` : ''}
+      </p>
+
+      {/* #26: Messages with aria-live off to prevent token-by-token spam */}
+      <div className="flex-1 overflow-y-auto space-y-4 pb-4" role="log" aria-label="Chat messages" aria-live="off">
         {messages.length === 0 && (
           <div className="text-center py-12">
             <Bot className="w-10 h-10 text-[var(--text-muted)] mx-auto mb-3" />
@@ -205,29 +231,36 @@ export default function ChatPage() {
                 <Bot className="w-4 h-4 text-[var(--accent)]" />
               </div>
             )}
-            <div className={`max-w-[80%] rounded-xl px-4 py-3 ${
-              msg.role === 'user'
-                ? 'bg-[var(--accent)] text-white'
-                : 'bg-[var(--surface-elevated)] border border-[var(--border)] text-[var(--text-primary)]'
-            }`}>
-              {msg.toolCalls && msg.toolCalls.length > 0 && (
-                <div className="mb-2 space-y-1">
-                  {msg.toolCalls.map((tc, i) => (
-                    <div key={i} className="flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
-                      <Wrench className="w-3 h-3" />
-                      <span className="font-mono">{tc.name}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-              {msg.isStreaming && !msg.content && (
-                <span className="inline-flex items-center gap-1">
-                  <span className="typing-dot" style={{ animationDelay: '0ms' }} />
-                  <span className="typing-dot" style={{ animationDelay: '150ms' }} />
-                  <span className="typing-dot" style={{ animationDelay: '300ms' }} />
-                </span>
-              )}
+            <div className="flex flex-col">
+              <div className={`max-w-[80%] rounded-xl px-4 py-3 ${
+                msg.role === 'user'
+                  ? 'bg-[var(--accent)] text-white'
+                  : 'bg-[var(--surface-elevated)] border border-[var(--border)] text-[var(--text-primary)]'
+              }`}>
+                {msg.toolCalls && msg.toolCalls.length > 0 && (
+                  <div className="mb-2 space-y-1">
+                    {msg.toolCalls.map((tc, i) => (
+                      <div key={i} className="flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
+                        <Wrench className="w-3 h-3" />
+                        <span className="font-mono">{tc.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                {msg.isStreaming && !msg.content && (
+                  <span className="inline-flex items-center gap-1">
+                    <span className="typing-dot" style={{ animationDelay: '0ms' }} />
+                    <span className="typing-dot" style={{ animationDelay: '150ms' }} />
+                    <span className="typing-dot" style={{ animationDelay: '300ms' }} />
+                  </span>
+                )}
+              </div>
+              <span className={`text-[10px] text-[var(--text-muted)] mt-1 ${
+                msg.role === 'user' ? 'text-right' : 'ml-0'
+              }`}>
+                {formatRelativeTime(extractTimestamp(msg.id))}
+              </span>
             </div>
             {msg.role === 'user' && (
               <div className="w-7 h-7 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] flex items-center justify-center shrink-0">

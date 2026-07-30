@@ -68,7 +68,7 @@ export default function BacktestPage() {
       <div className="max-w-5xl mx-auto px-6 py-12">
         <div className="space-y-4">
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-12 rounded-lg animate-shimmer" />
+            <div key={i} className="h-12 rounded-lg animate-shimmer skeleton-delayed" />
           ))}
         </div>
       </div>
@@ -203,13 +203,13 @@ export default function BacktestPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--border)]">
-                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider cursor-pointer hover:text-[var(--text-secondary)] select-none" onClick={() => toggleSort('ticker')}>Ticker {sortField === 'ticker' && (sortDir === 'asc' ? '↑' : '↓')}</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider cursor-pointer hover:text-[var(--text-secondary)] select-none" onClick={() => toggleSort('signal')}>Signal {sortField === 'signal' && (sortDir === 'asc' ? '↑' : '↓')}</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Confidence</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Sentiment</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider cursor-pointer hover:text-[var(--text-secondary)] select-none" onClick={() => toggleSort('date')}>Date {sortField === 'date' && (sortDir === 'asc' ? '↑' : '↓')}</th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Days</th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Action</th>
+                <th scope="col" className="text-left px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider cursor-pointer hover:text-[var(--text-secondary)] select-none" onClick={() => toggleSort('ticker')}>Ticker {sortField === 'ticker' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                <th scope="col" className="text-left px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider cursor-pointer hover:text-[var(--text-secondary)] select-none" onClick={() => toggleSort('signal')}>Signal {sortField === 'signal' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                <th scope="col" className="text-left px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Confidence</th>
+                <th scope="col" className="text-left px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Sentiment</th>
+                <th scope="col" className="text-left px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider cursor-pointer hover:text-[var(--text-secondary)] select-none" onClick={() => toggleSort('date')}>Date {sortField === 'date' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                <th scope="col" className="text-right px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Days</th>
+                <th scope="col" className="text-right px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Action</th>
               </tr>
             </thead>
             <tbody>

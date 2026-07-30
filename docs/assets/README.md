@@ -1,13 +1,24 @@
-# Demo Placeholder
+# Demo Assets
 
-This directory holds the demo GIF/video for the README hero section.
+This directory holds media assets for the README and documentation.
 
-To record:
-1. Open the live demo at https://ai-investment-analyst-iota.vercel.app
-2. Record a 15-30s screen capture showing:
-   - Ticker submission (NVDA)
-   - Agent trace streaming in real-time
-   - Ops dashboard with live metrics
-   - Chaos mode triggering graceful degradation
-3. Export as GIF (max 5MB) or MP4
-4. Replace `demo-placeholder.gif` with the recording
+## Contents
+
+- `demo.gif` - README hero image (trace replay at 4x speed, 15-20s)
+- `walkthrough.mp4` - 75-second video tour (trace replay, ops dashboard, chaos mode, recovery)
+
+## Re-recording
+
+To re-record using Playwright automation:
+
+```bash
+# Record demo GIF
+npx tsx scripts/record-demo.ts
+# Produces: docs/assets/demo.gif
+
+# Record walkthrough video
+npx tsx scripts/record-walkthrough.ts
+# Produces: docs/assets/walkthrough.mp4
+```
+
+Prerequisites: `ffmpeg` installed, Playwright chromium (`npx playwright install chromium`), live demo deployed.

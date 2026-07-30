@@ -109,6 +109,7 @@ FastMCP tool servers are strictly read-only:
 | News (NewsAPI + RSS) | Search headlines, get articles | None |
 | SEC (EDGAR) | Fetch filings by CIK/ticker | None |
 | Portfolio (SQLite) | Query positions, get allocations | None |
+| Sentiment (StockTwits) | Get social sentiment scores | None |
 
 **Hard constraints**:
 - No shell execution capability

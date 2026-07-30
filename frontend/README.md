@@ -22,7 +22,7 @@ src/
 │   ├── WatchlistPage.tsx           # Ticker input + demo CTA
 │   ├── ComparePage.tsx             # Side-by-side comparison
 │   ├── EvalPage.tsx                # Eval metrics dashboard
-│   ├── ThemeToggle.tsx             # Dark/light switch
+│   ├── ThemeSwitcher.tsx            # Multi-theme selector (4 dark themes)
 │   └── DataFreshness.tsx           # "Data as of" badges
 ├── hooks/
 │   └── useAnalysisStream.ts        # SSE EventSource with backoff
@@ -35,7 +35,7 @@ src/
 
 ## Design
 
-- Dark-first with light mode toggle (CSS custom properties)
+- Dark-first with 4 theme options (petroleum, plum, moss, graphite) via CSS custom properties
 - Inter for prose, JetBrains Mono for data/tickers
 - Lucide React icons throughout
 - Tailwind 3 with semantic color tokens (bullish, bearish, neutral, accent)

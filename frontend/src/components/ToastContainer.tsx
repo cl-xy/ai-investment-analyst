@@ -10,16 +10,16 @@ const ICONS = {
 
 const TYPE_STYLES = {
   info: 'border-[var(--accent)]/30 bg-[var(--surface-elevated)]',
-  success: 'border-emerald-500/30 bg-emerald-500/5',
-  error: 'border-red-500/30 bg-red-500/5',
-  warning: 'border-amber-500/30 bg-amber-500/5',
+  success: 'border-[var(--success)]/30 bg-[var(--success-bg)]',
+  error: 'border-[var(--error)]/30 bg-[var(--error-bg)]',
+  warning: 'border-[var(--warning)]/30 bg-[var(--warning-bg)]',
 }
 
 const ICON_STYLES = {
   info: 'text-[var(--accent)]',
-  success: 'text-emerald-500',
-  error: 'text-red-500',
-  warning: 'text-amber-500',
+  success: 'text-[var(--success)]',
+  error: 'text-[var(--error)]',
+  warning: 'text-[var(--warning)]',
 }
 
 export default function ToastContainer() {

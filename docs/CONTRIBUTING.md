@@ -59,7 +59,7 @@ chore: bump ruff to 0.5.1
 
 ## Architecture Overview
 
-FastAPI backend with LangGraph agent orchestration. Four MCP tool servers (market, news, portfolio, SEC). OpenRouter free tier for LLM inference. SSE streaming to a React frontend with Zustand state management.
+FastAPI backend with LangGraph agent orchestration. Five MCP tool servers (market, news, portfolio, SEC, sentiment). OpenRouter free tier for LLM inference. SSE streaming to a React frontend with Zustand state management.
 
 For detailed architecture, see `docs/ARCHITECTURE.md`.
 

@@ -4,7 +4,7 @@ Automated evaluation of the investment analyst's LLM behavior using [promptfoo](
 
 ## What it tests
 
-**39 total test cases** across 5 evaluation files:
+**41 total test cases** across 5 evaluation files:
 
 **evals/investment-analyst.yaml** (13 cases):
 - Structured output compliance: valid JSON schema, correct ticker, bounded fields
@@ -59,9 +59,9 @@ make eval-llm
 
 ## Cost and rate limits
 
-Each full run makes ~39 API calls to OpenRouter (one per test case). At current OpenRouter free tier limits:
+Each full run makes ~41 API calls to OpenRouter (one per test case). At current OpenRouter free tier limits:
 - Token usage: ~200K tokens per run
-- Request count: 39 requests (may need 2 minutes to stay within 20 req/min limit)
+- Request count: 41 requests (may need 2-3 minutes to stay within 20 req/min limit)
 - Cost: $0 (OpenRouter free tier)
 - Duration: ~2-4 minutes (rate-limited pacing)
 

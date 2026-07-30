@@ -42,7 +42,7 @@ sequenceDiagram
     participant API as FastAPI
     participant R as Router LLM<br/>(GPT-OSS 20B)
     participant FD as Fetch Data
-    participant MCP as MCP Servers<br/>(market, news, SEC)
+    participant MCP as MCP Servers<br/>(market, news, SEC, portfolio, sentiment)
     participant Cache as PostgreSQL Cache
     participant A as Analyze LLM<br/>(Nemotron 120B)
     participant Rep as Report LLM<br/>(Nemotron 120B)
@@ -123,6 +123,7 @@ graph TB
             News[News Server<br/>NewsAPI + RSS feeds]
             SEC[SEC Server<br/>EDGAR client]
             PortfolioSrv[Portfolio Server<br/>SQLite positions]
+            Sentiment[Sentiment Server<br/>StockTwits]
         end
     end
 
@@ -294,6 +295,9 @@ The `seq` field is monotonically increasing per run, enabling clients to detect 
 | `node_completed` | Graph node finishes | `{node_name: "...", duration_ms: N}` |
 | `tool_call` | MCP tool invoked | `{tool_name: "...", args: {...}}` |
 | `tool_result` | MCP tool returns | `{tool_name, success, cached, duration_ms, source_id}` |
+| `debate_started` | Adversarial debate begins | `{ticker, agents}` |
+| `debate_turn` | Bull/bear/CIO argument | `{ticker, role, thesis, confidence, key_arguments, turn_index}` |
+| `debate_verdict` | CIO final verdict | `{ticker, signal, confidence, verdict_rationale, key_disagreements}` |
 | `llm_token` | Streaming token | `{text: "..."}` |
 | `citation` | Source cited | `{source_id, claim, provider}` |
 | `analysis_complete` | Ticker analysis done | `{ticker: "NVDA", analysis: {...}}` |

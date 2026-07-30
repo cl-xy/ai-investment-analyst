@@ -6,7 +6,6 @@ import Header from './components/Header'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import ToastContainer from './components/ToastContainer'
 import OfflineBanner from './components/OfflineBanner'
-import LoadingSpinner from './components/LoadingSpinner'
 import { useRestorableState } from './hooks/useRestorableState'
 import { useRecentTickers } from './hooks/useRecentTickers'
 import { lazyRetry } from './utils/lazyRetry'
@@ -28,6 +27,18 @@ function ScrollToTop() {
   const { pathname } = useLocation()
   useEffect(() => { window.scrollTo(0, 0) }, [pathname])
   return null
+}
+
+function RouteLoadingBar() {
+  return (
+    <div
+      className="fixed top-0 left-0 w-full h-[2px] z-50"
+      role="progressbar"
+      aria-label="Loading page"
+    >
+      <div className="h-full bg-[var(--accent)] route-loading-bar" />
+    </div>
+  )
 }
 
 function NotFoundPage() {
@@ -92,7 +103,7 @@ export default function App() {
 
       <main id="main-content" className="flex-1 animate-fade-in" tabIndex={-1}>
         <ErrorBoundary>
-          <Suspense fallback={<LoadingSpinner />}>
+          <Suspense fallback={<RouteLoadingBar />}>
             <Routes>
               <Route
                 path="/"

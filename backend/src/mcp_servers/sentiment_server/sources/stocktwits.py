@@ -13,6 +13,9 @@ _TIMEOUT = 15  # seconds
 _BASE_URL = "https://api.stocktwits.com/api/2/streams/symbol"
 _HEADERS = {"User-Agent": "ai-investment-analyst/1.0 (github.com/cl-xy/ai-investment-analyst)"}
 
+# Module-level client reuses TCP connections across calls
+_client = httpx.Client(headers=_HEADERS, timeout=_TIMEOUT)
+
 
 def get_ticker_sentiment(ticker: str, max_messages: int = 30) -> dict:
     """
@@ -24,7 +27,7 @@ def get_ticker_sentiment(ticker: str, max_messages: int = 30) -> dict:
     """
     url = f"{_BASE_URL}/{ticker.upper()}.json"
     try:
-        r = httpx.get(url, headers=_HEADERS, timeout=_TIMEOUT)
+        r = _client.get(url)
         r.raise_for_status()
         data = r.json()
     except Exception:

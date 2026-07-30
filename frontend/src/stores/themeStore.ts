@@ -24,8 +24,16 @@ function getInitialTheme(): ThemeId {
   return 'petroleum'
 }
 
-function applyTheme(id: ThemeId): void {
-  document.documentElement.setAttribute('data-theme', id)
+function applyTheme(id: ThemeId, animate = false): void {
+  const el = document.documentElement
+  if (animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    el.setAttribute('data-theme-transitioning', '')
+    el.setAttribute('data-theme', id)
+    // Remove after transition completes (320ms = --motion-surface)
+    setTimeout(() => el.removeAttribute('data-theme-transitioning'), 350)
+  } else {
+    el.setAttribute('data-theme', id)
+  }
 }
 
 interface ThemeStore {
@@ -41,7 +49,7 @@ export const useThemeStore = create<ThemeStore>((set) => {
   return {
     theme: initial,
     setTheme: (id) => {
-      applyTheme(id)
+      applyTheme(id, true)
       localStorage.setItem(STORAGE_KEY, id)
       set({ theme: id })
     },

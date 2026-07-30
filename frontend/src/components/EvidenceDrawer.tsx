@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { X, Database, Clock, CheckCircle2 } from 'lucide-react'
 import { useFocusTrap } from '../hooks/useFocusTrap'
+import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import type { Citation, StreamEvent, ToolResultPayload } from '../types/stream'
 
 interface EvidenceDrawerProps {
@@ -11,18 +12,37 @@ interface EvidenceDrawerProps {
 
 export default function EvidenceDrawer({ citation, toolResults, onClose }: EvidenceDrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null)
+  const [closing, setClosing] = useState(false)
+  const reducedMotion = usePrefersReducedMotion()
   const isOpen = citation !== null
+
+  // Reset closing state when a new citation opens
+  useEffect(() => {
+    if (citation) setClosing(false)
+  }, [citation])
+
+  const handleClose = useCallback(() => {
+    if (reducedMotion) {
+      onClose()
+      return
+    }
+    setClosing(true)
+    setTimeout(() => {
+      setClosing(false)
+      onClose()
+    }, 200) // matches --motion-standard
+  }, [onClose, reducedMotion])
 
   // #14: Focus trap with restore
   useFocusTrap(drawerRef, isOpen)
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') handleClose()
     }
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)
-  }, [onClose])
+  }, [handleClose])
 
   // #14: Set inert on siblings when open
   useEffect(() => {
@@ -42,13 +62,13 @@ export default function EvidenceDrawer({ citation, toolResults, onClose }: Evide
 
   // Body scroll lock when drawer is open
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen && !closing) return
     const originalOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = originalOverflow }
-  }, [isOpen])
+  }, [isOpen, closing])
 
-  if (!citation) return null
+  if (!citation && !closing) return null
 
   // Find matching tool result by source_id or provider
   const matchingResult = toolResults.find((ev) => {
@@ -62,15 +82,15 @@ export default function EvidenceDrawer({ citation, toolResults, onClose }: Evide
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/50 z-40 transition-opacity"
-        onClick={onClose}
+        className={`fixed inset-0 bg-black/50 z-40 transition-opacity ${closing ? 'animate-fade-out' : ''}`}
+        onClick={handleClose}
         aria-hidden="true"
       />
 
       {/* Drawer */}
       <div
         ref={drawerRef}
-        className="fixed right-0 top-0 bottom-0 w-full max-w-md bg-[var(--surface-elevated)] border-l border-[var(--border)] z-50 overflow-y-auto shadow-xl animate-slide-in-right"
+        className={`fixed right-0 top-0 bottom-0 w-full max-w-md bg-[var(--surface-elevated)] border-l border-[var(--border)] z-50 overflow-y-auto shadow-xl ${closing ? 'animate-slide-out-right' : 'animate-slide-in-right'}`}
         role="dialog"
         aria-label="Evidence details"
         aria-modal="true"
@@ -82,7 +102,7 @@ export default function EvidenceDrawer({ citation, toolResults, onClose }: Evide
             <span className="text-sm font-medium text-[var(--text-primary)]">Evidence</span>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors focus-ring rounded min-w-[44px] min-h-[44px] flex items-center justify-center"
             aria-label="Close evidence drawer"
           >

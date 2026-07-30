@@ -30,7 +30,7 @@ def _reset_module_state():
 
 def test_load_ticker_map_success_populates_map(monkeypatch):
     monkeypatch.setattr(
-        edgar_client.httpx,
+        edgar_client._client,
         "get",
         lambda *a, **k: _FakeResponse({"0": {"ticker": "nvda", "cik_str": 1045810}}),
     )
@@ -46,7 +46,7 @@ def test_failure_does_not_permanently_disable_lookups(monkeypatch):
         calls["count"] += 1
         raise ConnectionError("SEC unreachable")
 
-    monkeypatch.setattr(edgar_client.httpx, "get", _failing_get)
+    monkeypatch.setattr(edgar_client._client, "get", _failing_get)
 
     assert edgar_client.get_cik("NVDA") is None
     assert edgar_client._ticker_map_loaded is False
@@ -60,7 +60,7 @@ def test_retry_is_skipped_within_cooldown_window(monkeypatch):
         calls["count"] += 1
         raise ConnectionError("SEC unreachable")
 
-    monkeypatch.setattr(edgar_client.httpx, "get", _failing_get)
+    monkeypatch.setattr(edgar_client._client, "get", _failing_get)
 
     clock = {"t": 1000.0}
     monkeypatch.setattr(edgar_client.time, "monotonic", lambda: clock["t"])
@@ -86,7 +86,7 @@ def test_retry_succeeds_after_cooldown_elapses(monkeypatch):
             raise ConnectionError("SEC unreachable")
         return _FakeResponse({"0": {"ticker": "nvda", "cik_str": 1045810}})
 
-    monkeypatch.setattr(edgar_client.httpx, "get", _get)
+    monkeypatch.setattr(edgar_client._client, "get", _get)
 
     assert edgar_client.get_cik("NVDA") is None
     assert calls["count"] == 1

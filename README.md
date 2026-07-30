@@ -49,7 +49,7 @@ The interesting engineering isn't the features. It's the failure handling, obser
 │  │  (20B)      (6 tools ∥)    Bull → Bear → CIO     (120B)    (if 2+)  │ │
 │  │                             (120B x3, sequential)                     │ │
 │  │                                                                       │ │
-│  │  Circuit Breaker: trip@3 failures, 60s recovery, half-open probe     │ │
+│  │  Circuit Breaker: trip@5 failures, 60s recovery, half-open probe     │ │
 │  │  Rate Limiter: token bucket, per-IP + global caps                    │ │
 │  │  Budget Guard: daily LLM call ceiling, stale-cache fallback          │ │
 │  └───────────────────────────────────────────────────────────────────────┘ │
@@ -107,7 +107,7 @@ Every step streams to the frontend via SSE with domain-specific events. The deba
 - **Trace replay**: Step through any past analysis like a debugger (play/pause/rewind/speed control)
 - **Ops dashboard**: Live SLOs, circuit breaker state, budget consumption, error rates
 - **Correlation IDs**: Every request traced end-to-end from frontend through LangGraph to MCP tools
-- **Circuit breaker**: Trips at 3 consecutive failures, serves cached results, probes recovery
+- **Circuit breaker**: Trips at 5 failures within 60s, serves cached results, probes recovery
 - **Stale-while-revalidate cache**: Never shows "loading" for previously-analyzed tickers
 
 ### Track Record
@@ -213,14 +213,14 @@ frontend/
 └── vitest.config.ts
 
 docs/
-├── adr/                          # 7 Architecture Decision Records
+├── adr/                          # 11 Architecture Decision Records
 ├── slo.md                        # Service Level Objectives + error budget
 ├── ARCHITECTURE.md               # System diagrams, failure modes
 ├── AI_SECURITY_POSTURE.md        # LLM threat model, trust boundaries
 └── RUNBOOK.md                    # Operational playbook
 
 evals/                            # promptfoo LLM evaluation (41 cases)
-tests/e2e/                        # Playwright (5 specs, 3 browsers)
+tests/e2e/                        # Playwright (11 specs, 3 browsers)
 ```
 
 ---
@@ -291,7 +291,7 @@ DEMO_PASSWORD         # Optional: gate the demo
 
 | Document | Purpose |
 |----------|---------|
-| [Architecture Decision Records](docs/adr/) | 7 decisions with context, rationale, and tradeoffs |
+| [Architecture Decision Records](docs/adr/) | 11 decisions with context, rationale, and tradeoffs |
 | [Service Level Objectives](docs/slo.md) | Availability, latency, error budget targets and measurement |
 | [Architecture](docs/ARCHITECTURE.md) | System diagrams, request lifecycle, failure modes |
 | [API Reference](docs/API.md) | Every endpoint with examples and error cases |

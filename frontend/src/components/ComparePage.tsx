@@ -1,6 +1,6 @@
 import { useMemo, useState, useRef, useCallback, type KeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, Plus, X, Scale } from 'lucide-react'
+import { ArrowRight, Loader2, Plus, X, Scale } from 'lucide-react'
 
 import { API_BASE, authHeaders } from '../api/config'
 import { useCompareStore } from '../stores/compareStore'
@@ -36,6 +36,42 @@ interface CompareResult {
   tickers: string[]
   analyses: Record<string, CompareAnalysis>
   comparison?: ComparisonNarrative | null
+}
+
+function CompareTableSkeleton() {
+  const cols = 3
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] overflow-hidden skeleton-delayed">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-[var(--border)]">
+            <th className="text-left px-5 py-3">
+              <div className="h-3 w-16 rounded bg-[var(--surface)] animate-shimmer" />
+            </th>
+            {Array.from({ length: cols }).map((_, i) => (
+              <th key={i} className="text-center px-5 py-3">
+                <div className="h-3 w-12 rounded bg-[var(--surface)] animate-shimmer mx-auto" />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[var(--border)]">
+          {Array.from({ length: 4 }).map((_, row) => (
+            <tr key={row}>
+              <td className="px-5 py-3">
+                <div className="h-3 w-20 rounded bg-[var(--surface)] animate-shimmer" />
+              </td>
+              {Array.from({ length: cols }).map((_, col) => (
+                <td key={col} className="text-center px-5 py-3">
+                  <div className="h-3 w-10 rounded bg-[var(--surface)] animate-shimmer mx-auto" />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
 }
 
 export default function ComparePage() {
@@ -202,8 +238,8 @@ export default function ComparePage() {
           disabled={loading || tickers.filter((t) => t.trim()).length < 2}
           className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[var(--accent)] text-white text-sm font-medium hover:bg-[var(--accent)]/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus-ring"
         >
-          {loading ? 'Comparing...' : 'Compare'}
-          <ArrowRight className="w-4 h-4" />
+          {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Comparing...</> : 'Compare'}
+          {!loading && <ArrowRight className="w-4 h-4" />}
         </button>
       </div>
 
@@ -213,6 +249,9 @@ export default function ComparePage() {
           {error}
         </div>
       )}
+
+      {/* Skeleton loading state */}
+      {loading && !result && <CompareTableSkeleton />}
 
       {/* Results table */}
       {result && (

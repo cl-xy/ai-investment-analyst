@@ -85,16 +85,20 @@ async def use_budget(provider: str) -> bool:
 
 async def get_budget_status() -> dict[str, dict]:
     """Return current budget status for all tracked providers."""
-    today = date.today()
-    status = {}
+    from src.db import fetch
 
+    today = date.today()
+
+    # Single query for all providers instead of N sequential roundtrips
+    rows = await fetch(
+        "SELECT provider, count FROM budget WHERE date = $1",
+        today,
+    )
+    counts = {row["provider"]: row["count"] for row in rows}
+
+    status = {}
     for provider, limit in DAILY_LIMITS.items():
-        row = await fetchrow(
-            "SELECT count FROM budget WHERE provider = $1 AND date = $2",
-            provider,
-            today,
-        )
-        used = row["count"] if row else 0
+        used = counts.get(provider, 0)
         status[provider] = {
             "used": used,
             "limit": limit,

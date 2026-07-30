@@ -201,6 +201,9 @@ data: {"run_id":"f47ac10b-58cc-4372-a567-0e02b2c3d479","seq":13,"type":"run_comp
 | `node_completed` | LangGraph node finished (includes `duration_ms`) |
 | `tool_call` | MCP tool invocation started |
 | `tool_result` | MCP tool returned (success/failure, duration, cache status) |
+| `debate_started` | Adversarial debate begins for a ticker |
+| `debate_turn` | Bull/bear/CIO analyst argument emitted |
+| `debate_verdict` | CIO final verdict with signal and rationale |
 | `llm_token` | Streaming text token from LLM |
 | `citation` | Source citation emitted |
 | `analysis_complete` | Full structured analysis for one ticker |

@@ -11,6 +11,9 @@ EDGAR_BASE = "https://efts.sec.gov"
 SUBMISSIONS_BASE = "https://data.sec.gov/submissions"
 COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 
+# Module-level client reuses TCP connections across calls (SEC rate limit: 10 req/s)
+_client = httpx.Client(headers=HEADERS, timeout=15, follow_redirects=True)
+
 # Avoid hammering SEC on every call during an outage, while still recovering
 # once it comes back, instead of permanently disabling lookups for the
 # process lifetime after a single transient failure.
@@ -29,7 +32,7 @@ def _load_ticker_map() -> None:
         return
     _last_load_attempt = time.monotonic()
     try:
-        r = httpx.get(COMPANY_TICKERS_URL, headers=HEADERS, timeout=15)
+        r = _client.get(COMPANY_TICKERS_URL)
         r.raise_for_status()
         for entry in r.json().values():
             ticker = entry.get("ticker", "").upper()
@@ -56,7 +59,7 @@ def search_filings(ticker: str, form_type: str = "10-K", count: int = 3) -> list
         return []
     try:
         url = f"{SUBMISSIONS_BASE}/CIK{cik}.json"
-        r = httpx.get(url, headers=HEADERS, timeout=15)
+        r = _client.get(url)
         r.raise_for_status()
         data = r.json()
         filings = data.get("filings", {}).get("recent", {})
@@ -87,14 +90,14 @@ def get_filing_text_snippet(accession_number: str, cik: str, max_chars: int = 30
     cik_int = int(cik)
     index_url = f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{acc_clean}/{accession_number}-index.htm"
     try:
-        r = httpx.get(index_url, headers=HEADERS, timeout=15)
+        r = _client.get(index_url)
         r.raise_for_status()
         # Extract the primary document link from the index page
         matches = re.findall(r'href="(/Archives/edgar/data/[^"]+\.htm)"', r.text, re.IGNORECASE)
         if not matches:
             return ""
         doc_url = "https://www.sec.gov" + matches[0]
-        r2 = httpx.get(doc_url, headers=HEADERS, timeout=30)
+        r2 = _client.get(doc_url, timeout=30)
         r2.raise_for_status()
         # Strip HTML tags for a rough text extraction
         text = re.sub(r"<[^>]+>", " ", r2.text)
