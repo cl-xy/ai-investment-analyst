@@ -79,6 +79,38 @@ export interface ChaosState {
   scenarios: ChaosScenario[]
 }
 
+// Wire format from backend (scenarios is a keyed object, not an array)
+interface ChaosWireScenario {
+  enabled: boolean
+  activated_at: string | null
+  description: string
+}
+
+interface ChaosWireState {
+  scenarios: Record<string, ChaosWireScenario>
+  any_active: boolean
+}
+
+function humanizeScenarioId(id: string): string {
+  return id
+    .split('_')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
+}
+
+function parseChaosResponse(wire: ChaosWireState): ChaosState {
+  const scenarios: ChaosScenario[] = Object.entries(wire.scenarios).map(([id, s]) => ({
+    id,
+    label: humanizeScenarioId(id),
+    description: s.description,
+    enabled: s.enabled,
+  }))
+  return {
+    active: wire.any_active,
+    scenarios,
+  }
+}
+
 export async function getHealth(): Promise<HealthStatus> {
   const response = await axios.get<HealthStatus>(`${API_BASE}/api/ops/health`, { headers: authHeaders() })
   return response.data
@@ -100,11 +132,18 @@ export async function getTraces(): Promise<LatencyEntry[]> {
 }
 
 export async function getChaosState(): Promise<ChaosState> {
-  const response = await axios.get<ChaosState>(`${API_BASE}/api/ops/chaos`, { headers: authHeaders() })
-  return response.data
+  const response = await axios.get<ChaosWireState>(`${API_BASE}/api/ops/chaos`, { headers: authHeaders() })
+  return parseChaosResponse(response.data)
 }
 
-export async function setChaosState(config: ChaosState): Promise<ChaosState> {
-  const response = await axios.put<ChaosState>(`${API_BASE}/api/ops/chaos`, config, { headers: authHeaders() })
-  return response.data
+export async function toggleChaosScenario(scenarioId: string, enabled: boolean): Promise<void> {
+  await axios.post(
+    `${API_BASE}/api/ops/chaos`,
+    { scenario: scenarioId, enabled },
+    { headers: authHeaders() }
+  )
+}
+
+export async function resetChaos(): Promise<void> {
+  await axios.post(`${API_BASE}/api/ops/chaos`, { reset: true }, { headers: authHeaders() })
 }

@@ -26,7 +26,7 @@ import type {
   RecentError,
   LatencyEntry,
 } from '../api/opsService'
-import { getHealth, getMetrics, getSLO, getChaosState, setChaosState } from '../api/opsService'
+import { getHealth, getMetrics, getSLO, getChaosState, toggleChaosScenario } from '../api/opsService'
 
 export default function OpsPage() {
   const [health, setHealth] = useState<HealthStatus | null>(null)
@@ -63,7 +63,7 @@ export default function OpsPage() {
     return () => clearInterval(interval)
   }, [fetchAll])
 
-  const toggleChaosScenario = async (scenarioId: string) => {
+  const toggleChaosScenarioHandler = async (scenarioId: string) => {
     if (!chaos) return
     const scenario = chaos.scenarios.find((s) => s.id === scenarioId)
     if (!scenario) return
@@ -75,17 +75,21 @@ export default function OpsPage() {
     }
     setConfirmingChaos(null)
 
+    const newEnabled = !scenario.enabled
+    // Optimistic update
     const updated: ChaosState = {
       ...chaos,
       scenarios: chaos.scenarios.map((s) =>
-        s.id === scenarioId ? { ...s, enabled: !s.enabled } : s
+        s.id === scenarioId ? { ...s, enabled: newEnabled } : s
       ),
-      active: chaos.scenarios.some((s) => (s.id === scenarioId ? !s.enabled : s.enabled)),
+      active: chaos.scenarios.some((s) => (s.id === scenarioId ? newEnabled : s.enabled)),
     }
     setChaos(updated)
     try {
-      const result = await setChaosState(updated)
-      setChaos(result)
+      await toggleChaosScenario(scenarioId, newEnabled)
+      // Refetch to get authoritative state
+      const fresh = await getChaosState()
+      setChaos(fresh)
     } catch {
       // Rollback on failure
       setChaos(chaos)
@@ -166,7 +170,7 @@ export default function OpsPage() {
             <ChaosPanel
               chaos={chaos}
               confirmingId={confirmingChaos}
-              onToggle={toggleChaosScenario}
+              onToggle={toggleChaosScenarioHandler}
               onCancelConfirm={() => setConfirmingChaos(null)}
             />
           )}
@@ -497,34 +501,59 @@ function LatencyChart({ entries }: { entries: LatencyEntry[] }) {
           Last {chartData.length} requests (seconds)
         </span>
       </div>
-      <ResponsiveContainer width="100%" height={220}>
-        <BarChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-          <XAxis dataKey="name" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
-          <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} unit="s" />
-          <Tooltip
-            contentStyle={{
-              backgroundColor: 'var(--surface)',
-              border: '1px solid var(--border)',
-              borderRadius: 8,
-            }}
-            labelStyle={{ color: 'var(--text-primary)' }}
-            formatter={(value: unknown, name: unknown) => [
-              `${value}s`,
-              name === 'fetch_data' ? 'Fetch Data' : name === 'debate' ? 'Debate' : 'Report',
-            ]}
-          />
-          <Legend
-            wrapperStyle={{ fontSize: 11, color: 'var(--text-secondary)' }}
-            formatter={(value: string) =>
-              value === 'fetch_data' ? 'Fetch Data' : value === 'debate' ? 'Debate' : 'Report'
-            }
-          />
-          <Bar dataKey="fetch_data" stackId="a" fill="var(--accent)" radius={[0, 0, 0, 0]} />
-          <Bar dataKey="debate" stackId="a" fill="var(--live)" radius={[0, 0, 0, 0]} />
-          <Bar dataKey="report" stackId="a" fill="var(--bullish)" radius={[4, 4, 0, 0]} />
-        </BarChart>
-      </ResponsiveContainer>
+      <div role="img" aria-label={`Stacked bar chart showing request latency in seconds for the last ${chartData.length} requests, broken down by fetch data, debate, and report stages`}>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+            <XAxis dataKey="name" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
+            <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} unit="s" />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+              }}
+              labelStyle={{ color: 'var(--text-primary)' }}
+              formatter={(value: unknown, name: unknown) => [
+                `${value}s`,
+                name === 'fetch_data' ? 'Fetch Data' : name === 'debate' ? 'Debate' : 'Report',
+              ]}
+            />
+            <Legend
+              wrapperStyle={{ fontSize: 11, color: 'var(--text-secondary)' }}
+              formatter={(value: string) =>
+                value === 'fetch_data' ? 'Fetch Data' : value === 'debate' ? 'Debate' : 'Report'
+              }
+            />
+            <Bar dataKey="fetch_data" stackId="a" fill="var(--accent)" radius={[0, 0, 0, 0]} />
+            <Bar dataKey="debate" stackId="a" fill="var(--live)" radius={[0, 0, 0, 0]} />
+            <Bar dataKey="report" stackId="a" fill="var(--bullish)" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="sr-only">
+        <table>
+          <caption>Request Latency</caption>
+          <thead>
+            <tr>
+              <th scope="col">Ticker</th>
+              <th scope="col">Fetch Data (s)</th>
+              <th scope="col">Debate (s)</th>
+              <th scope="col">Report (s)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {chartData.map((d) => (
+              <tr key={d.name}>
+                <td>{d.name}</td>
+                <td>{d.fetch_data}</td>
+                <td>{d.debate}</td>
+                <td>{d.report}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

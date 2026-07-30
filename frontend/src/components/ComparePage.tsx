@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { ArrowRight, Plus, X, Scale } from 'lucide-react'
 
 import { API_BASE, authHeaders } from '../api/config'
+import { useCompareStore } from '../stores/compareStore'
 
 const POPULAR_TICKERS = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'TSLA', 'META', 'SPY', 'QQQ', 'BRK.B']
 
@@ -38,7 +39,7 @@ interface CompareResult {
 }
 
 export default function ComparePage() {
-  const [tickers, setTickers] = useState<string[]>(['', ''])
+  const { tickers, setTicker, addSlot, removeSlot } = useCompareStore()
   const [result, setResult] = useState<CompareResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -80,17 +81,7 @@ export default function ComparePage() {
   }, [])
 
   const updateTicker = (idx: number, value: string) => {
-    const updated = [...tickers]
-    updated[idx] = value.toUpperCase()
-    setTickers(updated)
-  }
-
-  const addSlot = () => {
-    if (tickers.length < 3) setTickers([...tickers, ''])
-  }
-
-  const removeSlot = (idx: number) => {
-    if (tickers.length > 2) setTickers(tickers.filter((_, i) => i !== idx))
+    setTicker(idx, value.toUpperCase())
   }
 
   const handleCompare = async () => {
@@ -229,11 +220,11 @@ export default function ComparePage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--border)]">
-                <th className="text-left px-5 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">
+                <th scope="col" className="text-left px-5 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">
                   Metric
                 </th>
                 {result.tickers.map((t) => (
-                  <th key={t} className="text-center px-5 py-3 font-mono font-semibold text-[var(--text-primary)]">
+                  <th scope="col" key={t} className="text-center px-5 py-3 font-mono font-semibold text-[var(--text-primary)]">
                     {t}
                   </th>
                 ))}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts'
-import { Target, TrendingUp, TrendingDown, Activity, AlertCircle, CheckCircle, XCircle, MinusCircle } from 'lucide-react'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell, LabelList } from 'recharts'
+import { Target, TrendingUp, TrendingDown, Activity, AlertCircle, AlertTriangle, CheckCircle, XCircle, MinusCircle } from 'lucide-react'
 import { API_BASE, authParam } from '../api/config'
 
 interface CalibrationData {
@@ -35,25 +35,29 @@ export default function CalibrationPage() {
   const [data, setData] = useState<CalibrationData | null>(null)
   const [predictions, setPredictions] = useState<Prediction[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'correct' | 'incorrect'>('all')
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const auth = authParam()
-        const [calRes, predRes] = await Promise.all([
-          fetch(`${API_BASE}/api/calibration?${auth}`),
-          fetch(`${API_BASE}/api/calibration/predictions?limit=100&${auth}`),
-        ])
-        if (calRes.ok) setData(await calRes.json())
-        if (predRes.ok) setPredictions(await predRes.json())
-      } catch {
-        // Silently handle fetch errors
-      } finally {
-        setLoading(false)
-      }
+  async function fetchData() {
+    setError(null)
+    setLoading(true)
+    try {
+      const auth = authParam()
+      const [calRes, predRes] = await Promise.all([
+        fetch(`${API_BASE}/api/calibration?${auth}`),
+        fetch(`${API_BASE}/api/calibration/predictions?limit=100&${auth}`),
+      ])
+      if (calRes.ok) setData(await calRes.json())
+      if (predRes.ok) setPredictions(await predRes.json())
+    } catch {
+      setError('Unable to load calibration data')
+    } finally {
+      setLoading(false)
     }
-    load()
+  }
+
+  useEffect(() => {
+    fetchData()
   }, [])
 
   if (loading) {
@@ -67,6 +71,23 @@ export default function CalibrationPage() {
             ))}
           </div>
           <div className="h-64 rounded-xl bg-[var(--surface-elevated)]" />
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-5xl mx-auto px-4 py-12">
+        <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-6 text-center">
+          <AlertTriangle className="mx-auto h-8 w-8 text-red-400 mb-3" />
+          <p className="text-sm text-[var(--text-secondary)]">{error}</p>
+          <button
+            onClick={() => fetchData()}
+            className="mt-4 px-4 py-2 text-sm rounded-md bg-[var(--surface-elevated)] text-[var(--text-primary)] hover:bg-[var(--border)] focus-ring transition-colors"
+          >
+            Retry
+          </button>
         </div>
       </div>
     )
@@ -169,35 +190,59 @@ export default function CalibrationPage() {
           <p className="text-xs text-[var(--text-muted)] mb-4">
             Does high confidence mean high accuracy?
           </p>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={calibrationChartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="name" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} />
-              <YAxis domain={[0, 100]} tick={{ fill: 'var(--text-muted)', fontSize: 11 }} unit="%" />
-              <Tooltip
-                contentStyle={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}
-                labelStyle={{ color: 'var(--text-primary)' }}
-                formatter={(value, name) => [
-                  `${value}%`,
-                  name === 'hit_rate' ? 'Actual Hit Rate' : 'Expected',
-                ]}
-              />
-              <ReferenceLine y={50} stroke="var(--text-muted)" strokeDasharray="3 3" label={{ value: '50%', position: 'right', fill: 'var(--text-muted)', fontSize: 10 }} />
-              <Bar dataKey="hit_rate" radius={[4, 4, 0, 0]} name="hit_rate">
-                {calibrationChartData.map((entry, i) => (
-                  <Cell
-                    key={i}
-                    fill={entry.hit_rate >= entry.expected ? 'var(--bullish)' : 'var(--bearish)'}
-                    fillOpacity={0.8}
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          <div role="img" aria-label="Bar chart showing hit rate by confidence level: low, medium, and high">
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={calibrationChartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="name" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} />
+                <YAxis domain={[0, 100]} tick={{ fill: 'var(--text-muted)', fontSize: 11 }} unit="%" />
+                <Tooltip
+                  contentStyle={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}
+                  labelStyle={{ color: 'var(--text-primary)' }}
+                  formatter={(value, name) => [
+                    `${value}%`,
+                    name === 'hit_rate' ? 'Actual Hit Rate' : 'Expected',
+                  ]}
+                />
+                <ReferenceLine y={50} stroke="var(--text-muted)" strokeDasharray="3 3" label={{ value: '50%', position: 'right', fill: 'var(--text-muted)', fontSize: 10 }} />
+                <Bar dataKey="hit_rate" radius={[4, 4, 0, 0]} name="hit_rate">
+                  {calibrationChartData.map((entry, i) => (
+                    <Cell
+                      key={i}
+                      fill={entry.hit_rate >= entry.expected ? 'var(--bullish)' : 'var(--bearish)'}
+                      fillOpacity={0.8}
+                    />
+                  ))}
+                  <LabelList dataKey="hit_rate" position="top" formatter={(v) => `${v}%`} style={{ fill: 'var(--text-secondary)', fontSize: 10 }} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
           <div className="flex justify-center gap-4 mt-2 text-[10px] text-[var(--text-muted)]">
             {calibrationChartData.map((d) => (
               <span key={d.name}>{d.name}: {d.count} predictions</span>
             ))}
+          </div>
+          <div className="sr-only">
+            <table>
+              <caption>Calibration by Confidence</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Confidence Level</th>
+                  <th scope="col">Hit Rate</th>
+                  <th scope="col">Predictions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {calibrationChartData.map((d) => (
+                  <tr key={d.name}>
+                    <td>{d.name}</td>
+                    <td>{d.hit_rate}%</td>
+                    <td>{d.count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
 
@@ -209,26 +254,52 @@ export default function CalibrationPage() {
           <p className="text-xs text-[var(--text-muted)] mb-4">
             Which signals are most reliable?
           </p>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={signalChartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis type="number" domain={[0, 100]} tick={{ fill: 'var(--text-muted)', fontSize: 11 }} unit="%" />
-              <YAxis type="category" dataKey="name" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} width={50} />
-              <Tooltip
-                contentStyle={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}
-                formatter={(value) => [`${value}%`, 'Accuracy']}
-              />
-              <Bar dataKey="accuracy" radius={[0, 4, 4, 0]}>
-                {signalChartData.map((entry, i) => (
-                  <Cell
-                    key={i}
-                    fill={entry.signal === 'buy' ? 'var(--bullish)' : entry.signal === 'sell' ? 'var(--bearish)' : 'var(--accent)'}
-                    fillOpacity={0.8}
-                  />
+          <div role="img" aria-label="Horizontal bar chart showing prediction accuracy percentage for each signal type">
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={signalChartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis type="number" domain={[0, 100]} tick={{ fill: 'var(--text-muted)', fontSize: 11 }} unit="%" />
+                <YAxis type="category" dataKey="name" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} width={50} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}
+                  formatter={(value) => [`${value}%`, 'Accuracy']}
+                />
+                <Bar dataKey="accuracy" radius={[0, 4, 4, 0]}>
+                  {signalChartData.map((entry, i) => (
+                    <Cell
+                      key={i}
+                      fill={entry.signal === 'buy' ? 'var(--bullish)' : entry.signal === 'sell' ? 'var(--bearish)' : 'var(--accent)'}
+                      fillOpacity={0.8}
+                    />
+                  ))}
+                  <LabelList dataKey="accuracy" position="right" formatter={(v) => `${v}%`} style={{ fill: 'var(--text-secondary)', fontSize: 10 }} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="sr-only">
+            <table>
+              <caption>Accuracy by Signal</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Signal</th>
+                  <th scope="col">Accuracy</th>
+                  <th scope="col">Correct</th>
+                  <th scope="col">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {signalChartData.map((d) => (
+                  <tr key={d.name}>
+                    <td>{d.name}</td>
+                    <td>{d.accuracy}%</td>
+                    <td>{d.correct}</td>
+                    <td>{d.total}</td>
+                  </tr>
                 ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -259,13 +330,13 @@ export default function CalibrationPage() {
           <table className="w-full text-sm" role="table">
             <thead>
               <tr className="border-b border-[var(--border)] text-[var(--text-muted)]">
-                <th className="px-4 py-2.5 text-left text-xs font-medium">Ticker</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium">Signal</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium">Confidence</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium">Entry Price</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium">Return</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium">Outcome</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium">Date</th>
+                <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium">Ticker</th>
+                <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium">Signal</th>
+                <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium">Confidence</th>
+                <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium">Entry Price</th>
+                <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium">Return</th>
+                <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium">Outcome</th>
+                <th scope="col" className="px-4 py-2.5 text-left text-xs font-medium">Date</th>
               </tr>
             </thead>
             <tbody>

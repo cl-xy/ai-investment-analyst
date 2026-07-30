@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import logging
+import time
 
 from fastmcp import FastMCP
 
@@ -27,12 +28,26 @@ def _call_with_timeout(fn, *args):
     return future.result(timeout=_TIMEOUT)
 
 
+def _call_with_retry(fn, *args, retries: int = 1, delay: float = 2.0):
+    """Call fn with timeout, retrying on failure before falling back."""
+    last_exc = None
+    for attempt in range(1 + retries):
+        try:
+            return _call_with_timeout(fn, *args)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < retries:
+                log.warning("market-server: %s(%s) attempt %d failed, retrying in %.1fs", fn.__name__, args, attempt + 1, delay)
+                time.sleep(delay)
+    raise last_exc  # type: ignore[misc]
+
+
 def _get_quote_cached(ticker: str) -> dict:
     key = ticker.upper()
     if key in _quote_cache:
         return _quote_cache[key]
     try:
-        data = _call_with_timeout(yf_client.get_quote, key)
+        data = _call_with_retry(yf_client.get_quote, key)
     except Exception:
         try:
             data = av.get_quote(key) or {}
@@ -48,7 +63,7 @@ def _get_fundamentals_cached(ticker: str) -> dict:
     if key in _fundamentals_cache:
         return _fundamentals_cache[key]
     try:
-        data = _call_with_timeout(yf_client.get_fundamentals, key)
+        data = _call_with_retry(yf_client.get_fundamentals, key)
     except Exception:
         try:
             data = av.get_fundamentals(key) or {}
