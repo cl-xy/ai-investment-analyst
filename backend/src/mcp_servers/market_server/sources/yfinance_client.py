@@ -1,7 +1,10 @@
+import logging
 from datetime import date as _date
 
 import requests
 import yfinance as yf
+
+log = logging.getLogger(__name__)
 
 # yfinance uses requests internally but does not set a timeout by default.
 # Create a session with a reasonable timeout to prevent zombie threads in the
@@ -17,16 +20,68 @@ def _ticker(symbol: str) -> yf.Ticker:
     return yf.Ticker(symbol, session=_SESSION)
 
 
+def _download_fallback(ticker: str) -> dict:
+    """
+    Last-resort price fetch using yf.download() which hits Yahoo's chart/v8 API.
+    This endpoint is more permissive with geo/IP restrictions than quoteSummary.
+    Returns a minimal quote dict or raises ValueError.
+    """
+    try:
+        df = yf.download(ticker, period="5d", progress=False, timeout=20)
+        if df.empty:
+            raise ValueError("download returned empty dataframe")
+        # Handle multi-level columns from yf.download
+        if hasattr(df.columns, "levels") and len(df.columns.levels) > 1:
+            # MultiIndex: ('Close', 'WIX') etc
+            close_col = ("Close", ticker.upper())
+            vol_col = ("Volume", ticker.upper())
+            price = round(float(df[close_col].iloc[-1]), 4)
+            prev_close = round(float(df[close_col].iloc[-2]), 4) if len(df) >= 2 else None
+            volume = int(df[vol_col].iloc[-1]) if vol_col in df.columns else None
+        else:
+            price = round(float(df["Close"].iloc[-1]), 4)
+            prev_close = round(float(df["Close"].iloc[-2]), 4) if len(df) >= 2 else None
+            volume = int(df["Volume"].iloc[-1]) if "Volume" in df.columns else None
+
+        change_pct = None
+        if prev_close:
+            change_pct = round((price - prev_close) / prev_close * 100, 2)
+
+        log.info("download_fallback_success ticker=%s price=%s", ticker, price)
+        return {
+            "ticker": ticker.upper(),
+            "current_price": price,
+            "change_pct": change_pct,
+            "volume": volume,
+            "market_cap": None,
+            "pe_ratio": None,
+            "fifty_two_week_high": None,
+            "fifty_two_week_low": None,
+            "currency": "USD",
+        }
+    except Exception as e:
+        log.warning("download_fallback_failed ticker=%s error=%s", ticker, e)
+        raise ValueError(f"yf.download fallback failed for {ticker}: {e}") from e
+
+
 def get_quote(ticker: str) -> dict:
     t = _ticker(ticker)
-    info = t.fast_info
-    full = t.info
-    price = getattr(info, "last_price", None)
-    prev_close = getattr(info, "previous_close", None)
+    price = None
+    prev_close = None
+    full: dict = {}
 
-    # Fallback: if fast_info has no price, try .info fields or recent history
-    if price is None:
-        price = full.get("currentPrice") or full.get("regularMarketPrice")
+    # Primary path: fast_info + info
+    try:
+        info = t.fast_info
+        full = t.info
+        price = getattr(info, "last_price", None)
+        prev_close = getattr(info, "previous_close", None)
+        if price is None:
+            price = full.get("currentPrice") or full.get("regularMarketPrice")
+    except Exception as e:
+        log.warning("yfinance_info_failed ticker=%s error=%s", ticker, e)
+
+    # Fallback: history endpoint
     if price is None:
         try:
             hist = t.history(period="5d")
@@ -37,23 +92,42 @@ def get_quote(ticker: str) -> dict:
         except Exception:
             pass
 
-    # If we still have no price, raise so the caller can try Alpha Vantage
+    # Last resort: yf.download (different Yahoo endpoint, more geo-permissive)
     if price is None:
-        raise ValueError(f"yfinance returned no price data for {ticker}")
+        return _download_fallback(ticker)
 
     change_pct = None
     if price is not None and prev_close:
         change_pct = round((price - prev_close) / prev_close * 100, 2)
+
+    # Build result from whatever info/full we managed to get
+    volume = None
+    market_cap = None
+    pe_ratio = None
+    high_52w = None
+    low_52w = None
+    currency = "USD"
+
+    try:
+        volume = getattr(info, "three_month_average_volume", None)
+        market_cap = getattr(info, "market_cap", None) or full.get("marketCap")
+        pe_ratio = full.get("trailingPE")
+        high_52w = getattr(info, "year_high", None) or full.get("fiftyTwoWeekHigh")
+        low_52w = getattr(info, "year_low", None) or full.get("fiftyTwoWeekLow")
+        currency = full.get("currency", "USD")
+    except Exception:
+        pass
+
     return {
         "ticker": ticker.upper(),
         "current_price": price,
         "change_pct": change_pct,
-        "volume": getattr(info, "three_month_average_volume", None),
-        "market_cap": getattr(info, "market_cap", None) or full.get("marketCap"),
-        "pe_ratio": full.get("trailingPE"),
-        "fifty_two_week_high": getattr(info, "year_high", None) or full.get("fiftyTwoWeekHigh"),
-        "fifty_two_week_low": getattr(info, "year_low", None) or full.get("fiftyTwoWeekLow"),
-        "currency": full.get("currency", "USD"),
+        "volume": volume,
+        "market_cap": market_cap,
+        "pe_ratio": pe_ratio,
+        "fifty_two_week_high": high_52w,
+        "fifty_two_week_low": low_52w,
+        "currency": currency,
     }
 
 
