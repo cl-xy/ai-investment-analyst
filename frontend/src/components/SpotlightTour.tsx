@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useSpotlightTour } from '../hooks/useSpotlightTour'
 
 const PADDING = 8
@@ -110,7 +111,9 @@ export function SpotlightTour() {
     tooltipRef.current.style.left = `${pos.left}px`
   }, [targetRect, step, currentStep])
 
-  if (!isActive || !step || !targetRect) return null
+  const portalTarget = document.getElementById('tour-portal')
+
+  if (!isActive || !step || !targetRect || !portalTarget) return null
 
   const spotlightStyle: React.CSSProperties = {
     position: 'fixed',
@@ -141,7 +144,7 @@ export function SpotlightTour() {
   const isLastStep = currentStep === totalSteps - 1
   const isFirstStep = currentStep === 0
 
-  return (
+  return createPortal(
     <>
       {/* Spotlight overlay: dims everything except target */}
       <div style={spotlightStyle} aria-hidden="true" />
@@ -231,6 +234,7 @@ export function SpotlightTour() {
           </div>
         </div>
       </div>
-    </>
+    </>,
+    portalTarget
   )
 }
