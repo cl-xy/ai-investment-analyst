@@ -71,10 +71,12 @@ export default function EvidenceDrawer({ citation, toolResults, onClose }: Evide
   if (!citation && !closing) return null
 
   // Find matching tool result by source_id or provider
-  const matchingResult = toolResults.find((ev) => {
-    const payload = ev.payload as unknown as ToolResultPayload
-    return payload.source_id === citation.source_id || ev.tool === citation.provider
-  })
+  const matchingResult = citation
+    ? toolResults.find((ev) => {
+        const payload = ev.payload as unknown as ToolResultPayload
+        return payload.source_id === citation.source_id || ev.tool === citation.provider
+      })
+    : undefined
 
   const payload = matchingResult?.payload as unknown as ToolResultPayload | undefined
 
@@ -113,6 +115,7 @@ export default function EvidenceDrawer({ citation, toolResults, onClose }: Evide
         {/* Content */}
         <div className="px-5 py-4 space-y-5">
           {/* Claim */}
+          {citation && (
           <div>
             <h3 className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
               Claim
@@ -121,8 +124,10 @@ export default function EvidenceDrawer({ citation, toolResults, onClose }: Evide
               {citation.claim}
             </p>
           </div>
+          )}
 
           {/* Provider */}
+          {citation && (
           <div>
             <h3 className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
               Data Source
@@ -136,6 +141,7 @@ export default function EvidenceDrawer({ citation, toolResults, onClose }: Evide
               </span>
             </div>
           </div>
+          )}
 
           {/* Tool result metadata */}
           {payload && (

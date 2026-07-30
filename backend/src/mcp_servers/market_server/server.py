@@ -37,7 +37,13 @@ def _call_with_retry(fn, *args, retries: int = 1, delay: float = 2.0):
         except Exception as exc:
             last_exc = exc
             if attempt < retries:
-                log.warning("market-server: %s(%s) attempt %d failed, retrying in %.1fs", fn.__name__, args, attempt + 1, delay)
+                log.warning(
+                    "market-server: %s(%s) attempt %d failed, retrying in %.1fs",
+                    fn.__name__,
+                    args,
+                    attempt + 1,
+                    delay,
+                )
                 time.sleep(delay)
     raise last_exc  # type: ignore[misc]
 
