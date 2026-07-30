@@ -2,6 +2,16 @@ import { TrendingUp, TrendingDown, Scale, ChevronDown, ChevronUp } from 'lucide-
 import { useState } from 'react'
 import { useAnalysisStore } from '../stores/analysisStore'
 
+/** Safely extract a display string from an argument that may be a string or an object. */
+function toDisplayString(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>
+    return (obj.claim as string) || (obj.text as string) || JSON.stringify(value)
+  }
+  return String(value ?? '')
+}
+
 const ROLE_CONFIG = {
   bull: {
     label: 'Bull Analyst',
@@ -119,7 +129,7 @@ export default function DebatePanel({ ticker }: DebatePanelProps) {
                         className="flex items-start gap-2 text-xs text-[var(--text-secondary)] leading-relaxed"
                       >
                         <span className="shrink-0 mt-1 w-1 h-1 rounded-full" style={{ backgroundColor: config.color }} />
-                        {arg}
+                        {toDisplayString(arg)}
                       </li>
                     ))}
                   </ul>
@@ -156,7 +166,7 @@ export default function DebatePanel({ ticker }: DebatePanelProps) {
                     {debate.verdict.key_disagreements.map((d, i) => (
                       <li key={i} className="text-xs text-[var(--text-secondary)] flex items-start gap-2">
                         <span className="shrink-0 mt-1 w-1 h-1 rounded-full bg-[var(--warning)]" />
-                        {d}
+                        {toDisplayString(d)}
                       </li>
                     ))}
                   </ul>

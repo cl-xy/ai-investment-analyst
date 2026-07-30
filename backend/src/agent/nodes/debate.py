@@ -44,6 +44,19 @@ log = get_logger(__name__)
 _MIN_CALL_INTERVAL = 4.0  # seconds
 
 
+def _coerce_str_list(items: list) -> list[str]:
+    """Coerce list items to strings. Handles LLM returning objects instead of plain strings."""
+    result = []
+    for item in items:
+        if isinstance(item, str):
+            result.append(item)
+        elif isinstance(item, dict):
+            result.append(item.get("claim") or item.get("text") or str(item))
+        else:
+            result.append(str(item))
+    return result
+
+
 def _safe_extract_json(text: str) -> dict | None:
     """Extract JSON dict from LLM text, returning None on failure or non-dict."""
     try:
@@ -169,7 +182,7 @@ async def _run_bull_agent(ctx: dict[str, Any]) -> BullCaseOutput:
                 return BullCaseOutput(
                     ticker=ctx["ticker"],
                     thesis=parsed.get("thesis", "Bull case generation failed"),
-                    key_arguments=parsed.get("key_arguments", []),
+                    key_arguments=_coerce_str_list(parsed.get("key_arguments", [])),
                     confidence=parsed.get("confidence", "low"),
                 )
             return BullCaseOutput(
@@ -209,7 +222,7 @@ async def _run_bear_agent(ctx: dict[str, Any], bull: BullCaseOutput) -> BearCase
                 return BearCaseOutput(
                     ticker=ctx["ticker"],
                     thesis=parsed.get("thesis", "Bear case generation failed"),
-                    key_arguments=parsed.get("key_arguments", []),
+                    key_arguments=_coerce_str_list(parsed.get("key_arguments", [])),
                     confidence=parsed.get("confidence", "low"),
                 )
             return BearCaseOutput(
