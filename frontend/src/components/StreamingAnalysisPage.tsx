@@ -346,7 +346,7 @@ function StreamAnalysisCard({ analysis, onCitationClick }: { analysis: AnalysisO
           <span className="text-xs font-medium px-2 py-1 rounded-full bg-[var(--surface)] text-[var(--text-muted)]">
             {analysis.confidence}
           </span>
-          <DataFreshness retrievedAt={analysis.price_data?.retrieved_at ?? undefined} />
+          <DataFreshness retrievedAt={typeof analysis.price_data?.retrieved_at === 'string' ? analysis.price_data.retrieved_at : undefined} />
         </div>
       </div>
 

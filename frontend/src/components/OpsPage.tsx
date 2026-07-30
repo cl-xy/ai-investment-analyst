@@ -200,7 +200,7 @@ export default function OpsPage() {
       </div>
 
       {/* Request Latency Chart (full width) */}
-      {metrics && metrics.latency_history.length > 0 && (
+      {metrics && (metrics.latency_history?.length ?? 0) > 0 && (
         <LatencyChart entries={metrics.latency_history} />
       )}
     </div>
