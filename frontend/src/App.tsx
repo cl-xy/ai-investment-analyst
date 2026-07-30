@@ -6,8 +6,14 @@ import Header from './components/Header'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import ToastContainer from './components/ToastContainer'
 import OfflineBanner from './components/OfflineBanner'
+import CommandPalette from './components/CommandPalette'
+import KeyboardShortcutsDialog from './components/KeyboardShortcutsDialog'
+import ContextualHintOverlay from './components/ContextualHintOverlay'
+import { DefaultSkeleton } from './components/ui/PageSkeleton'
 import { useRestorableState } from './hooks/useRestorableState'
 import { useRecentTickers } from './hooks/useRecentTickers'
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
+import { toastUndo } from './stores/toastStore'
 import { lazyRetry } from './utils/lazyRetry'
 
 // #24: Code-split routes with chunk-hash recovery
@@ -27,18 +33,6 @@ function ScrollToTop() {
   const { pathname } = useLocation()
   useEffect(() => { window.scrollTo(0, 0) }, [pathname])
   return null
-}
-
-function RouteLoadingBar() {
-  return (
-    <div
-      className="fixed top-0 left-0 w-full h-[2px] z-50"
-      role="progressbar"
-      aria-label="Loading page"
-    >
-      <div className="h-full bg-[var(--accent)] route-loading-bar" />
-    </div>
-  )
 }
 
 function NotFoundPage() {
@@ -83,6 +77,7 @@ function validateTickers(restored: unknown): string[] {
 export default function App() {
   const navigate = useNavigate()
   const { pathname } = useLocation()
+  const { helpOpen, setHelpOpen } = useKeyboardShortcuts()
   // #22: Persist watchlist state across refreshes
   const [rawTickers, setTickers] = useRestorableState<string[]>('watchlist', [])
   const { recordUsage } = useRecentTickers()
@@ -110,7 +105,19 @@ export default function App() {
   const removeTicker = (ticker: string) => {
     const normalized = normalizeTicker(ticker)
     if (!normalized) return
+    const currentTickers = tickersRef.current
+    const index = currentTickers.indexOf(normalized)
+    if (index === -1) return
+
     setTickers((prev) => validateTickers(prev).filter((t) => t !== normalized))
+
+    toastUndo(`Removed ${normalized}`, () => {
+      setTickers((prev) => {
+        const next = [...prev]
+        next.splice(Math.min(index, next.length), 0, normalized)
+        return next
+      })
+    })
   }
 
   const handleAnalyze = () => {
@@ -138,7 +145,7 @@ export default function App() {
 
       <main id="main-content" className="flex-1 animate-fade-in" tabIndex={-1}>
         <ErrorBoundary key={pathname}>
-          <Suspense fallback={<RouteLoadingBar />}>
+          <Suspense fallback={<DefaultSkeleton />}>
             <Routes>
               <Route
                 path="/"
@@ -171,6 +178,15 @@ export default function App() {
 
       {/* #8: Global toast notification system */}
       <ToastContainer />
+
+      {/* Command palette (Cmd+K) */}
+      <CommandPalette />
+
+      {/* Keyboard shortcuts help (Cmd+Shift+?) */}
+      <KeyboardShortcutsDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
+
+      {/* Contextual hints for first-time users */}
+      <ContextualHintOverlay />
     </div>
   )
 }

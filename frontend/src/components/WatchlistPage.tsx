@@ -1,8 +1,7 @@
-import { useState, useEffect, useRef, useMemo, type KeyboardEvent } from 'react'
+import { useState, useEffect, useRef, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Search, Sparkles, X, AlertCircle } from 'lucide-react'
 import { useRecentTickers } from '../hooks/useRecentTickers'
-import { useContextualHints } from '../hooks/useContextualHints'
 import { getTickerError, normalizeTicker } from '../utils/tickerValidation'
 
 interface Props {
@@ -55,22 +54,10 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
   const recentSuggestions = getSuggestions(tickers)
   const suggestions = recentSuggestions.length > 0 ? recentSuggestions : DEMO_TICKERS
 
-  // Contextual hints for first-time users
-  const hintDefs = useMemo(() => [
-    {
-      id: 'watchlist-first-ticker',
-      target: '[data-hint-target="ticker-input"]',
-      message: 'Type a stock ticker like AAPL or NVDA to get started',
-      condition: () => tickers.length === 0,
-    },
-  ], [tickers.length])
-  const { activeHint, dismiss } = useContextualHints(hintDefs)
-
   const addTicker = (raw: string) => {
     const value = normalizeTicker(raw)
     if (!value || tickers.includes(value)) return false
     onAdd(value)
-    if (activeHint?.id === 'watchlist-first-ticker') dismiss('watchlist-first-ticker')
     return true
   }
 
@@ -161,7 +148,7 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
               onKeyDown={handleKeyDown}
               placeholder="Enter ticker symbol, e.g. NVDA"
               aria-label="Ticker symbol input"
-              data-hint-target="ticker-input"
+              data-hint-target="watchlist-input"
               aria-describedby={inputError ? 'ticker-error' : undefined}
               aria-invalid={!!inputError}
               className={`w-full border bg-[var(--surface)] rounded-lg pl-10 pr-4 py-3 text-sm font-mono uppercase text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] focus:border-transparent transition-shadow ${
@@ -186,22 +173,6 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
             <AlertCircle className="w-3 h-3" />
             {inputError}
           </p>
-        )}
-        {/* Contextual hint for first-time users */}
-        {activeHint && !inputError && (
-          <div className="mt-2.5 flex items-start gap-2 animate-fade-in">
-            <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-              💡 {activeHint.message}
-            </p>
-            <button
-              type="button"
-              onClick={() => dismiss(activeHint.id)}
-              className="shrink-0 text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
-              aria-label="Dismiss hint"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          </div>
         )}
       </div>
 

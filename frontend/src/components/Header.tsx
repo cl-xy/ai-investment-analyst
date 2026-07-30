@@ -81,6 +81,7 @@ export default function Header() {
               isOpen={openDropdownId === 'ops'}
               onToggle={handleDropdownToggle}
               onClose={handleDropdownClose}
+              hintTarget="ops-nav"
             />
           </nav>
 
@@ -127,6 +128,7 @@ function NavDropdown({
   isOpen,
   onToggle,
   onClose,
+  hintTarget,
 }: {
   id: string
   label: string
@@ -134,6 +136,7 @@ function NavDropdown({
   isOpen: boolean
   onToggle: (id: string) => void
   onClose: () => void
+  hintTarget?: string
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -172,7 +175,7 @@ function NavDropdown({
   }
 
   return (
-    <div ref={ref} className="relative" onBlur={handleFocusOut}>
+    <div ref={ref} className="relative" onBlur={handleFocusOut} {...(hintTarget ? { 'data-hint-target': hintTarget } : {})}>
       <button
         ref={triggerRef}
         onClick={() => onToggle(id)}

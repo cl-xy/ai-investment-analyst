@@ -528,6 +528,7 @@ function MobileCollapsibleTrace() {
       </button>
       <div
         id="trace-panel-content"
+        data-hint-target="trace-panel"
         className={collapsed ? 'hidden lg:block' : ''}
       >
         <AgentTracePanel />

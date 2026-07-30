@@ -223,10 +223,11 @@ export default function DashboardPage() {
           {filteredTickers.length === 0 && tickerFilter ? (
             <li className="text-xs text-[var(--text-muted)] px-3 py-2">No matches</li>
           ) : null}
-          {filteredTickers.map((ticker) => (
+          {filteredTickers.map((ticker, index) => (
             <li key={ticker} className="shrink-0">
               <button
                 onClick={() => selectTicker(ticker)}
+                {...(index === 0 ? { 'data-hint-target': 'dashboard-card' } : {})}
                 className={[
                   'whitespace-nowrap md:w-full md:text-left rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
                   selectedTicker === ticker

@@ -299,6 +299,31 @@ body {
   }
 }
 
+@keyframes command-palette-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes command-palette-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-scale-in {
+  animation: scale-in var(--motion-surface) var(--ease-decelerate) forwards;
+}
+
 /* #7: Reduced motion (comprehensive) */
 @media (prefers-reduced-motion: reduce) {
   .animate-shimmer,
@@ -306,6 +331,7 @@ body {
   .animate-fade-out,
   .animate-slide-in-right,
   .animate-slide-out-right,
+  .animate-scale-in,
   .route-loading-bar,
   .trace-event-enter,
   .animate-pulse,
