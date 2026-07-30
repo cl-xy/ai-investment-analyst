@@ -15,6 +15,7 @@ from .cache import _earnings_cache, _fundamentals_cache, _history_cache, _quote_
 from .indicators import compute_indicators
 from .sources import alpha_vantage_market as av
 from .sources import yfinance_client as yf_client
+from .symbol_resolver import resolve_symbol
 
 log = logging.getLogger(__name__)
 
@@ -83,6 +84,21 @@ def _get_quote_cached(ticker: str) -> dict:
         except Exception:
             log.warning("market-server: all sources failed for quote %s", key)
             data = {}
+
+    # If bare symbol failed, try resolving to canonical Yahoo symbol (e.g. VWRA -> VWRA.L)
+    if not data and "." not in key:
+        resolved = _call_with_timeout(resolve_symbol, key)
+        if resolved:
+            log.info("market-server: retrying quote with resolved symbol %s -> %s", key, resolved)
+            try:
+                data = _call_with_retry(yf_client.get_quote, resolved)
+                # Store under the original key so downstream sees the user's ticker
+                if data and isinstance(data, dict):
+                    data["ticker"] = key
+            except Exception:
+                log.warning("market-server: resolved symbol %s also failed for quote", resolved)
+                data = {}
+
     if data:
         with _cache_lock:
             _quote_cache[key] = data
@@ -102,6 +118,20 @@ def _get_fundamentals_cached(ticker: str) -> dict:
         except Exception:
             log.warning("market-server: all sources failed for fundamentals %s", key)
             data = {}
+
+    # If bare symbol failed, try resolving to canonical Yahoo symbol
+    if not data and "." not in key:
+        resolved = _call_with_timeout(resolve_symbol, key)
+        if resolved:
+            log.info("market-server: retrying fundamentals with resolved symbol %s -> %s", key, resolved)
+            try:
+                data = _call_with_retry(yf_client.get_fundamentals, resolved)
+                if data and isinstance(data, dict):
+                    data["ticker"] = key
+            except Exception:
+                log.warning("market-server: resolved symbol %s also failed for fundamentals", resolved)
+                data = {}
+
     if data:
         with _cache_lock:
             _fundamentals_cache[key] = data
@@ -117,6 +147,16 @@ def _get_earnings_calendar_cached(ticker: str) -> dict:
         data = _call_with_timeout(yf_client.get_earnings_calendar, key)
     except Exception:
         data = {}
+
+    # Resolve non-US symbols for earnings too
+    if not data and "." not in key:
+        resolved = _call_with_timeout(resolve_symbol, key)
+        if resolved:
+            try:
+                data = _call_with_timeout(yf_client.get_earnings_calendar, resolved)
+            except Exception:
+                data = {}
+
     if data:
         with _cache_lock:
             _earnings_cache[key] = data
@@ -135,6 +175,16 @@ def _get_history_cached(ticker: str, period: str) -> list[dict]:
         data = _call_with_timeout(yf_client.get_price_history, key, period)
     except Exception:
         data = []
+
+    # Resolve non-US symbols for price history
+    if not data and "." not in key:
+        resolved = _call_with_timeout(resolve_symbol, key)
+        if resolved:
+            try:
+                data = _call_with_timeout(yf_client.get_price_history, resolved, period)
+            except Exception:
+                data = []
+
     if data:
         with _cache_lock:
             _history_cache[cache_key] = data

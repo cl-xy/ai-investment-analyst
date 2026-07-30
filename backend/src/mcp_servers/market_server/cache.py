@@ -8,3 +8,6 @@ _fundamentals_cache: TTLCache = TTLCache(maxsize=100, ttl=30)
 _history_cache: TTLCache = TTLCache(maxsize=100, ttl=30)
 # Earnings dates rarely change day to day; dedupe longer than the others.
 _earnings_cache: TTLCache = TTLCache(maxsize=100, ttl=300)
+# Symbol resolution cache: bare ticker -> Yahoo-canonical symbol (e.g. VWRA -> VWRA.L).
+# Long TTL since exchange listings rarely change.
+_symbol_cache: TTLCache = TTLCache(maxsize=200, ttl=86400)
