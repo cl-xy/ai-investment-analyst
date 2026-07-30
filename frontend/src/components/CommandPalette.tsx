@@ -13,6 +13,7 @@ import {
   Activity,
   PlayCircle,
   Search,
+  Map,
 } from 'lucide-react'
 import { useCommandPalette, type CommandItem } from '../hooks/useCommandPalette'
 import { useFocusTrap } from '../hooks/useFocusTrap'
@@ -28,6 +29,7 @@ const COMMANDS: CommandItem[] = [
   { id: 'evals', label: 'Quality Metrics', path: '/evals', keywords: ['evaluation', 'quality', 'score'] },
   { id: 'ops', label: 'Ops Dashboard', path: '/ops', keywords: ['operations', 'health', 'monitoring'] },
   { id: 'replay', label: 'Trace Replay', path: '/replay', keywords: ['trace', 'debug', 'playback'] },
+  { id: 'tour', label: 'Start Tour', path: '/__tour__', keywords: ['onboarding', 'guide', 'help', 'walkthrough'] },
 ]
 
 const ICONS: Record<string, typeof TrendingUp> = {
@@ -41,6 +43,7 @@ const ICONS: Record<string, typeof TrendingUp> = {
   evals: Award,
   ops: Activity,
   replay: PlayCircle,
+  tour: Map,
 }
 
 export default function CommandPalette() {
@@ -72,6 +75,10 @@ export default function CommandPalette() {
 
   const handleSelect = useCallback((item: CommandItem) => {
     close()
+    if (item.id === 'tour') {
+      document.dispatchEvent(new CustomEvent('start-spotlight-tour'))
+      return
+    }
     navigate(item.path)
   }, [close, navigate])
 

@@ -9,6 +9,7 @@ import OfflineBanner from './components/OfflineBanner'
 import CommandPalette from './components/CommandPalette'
 import KeyboardShortcutsDialog from './components/KeyboardShortcutsDialog'
 import ContextualHintOverlay from './components/ContextualHintOverlay'
+import { SpotlightTour } from './components/SpotlightTour'
 import { DefaultSkeleton } from './components/ui/PageSkeleton'
 import { useRestorableState } from './hooks/useRestorableState'
 import { useRecentTickers } from './hooks/useRecentTickers'
@@ -187,6 +188,9 @@ export default function App() {
 
       {/* Contextual hints for first-time users */}
       <ContextualHintOverlay />
+
+      {/* Spotlight onboarding tour */}
+      <SpotlightTour />
     </div>
   )
 }

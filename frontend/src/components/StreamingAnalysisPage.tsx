@@ -2,12 +2,17 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import { useAnalysisStore } from '../stores/analysisStore'
 import { useAnalysisStream } from '../hooks/useAnalysisStream'
+import { useDissentDetection } from '../hooks/useDissentDetection'
 import AgentTracePanel from './AgentTracePanel'
 import DataFreshness from './DataFreshness'
 import DebatePanel from './DebatePanel'
 import EvidenceDrawer from './EvidenceDrawer'
 import InvestmentDisclaimer from './InvestmentDisclaimer'
-import { ArrowLeft, AlertCircle, Play, Clock, Layers, ChevronDown } from 'lucide-react'
+import WhatIfSimulator from './WhatIfSimulator'
+import { ReportExportButton } from './ReportExport'
+import { DissentPrompt } from './DissentPrompt'
+import { ConfidenceBadge, DataQualityIndicator, SignalStrengthMeter } from './ConfidenceBadge'
+import { ArrowLeft, AlertCircle, Play, Clock, Layers, ChevronDown, Beaker } from 'lucide-react'
 import type { AnalysisOutput, Citation, PeerComparisonPayload, StreamEvent } from '../types/stream'
 
 /**
@@ -21,7 +26,9 @@ export default function StreamingAnalysisPage() {
   const { analyses, isStreaming, error, events, debates, peerComparison } = useAnalysisStore()
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null)
   const [confirmed, setConfirmed] = useState(false)
+  const [whatIfTicker, setWhatIfTicker] = useState<string | null>(null)
   const hasConnectedRef = useRef(false)
+  const dissent = useDissentDetection()
 
   const toolResults = useMemo(() => events.filter((e) => e.type === 'tool_result'), [events])
 
@@ -230,8 +237,37 @@ export default function StreamingAnalysisPage() {
                 <Link to="/chat" className="text-xs px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors focus-ring">
                   Ask about this analysis
                 </Link>
+                {/* What-if stress test trigger */}
+                {tickers.length === 1 && analyses[tickers[0]] && (
+                  <button
+                    type="button"
+                    onClick={() => setWhatIfTicker(tickers[0])}
+                    className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors focus-ring"
+                  >
+                    <Beaker className="w-3 h-3" />
+                    Stress Test
+                  </button>
+                )}
+                {/* Report export */}
+                <ReportExportButton
+                  analyses={analyses}
+                  runMeta={useAnalysisStore.getState().runMeta}
+                  debates={debates}
+                />
               </div>
             </div>
+          )}
+
+          {/* Dissent detection prompt */}
+          {dissent.shouldPrompt && (
+            <DissentPrompt
+              onDismiss={dissent.dismiss}
+              onReviewCritically={() => {
+                dissent.dismiss()
+                const bearSection = document.getElementById('bear-case')
+                if (bearSection) bearSection.scrollIntoView({ behavior: 'smooth' })
+              }}
+            />
           )}
         </div>
       </div>
@@ -242,6 +278,15 @@ export default function StreamingAnalysisPage() {
         toolResults={toolResults}
         onClose={() => setActiveCitation(null)}
       />
+
+      {/* What-if stress test simulator */}
+      {whatIfTicker && analyses[whatIfTicker] && (
+        <WhatIfSimulator
+          analysis={analyses[whatIfTicker]}
+          open={!!whatIfTicker}
+          onClose={() => setWhatIfTicker(null)}
+        />
+      )}
     </div>
   )
 }
@@ -318,6 +363,10 @@ function StreamAnalysisCard({ analysis, onCitationClick }: { analysis: AnalysisO
 
   const signal = signalColors[analysis.signal] || signalColors.insufficient_data
 
+  // Calculate data quality from citations and data gaps
+  const totalSources = (analysis.citations?.length ?? 0) + (analysis.data_gaps?.length ?? 0)
+  const successfulSources = analysis.citations?.length ?? 0
+
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-6 animate-fade-in">
       {/* Header */}
@@ -343,12 +392,25 @@ function StreamAnalysisCard({ analysis, onCitationClick }: { analysis: AnalysisO
           <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${signal.bg} ${signal.text}`}>
             {signal.label}
           </span>
-          <span className="text-xs font-medium px-2 py-1 rounded-full bg-[var(--surface)] text-[var(--text-muted)]">
-            {analysis.confidence}
-          </span>
+          <ConfidenceBadge
+            level={analysis.confidence === 'high' ? 'high' : analysis.confidence === 'low' ? 'low' : 'medium'}
+            compact
+          />
+          <SignalStrengthMeter score={analysis.sentiment_score ?? 0} size="sm" />
           <DataFreshness retrievedAt={typeof analysis.price_data?.retrieved_at === 'string' ? analysis.price_data.retrieved_at : undefined} />
         </div>
       </div>
+
+      {/* Data quality indicator */}
+      {totalSources > 0 && (
+        <div className="mb-4">
+          <DataQualityIndicator
+            dataGaps={analysis.data_gaps ?? []}
+            totalSources={totalSources}
+            successfulSources={successfulSources}
+          />
+        </div>
+      )}
 
       {/* Sentiment bar */}
       <div className="mb-5">

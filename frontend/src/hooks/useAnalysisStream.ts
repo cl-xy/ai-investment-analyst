@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useAnalysisStore } from '../stores/analysisStore'
+import { useSaveStatusStore } from '../stores/saveStatusStore'
 import { API_BASE, authParam } from '../api/config'
 import type {
   AnalysisCompletePayload,
@@ -34,6 +35,8 @@ export function useAnalysisStream() {
     setPeerComparison,
     reset,
   } = useAnalysisStore()
+
+  const { setSaving, setSaved, setFailed } = useSaveStatusStore()
 
   const disconnect = useCallback(() => {
     // Increment generation to invalidate any queued callbacks from the current connection
@@ -70,6 +73,7 @@ export function useAnalysisStream() {
 
       const es = new EventSource(url)
       eventSourceRef.current = es
+      setSaving()
 
       const handleEvent = (e: MessageEvent) => {
         // Guard: ignore events from stale connections
@@ -111,6 +115,7 @@ export function useAnalysisStream() {
           if (event.type === 'run_completed') {
             const payload = event.payload as unknown as RunCompletedPayload
             setComplete(payload)
+            setSaved()
             disconnect()
           }
 
@@ -120,6 +125,7 @@ export function useAnalysisStream() {
             const recoverable = (event.payload as { recoverable?: boolean }).recoverable
             if (!recoverable) {
               setError(msg)
+              setFailed(msg)
               disconnect()
             }
           }
@@ -185,6 +191,9 @@ export function useAnalysisStream() {
       addDebateTurn,
       setDebateVerdict,
       setPeerComparison,
+      setSaving,
+      setSaved,
+      setFailed,
     ],
   )
 

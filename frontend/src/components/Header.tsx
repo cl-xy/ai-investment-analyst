@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { TrendingUp, Menu, X, ChevronDown } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { ThemeSwitcher } from './ThemeSwitcher'
+import { SaveStatusChip } from './SaveStatusChip'
 
 const PRIMARY_NAV = [
   { to: '/', label: 'Analyze' },
@@ -61,10 +62,13 @@ export default function Header() {
         </Link>
 
         <div className="flex items-center gap-2">
+          {/* Save status indicator */}
+          <SaveStatusChip />
+
           {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-1" aria-label="Main navigation">
             {PRIMARY_NAV.map((item) => (
-              <NavLink key={item.to} to={item.to} label={item.label} />
+              <NavLink key={item.to} to={item.to} label={item.label} tourTarget={item.to === '/explore' ? 'nav-explore' : undefined} />
             ))}
             <NavDropdown
               id="history"
@@ -84,6 +88,17 @@ export default function Header() {
               hintTarget="ops-nav"
             />
           </nav>
+
+          {/* Cmd+K hint (also tour target) */}
+          <button
+            type="button"
+            onClick={() => document.dispatchEvent(new CustomEvent('open-command-palette'))}
+            data-tour-target="cmd-palette-hint"
+            className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:border-[var(--accent)]/50 transition-colors cursor-pointer"
+            aria-label="Open command palette"
+          >
+            <kbd className="font-mono">⌘K</kbd>
+          </button>
 
           <ThemeSwitcher />
 
@@ -220,7 +235,7 @@ function NavDropdown({
   )
 }
 
-function NavLink({ to, label, mobile, onClick }: { to: string; label: string; mobile?: boolean; onClick?: () => void }) {
+function NavLink({ to, label, mobile, onClick, tourTarget }: { to: string; label: string; mobile?: boolean; onClick?: () => void; tourTarget?: string }) {
   const { pathname } = useLocation()
   const isActive = pathname === to
 
@@ -229,6 +244,7 @@ function NavLink({ to, label, mobile, onClick }: { to: string; label: string; mo
       to={to}
       onClick={onClick}
       aria-current={isActive ? 'page' : undefined}
+      {...(tourTarget ? { 'data-tour-target': tourTarget } : {})}
       className={[
         'text-sm font-medium rounded-md transition-colors focus-ring min-h-[44px]',
         mobile

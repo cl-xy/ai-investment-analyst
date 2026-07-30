@@ -129,6 +129,7 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
       <button
         type="button"
         onClick={handleDemoAnalyze}
+        data-tour-target="demo-cta"
         className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[var(--accent-bg)] text-[var(--accent)] text-sm font-medium hover:bg-[var(--accent)]/20 hover:shadow-[0_0_12px_var(--accent-bg)] active:shadow-none active:scale-[0.97] transition-[color,background-color,transform,box-shadow] duration-150 focus-ring"
       >
         <Sparkles className="w-4 h-4" />
@@ -149,6 +150,7 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
               placeholder="Enter ticker symbol, e.g. NVDA"
               aria-label="Ticker symbol input"
               data-hint-target="watchlist-input"
+              data-tour-target="ticker-input"
               aria-describedby={inputError ? 'ticker-error' : undefined}
               aria-invalid={!!inputError}
               className={`w-full border bg-[var(--surface)] rounded-lg pl-10 pr-4 py-3 text-sm font-mono uppercase text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] focus:border-transparent transition-shadow ${

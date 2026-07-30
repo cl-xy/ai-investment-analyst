@@ -112,7 +112,7 @@ export function ThemeSwitcher() {
   }, [activeIndex, setTheme, closeDropdown])
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative" data-tour-target="theme-switcher">
       <button
         ref={triggerRef}
         type="button"
