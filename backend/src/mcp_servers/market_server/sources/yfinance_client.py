@@ -23,6 +23,24 @@ def get_quote(ticker: str) -> dict:
     full = t.info
     price = getattr(info, "last_price", None)
     prev_close = getattr(info, "previous_close", None)
+
+    # Fallback: if fast_info has no price, try .info fields or recent history
+    if price is None:
+        price = full.get("currentPrice") or full.get("regularMarketPrice")
+    if price is None:
+        try:
+            hist = t.history(period="5d")
+            if not hist.empty:
+                price = round(float(hist["Close"].iloc[-1]), 4)
+                if prev_close is None and len(hist) >= 2:
+                    prev_close = float(hist["Close"].iloc[-2])
+        except Exception:
+            pass
+
+    # If we still have no price, raise so the caller can try Alpha Vantage
+    if price is None:
+        raise ValueError(f"yfinance returned no price data for {ticker}")
+
     change_pct = None
     if price is not None and prev_close:
         change_pct = round((price - prev_close) / prev_close * 100, 2)
@@ -31,7 +49,7 @@ def get_quote(ticker: str) -> dict:
         "current_price": price,
         "change_pct": change_pct,
         "volume": getattr(info, "three_month_average_volume", None),
-        "market_cap": getattr(info, "market_cap", None),
+        "market_cap": getattr(info, "market_cap", None) or full.get("marketCap"),
         "pe_ratio": full.get("trailingPE"),
         "fifty_two_week_high": getattr(info, "year_high", None) or full.get("fiftyTwoWeekHigh"),
         "fifty_two_week_low": getattr(info, "year_low", None) or full.get("fiftyTwoWeekLow"),
@@ -42,7 +60,8 @@ def get_quote(ticker: str) -> dict:
 def get_fundamentals(ticker: str) -> dict:
     t = _ticker(ticker)
     info = t.info
-    return {
+
+    result = {
         "ticker": ticker.upper(),
         "revenue": info.get("totalRevenue"),
         "eps": info.get("trailingEps"),
@@ -56,6 +75,14 @@ def get_fundamentals(ticker: str) -> dict:
         "industry": info.get("industry"),
         "description": info.get("longBusinessSummary", "")[:500],
     }
+
+    # If all meaningful fields are None, Yahoo likely returned an empty/blocked
+    # response. Raise so the caller can try Alpha Vantage fallback.
+    meaningful_keys = ("revenue", "eps", "sector", "beta", "profit_margin")
+    if not any(result.get(k) for k in meaningful_keys):
+        raise ValueError(f"yfinance returned no fundamental data for {ticker}")
+
+    return result
 
 
 def get_earnings_calendar(ticker: str) -> dict:
