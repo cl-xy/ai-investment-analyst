@@ -103,7 +103,7 @@ class StockDetail(BaseModel):
 
 
 class ScheduledRefreshResponse(BaseModel):
-    status: Literal["success", "skipped"]
+    status: Literal["success", "skipped", "failed"]
     message: str
     tickers: list[str]
     analysis_id: str | None = None

@@ -1,9 +1,23 @@
-import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 'react'
+import { useState, useRef, useEffect, useCallback, type KeyboardEvent, type ReactNode } from 'react'
 import { Send, Bot, User, Wrench, Square, Trash2 } from 'lucide-react'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import { useRestorableState } from '../hooks/useRestorableState'
 import InvestmentDisclaimer from './InvestmentDisclaimer'
 import { API_BASE, authParam } from '../api/config'
+
+/** Strip LLM citation markers (【...】) and render basic inline markdown. */
+function renderChatContent(text: string): ReactNode {
+  // Strip citation markers like 【{"id":"0","cursor":0,"loc":0}】
+  const stripped = text.replace(/【[^】]*】/g, '')
+  // Split on **bold** and render inline
+  const parts = stripped.split(/(\*\*[^*]+\*\*)/g)
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={i} className="font-semibold">{part.slice(2, -2)}</strong>
+    }
+    return <span key={i}>{part}</span>
+  })
+}
 
 interface ChatMessage {
   id: string
@@ -253,7 +267,9 @@ export default function ChatPage() {
                     ))}
                   </div>
                 )}
-                <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                <p className="text-sm whitespace-pre-wrap">
+                  {msg.role === 'assistant' ? renderChatContent(msg.content) : msg.content}
+                </p>
                 {msg.isStreaming && !msg.content && (
                   <span className="inline-flex items-center gap-1">
                     <span className="typing-dot" style={{ animationDelay: '0ms' }} />

@@ -23,6 +23,9 @@ export function useAnalysisStream() {
   const retryCountRef = useRef(0)
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const generationRef = useRef(0)
+  // Track run_id and last event sequence for reconnect resume
+  const runIdRef = useRef<string | null>(null)
+  const lastEventIdRef = useRef<number>(0)
 
   const {
     startStream,
@@ -54,9 +57,13 @@ export function useAnalysisStream() {
   const connect = useCallback(
     (tickers: string[], isRetry = false) => {
       disconnect()
-      // Always reset state: the backend starts a NEW analysis per connection,
-      // so partial events from a failed run must not mix with the retry's events.
-      reset()
+      // On retry with a known run_id, don't reset state (we're resuming).
+      // On fresh connections, always reset.
+      if (!isRetry || !runIdRef.current) {
+        reset()
+        runIdRef.current = null
+        lastEventIdRef.current = 0
+      }
       if (!isRetry) {
         retryCountRef.current = 0
       }
@@ -69,7 +76,12 @@ export function useAnalysisStream() {
       const tickerParam = normalizedTickers.join(',')
       const auth = authParam()
       const separator = auth ? '&' : ''
-      const url = `${API_BASE}/api/analyze/stream?tickers=${encodeURIComponent(tickerParam)}${separator}${auth}`
+      // On retry, pass run_id and last_event_id for server-side resume/replay
+      let resumeParams = ''
+      if (isRetry && runIdRef.current) {
+        resumeParams = `&run_id=${encodeURIComponent(runIdRef.current)}&last_event_id=${lastEventIdRef.current}`
+      }
+      const url = `${API_BASE}/api/analyze/stream?tickers=${encodeURIComponent(tickerParam)}${separator}${auth}${resumeParams}`
 
       const es = new EventSource(url)
       eventSourceRef.current = es
@@ -79,11 +91,18 @@ export function useAnalysisStream() {
         // Guard: ignore events from stale connections
         if (generationRef.current !== currentGeneration) return
 
+        // Track last event ID for reconnect resume
+        if (e.lastEventId) {
+          const seq = parseInt(e.lastEventId, 10)
+          if (!isNaN(seq)) lastEventIdRef.current = seq
+        }
+
         try {
           const event: StreamEvent = JSON.parse(e.data)
 
           // First event initializes the stream
           if (event.type === 'run_started') {
+            runIdRef.current = event.run_id
             startStream(event.run_id, event.correlation_id)
           }
 
@@ -169,8 +188,9 @@ export function useAnalysisStream() {
 
         // Each reconnect starts a NEW analysis run on the backend, which wastes
         // OpenRouter rate-limit budget and causes CORS failures when Fly's proxy
-        // returns errors without CORS headers. Only retry once for transient
-        // network blips; after that, surface the error to the user.
+        // returns errors without CORS headers. With run_id resume support, the
+        // retry will replay from the last seen event instead of starting fresh.
+        // Only retry once for transient network blips; after that, surface the error.
         if (retryCountRef.current < 1) {
           const delay = INITIAL_RETRY_DELAY
           retryCountRef.current += 1

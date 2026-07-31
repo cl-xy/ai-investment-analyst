@@ -26,7 +26,7 @@ export interface SLOData {
 
 export interface CircuitBreaker {
   name: string
-  state: 'closed' | 'open' | 'half-open'
+  state: 'closed' | 'open' | 'half-open' | 'half_open'
   failure_count: number
   last_state_change: string
   next_retry_at?: string
@@ -256,8 +256,9 @@ export async function getSLO(): Promise<SLOData> {
 }
 
 export async function getTraces(): Promise<LatencyEntry[]> {
-  const response = await axios.get<LatencyEntry[]>(`${API_BASE}/api/ops/traces`, { headers: authHeaders() })
-  return response.data
+  const response = await axios.get<{ traces: LatencyEntry[]; total: number } | LatencyEntry[]>(`${API_BASE}/api/ops/traces`, { headers: authHeaders() })
+  const data = response.data
+  return Array.isArray(data) ? data : data.traces
 }
 
 export async function getChaosState(): Promise<ChaosState> {

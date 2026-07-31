@@ -293,11 +293,14 @@ export default function StreamingAnalysisPage() {
 
 // Phase definitions for the progress bar, ordered by pipeline sequence.
 // Progress caps at 95% until run_completed arrives.
+// Includes aliases for legacy node names (stored replay traces may emit 'analyze'/'report').
 const PHASES = [
   { node: 'router', label: 'Routing analysis...', progress: 5 },
   { node: 'fetch_data', label: 'Gathering market data...', progress: 20 },
   { node: 'analyze', label: 'Analyzing fundamentals...', progress: 45 },
   { node: 'debate', label: 'Running investment debate...', progress: 70 },
+  { node: 'peer_compare', label: 'Comparing sector peers...', progress: 80 },
+  { node: 'generate_report', label: 'Synthesizing report...', progress: 90 },
   { node: 'report', label: 'Synthesizing report...', progress: 90 },
 ] as const
 
@@ -510,14 +513,16 @@ function StreamAnalysisCard({ analysis, onCitationClick }: { analysis: AnalysisO
             Sources
           </h3>
           <div className="flex flex-wrap gap-1.5">
-            {analysis.citations.map((cite, i) => (
+            {analysis.citations
+              .filter((cite) => cite.provider && cite.provider.length < 30)
+              .map((cite, i) => (
               <button
                 key={i}
                 onClick={() => onCitationClick?.(cite)}
                 className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--surface)] text-[var(--text-muted)] border border-[var(--border)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors cursor-pointer focus-ring"
                 title={cite.claim}
               >
-                {cite.provider}
+                {cite.provider || cite.source_id || `[${i + 1}]`}
               </button>
             ))}
           </div>

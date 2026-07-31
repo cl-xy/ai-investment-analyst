@@ -356,6 +356,7 @@ function CircuitBreakerPanel({ breakers }: { breakers: CircuitBreaker[] }) {
     closed: { icon: ShieldCheck, color: 'text-emerald-500', bg: 'bg-emerald-500/10', label: 'Closed' },
     open: { icon: ShieldAlert, color: 'text-red-500', bg: 'bg-red-500/10', label: 'Open' },
     'half-open': { icon: Shield, color: 'text-amber-500', bg: 'bg-amber-500/10', label: 'Half-Open' },
+    'half_open': { icon: Shield, color: 'text-amber-500', bg: 'bg-amber-500/10', label: 'Half-Open' },
   }
 
   return (

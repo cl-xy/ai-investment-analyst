@@ -305,7 +305,7 @@ async def _run_agent(
                                 llm_run_id = event_data.get("run_id", "_pending")
                                 debate_llm_start.pop(llm_run_id, None)
                                 continue
-                            debate_llm_count[_current_ticker] = count + 1
+
                             llm_run_id = event_data.get("run_id", "_pending")
                             duration_ms = int(
                                 (
@@ -321,6 +321,16 @@ async def _run_agent(
                                 turn_data = {}
                             if not isinstance(turn_data, dict):
                                 turn_data = {}
+
+                            # Skip events from failed LLM attempts (retries).
+                            # A valid debate turn must have a thesis; if missing,
+                            # this is likely a malformed first attempt that will
+                            # be retried by the debate node. Don't consume the
+                            # role slot with invalid data.
+                            if not turn_data.get("thesis"):
+                                continue
+
+                            debate_llm_count[_current_ticker] = count + 1
 
                             role = DEBATE_ROLES[min(count, _num_debate_turns - 1)]
 
@@ -649,7 +659,8 @@ async def analyze_stream(
         )
 
     # Check for reconnection (parse safely to avoid slot leak on bad header)
-    last_event_id_header = request.headers.get("Last-Event-ID")
+    # Support both headers (standard SSE) and query params (EventSource can't set headers)
+    last_event_id_header = request.headers.get("Last-Event-ID") or request.query_params.get("last_event_id")
     last_event_id: int | None = None
     if last_event_id_header:
         try:
@@ -660,7 +671,7 @@ async def analyze_stream(
                 status_code=400,
                 content={"error": "Invalid Last-Event-ID header"},
             )
-    resume_run_id = request.headers.get("X-Run-ID")  # Client sends this on reconnect
+    resume_run_id = request.headers.get("X-Run-ID") or request.query_params.get("run_id")  # Client sends this on reconnect
 
     return StreamingResponse(
         _stream_generator(

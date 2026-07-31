@@ -25,12 +25,32 @@ NormalizedConfidence = Annotated[
 ]
 
 
+VALID_PROVIDERS: Final[tuple[str, ...]] = (
+    "yfinance", "newsapi", "sec_edgar", "alpha_vantage", "rss", "stocktwits",
+)
+
+
 class DebateEvidence(BaseModel):
     """A single piece of cited evidence in a debate turn."""
 
     claim: str
     source_id: str
     provider: str = ""
+
+    @field_validator("provider", mode="before")
+    @classmethod
+    def _sanitize_provider(cls, v: object) -> str:
+        """Normalize provider to a known value or fall back to source_id prefix."""
+        if not isinstance(v, str):
+            return ""
+        normalized = v.strip().lower().replace(" ", "_")
+        if normalized in VALID_PROVIDERS:
+            return normalized
+        # LLM sometimes puts reasoning text here; extract known provider if embedded
+        for p in VALID_PROVIDERS:
+            if p in normalized:
+                return p
+        return ""
 
 
 class BullCaseOutput(BaseModel):

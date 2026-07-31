@@ -15,7 +15,7 @@ You MUST return valid JSON matching this schema:
   "thesis": "<2-3 sentence bullish thesis>",
   "key_arguments": ["<argument 1>", "<argument 2>", "<argument 3>"],
   "catalysts": ["<near-term catalyst 1>", "<catalyst 2>"],
-  "evidence": [{"claim": "<factual claim>", "source_id": "<from data>", "provider": "<provider>"}],
+  "evidence": [{"claim": "<factual claim>", "source_id": "<from data>", "provider": "<yfinance|newsapi|sec_edgar|alpha_vantage|rss>"}],
   "confidence": "<high|medium|low>",
   "acknowledged_risks": ["<risk you concede but believe is manageable>"]
 }
@@ -63,7 +63,7 @@ You MUST return valid JSON matching this schema:
   "key_arguments": ["<argument 1>", "<argument 2>", "<argument 3>"],
   "rebuttals": [{"bull_claim": "<what the bull argued>", "counter": "<why it's wrong or overblown>"}],
   "risk_flags": ["<critical risk 1>", "<critical risk 2>"],
-  "evidence": [{"claim": "<factual claim>", "source_id": "<from data>", "provider": "<provider>"}],
+  "evidence": [{"claim": "<factual claim>", "source_id": "<from data>", "provider": "<yfinance|newsapi|sec_edgar|alpha_vantage|rss>"}],
   "confidence": "<high|medium|low>",
   "conceded_strengths": ["<bull point you cannot rebut>"]
 }
@@ -127,7 +127,7 @@ You MUST return valid JSON matching this schema:
   "key_disagreements": ["<where bull and bear fundamentally disagree>"],
   "verdict_rationale": "<2-3 sentences explaining why you sided with one view>",
   "risk_flags": ["<risks that survived the debate>"],
-  "citations": [{"source_id": "<from data>", "claim": "<cited claim>", "provider": "<provider>"}],
+  "citations": [{"source_id": "<from data>", "claim": "<cited claim>", "provider": "<yfinance|newsapi|sec_edgar|alpha_vantage|rss>"}],
   "data_gaps": ["<what data was unavailable>"],
   "news_summary": "<2-3 sentence news synthesis>",
   "sec_notes": "<key SEC points or empty string>"
