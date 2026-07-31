@@ -27,7 +27,8 @@ _CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; investment-analyst/1.0)"}
 _CACHE: TTLCache = TTLCache(maxsize=1, ttl=300)  # 5-minute TTL for trending list
 _DETAIL_CACHE: TTLCache = TTLCache(maxsize=50, ttl=900)  # 15-minute TTL per ticker
-_DETAIL_LOCKS: TTLCache = TTLCache(maxsize=50, ttl=900)  # Bounded lock pool (evicts stale locks)
+_DETAIL_LOCKS: dict[str, asyncio.Lock] = {}  # Plain dict; manual pruning prevents eviction of held locks
+_DETAIL_LOCK_MAX = 100
 _CACHE_KEY = "explore"
 _YF_EXECUTOR = ThreadPoolExecutor(max_workers=4)
 _YF_TIMEOUT = 15  # seconds, max wait for a yfinance executor call
@@ -222,6 +223,11 @@ async def get_stock_detail(request: Request, ticker: str) -> StockDetail:
 
     # Per-ticker lock to prevent stampede on same ticker (bounded pool)
     if ticker not in _DETAIL_LOCKS:
+        # Prune unlocked entries if pool is full (safe: never evicts held locks)
+        if len(_DETAIL_LOCKS) >= _DETAIL_LOCK_MAX:
+            idle = [k for k, lk in _DETAIL_LOCKS.items() if not lk.locked()]
+            for k in idle[:len(idle) // 2]:
+                del _DETAIL_LOCKS[k]
         _DETAIL_LOCKS[ticker] = asyncio.Lock()
     lock = _DETAIL_LOCKS[ticker]
 

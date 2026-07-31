@@ -24,6 +24,7 @@ export default function StreamingAnalysisPage() {
   const navigate = useNavigate()
   const { connect, disconnect } = useAnalysisStream()
   const { analyses, isStreaming, error, events, debates, peerComparison } = useAnalysisStore()
+  const runMeta = useAnalysisStore((s) => s.runMeta)
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null)
   const [confirmed, setConfirmed] = useState(false)
   const [whatIfTicker, setWhatIfTicker] = useState<string | null>(null)
@@ -251,7 +252,7 @@ export default function StreamingAnalysisPage() {
                 {/* Report export */}
                 <ReportExportButton
                   analyses={analyses}
-                  runMeta={useAnalysisStore.getState().runMeta}
+                  runMeta={runMeta}
                   debates={debates}
                 />
               </div>

@@ -41,8 +41,9 @@ export function useAnalysisStream() {
 
   const { setSaving, setSaved, setFailed } = useSaveStatusStore()
 
-  const disconnect = useCallback(() => {
-    // Increment generation to invalidate any queued callbacks from the current connection
+  const closeTransport = useCallback(() => {
+    // Close the EventSource and cancel pending retries without touching store state.
+    // Used internally by connect/retry to replace the transport.
     generationRef.current += 1
     if (retryTimeoutRef.current) {
       clearTimeout(retryTimeoutRef.current)
@@ -54,9 +55,19 @@ export function useAnalysisStream() {
     }
   }, [])
 
+  const disconnect = useCallback(() => {
+    // Terminal disconnect: close transport AND mark the stream as stopped in the store.
+    // Called on unmount or explicit user cancel (not during connect/retry).
+    closeTransport()
+    const { isStreaming } = useAnalysisStore.getState()
+    if (isStreaming) {
+      useAnalysisStore.setState({ isStreaming: false, currentNode: null })
+    }
+  }, [closeTransport])
+
   const connect = useCallback(
     (tickers: string[], isRetry = false) => {
-      disconnect()
+      closeTransport()
       // On retry with a known run_id, don't reset state (we're resuming).
       // On fresh connections, always reset.
       if (!isRetry || !runIdRef.current) {
@@ -201,7 +212,7 @@ export function useAnalysisStream() {
       }
     },
     [
-      disconnect,
+      closeTransport,
       reset,
       startStream,
       addEvent,

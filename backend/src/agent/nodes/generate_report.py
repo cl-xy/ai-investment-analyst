@@ -57,4 +57,10 @@ async def generate_report_node(state: InvestmentAnalystState) -> dict:
             "report_markdown": "Analysis complete but report generation failed. Please review individual ticker analyses above."
         }
 
-    return {"report_markdown": response.content}
+    # Normalize content: some providers return list of content blocks instead of str
+    content = response.content
+    if isinstance(content, list):
+        content = "".join(
+            block.get("text", "") for block in content if isinstance(block, dict)
+        )
+    return {"report_markdown": content}

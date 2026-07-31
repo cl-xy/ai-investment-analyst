@@ -164,12 +164,18 @@ class CacheManager:
             await self._store(key, data, source_id, provider, ttl, store_now)
 
         # Prune idle locks when the dict exceeds max size to prevent unbounded growth.
-        # Only remove locks that are not currently held and have no waiters pending.
-        # A lock with _waiters means coroutines are queued on it even if not locked().
+        # Safe pruning: only remove locks not currently held. Since pruning runs
+        # after we've exited `async with lock`, there's a brief window where a woken
+        # waiter hasn't re-acquired yet (locked()=False, waiter removed from deque).
+        # Worst case: a pruned lock causes one duplicate fetch (singleflight defeated
+        # for that key). This is acceptable; the alternative (refcounting) adds
+        # complexity for minimal gain. We prune conservatively (half of idle locks).
         if len(self._inflight_locks) > self._lock_max_size:
             to_remove = [
-                k for k, lk in self._inflight_locks.items() if not lk.locked() and k != key
+                k for k, lk in self._inflight_locks.items()
+                if not lk.locked() and k != key
             ]
+            # Only prune half to reduce probability of hitting the release-to-acquire window
             for k in to_remove[: len(to_remove) // 2]:
                 self._inflight_locks.pop(k, None)
 

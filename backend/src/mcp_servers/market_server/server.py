@@ -87,7 +87,10 @@ def _get_quote_cached(ticker: str) -> dict:
 
     # If bare symbol failed, try resolving to canonical Yahoo symbol (e.g. VWRA -> VWRA.L)
     if not data and "." not in key:
-        resolved = _call_with_timeout(resolve_symbol, key)
+        try:
+            resolved = _call_with_timeout(resolve_symbol, key)
+        except Exception:
+            resolved = None
         if resolved:
             log.info("market-server: retrying quote with resolved symbol %s -> %s", key, resolved)
             try:
@@ -121,7 +124,10 @@ def _get_fundamentals_cached(ticker: str) -> dict:
 
     # If bare symbol failed, try resolving to canonical Yahoo symbol
     if not data and "." not in key:
-        resolved = _call_with_timeout(resolve_symbol, key)
+        try:
+            resolved = _call_with_timeout(resolve_symbol, key)
+        except Exception:
+            resolved = None
         if resolved:
             log.info("market-server: retrying fundamentals with resolved symbol %s -> %s", key, resolved)
             try:
@@ -150,7 +156,10 @@ def _get_earnings_calendar_cached(ticker: str) -> dict:
 
     # Resolve non-US symbols for earnings too
     if not data and "." not in key:
-        resolved = _call_with_timeout(resolve_symbol, key)
+        try:
+            resolved = _call_with_timeout(resolve_symbol, key)
+        except Exception:
+            resolved = None
         if resolved:
             try:
                 data = _call_with_timeout(yf_client.get_earnings_calendar, resolved)
@@ -178,7 +187,10 @@ def _get_history_cached(ticker: str, period: str) -> list[dict]:
 
     # Resolve non-US symbols for price history
     if not data and "." not in key:
-        resolved = _call_with_timeout(resolve_symbol, key)
+        try:
+            resolved = _call_with_timeout(resolve_symbol, key)
+        except Exception:
+            resolved = None
         if resolved:
             try:
                 data = _call_with_timeout(yf_client.get_price_history, resolved, period)

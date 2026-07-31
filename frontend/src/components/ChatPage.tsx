@@ -113,6 +113,18 @@ export default function ChatPage() {
     // #6: Synchronous ref guard prevents double-send race
     if (!text || sendingRef.current) return
 
+    // EventSource puts the message in the URL; guard against exceeding browser/server limits
+    if (text.length > 4000) {
+      setMessages((prev) => [...prev, {
+        id: `err-${Date.now()}`,
+        role: 'assistant',
+        content: 'Message too long. Please keep it under 4,000 characters.',
+        isStreaming: false,
+        toolCalls: [],
+      }])
+      return
+    }
+
     sendingRef.current = true
     const assistantId = `asst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     activeAssistantIdRef.current = assistantId

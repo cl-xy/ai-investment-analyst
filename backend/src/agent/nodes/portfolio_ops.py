@@ -44,6 +44,11 @@ async def portfolio_ops_node(state: InvestmentAnalystState, *, mcp_tools: dict) 
         return {"messages": [AIMessage(content="No message context available.")]}
     last_message = messages[-1]
     raw_content = last_message.content if hasattr(last_message, "content") else str(last_message)
+    # Normalize list content blocks (multimodal format) to plain text
+    if isinstance(raw_content, list):
+        raw_content = " ".join(
+            block.get("text", "") for block in raw_content if isinstance(block, dict)
+        )
     user_text = raw_content if isinstance(raw_content, str) else str(raw_content)
 
     get_portfolio = mcp_tools.get("get_portfolio")
