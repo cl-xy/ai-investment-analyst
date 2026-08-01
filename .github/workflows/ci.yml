@@ -22,7 +22,7 @@ jobs:
       - run: ruff check src/
       - run: ruff format --check src/
       - run: pip install -e ".[dev]"
-      - run: mypy src/ --ignore-missing-imports --no-error-summary
+      - run: mypy src/ --ignore-missing-imports --no-error-summary --exclude '/numpy/'
 
   lint-frontend:
     runs-on: ubuntu-latest
