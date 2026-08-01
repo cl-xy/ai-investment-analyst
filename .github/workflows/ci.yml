@@ -22,7 +22,8 @@ jobs:
       - run: ruff check src/
       - run: ruff format --check src/
       - run: pip install -e ".[dev]"
-      - run: pip install "numpy<2.1"
+      - name: Remove numpy stubs (py3.12 type syntax breaks mypy on 3.11)
+        run: find $(pip show numpy | grep Location | cut -d' ' -f2)/numpy -name '*.pyi' -delete 2>/dev/null || true
       - run: mypy src/ --ignore-missing-imports --no-error-summary
 
   lint-frontend:
