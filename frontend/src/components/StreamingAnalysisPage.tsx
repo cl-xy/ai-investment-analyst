@@ -77,6 +77,18 @@ export default function StreamingAnalysisPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTickerKey, confirmed])
 
+  // Update title when analysis completes (or errors)
+  useEffect(() => {
+    if (!hasConnectedRef.current) return
+    if (!isStreaming && tickers.length > 0) {
+      if (error) {
+        document.title = `Error | AI Investment Analyst`
+      } else if (Object.keys(analyses).length > 0) {
+        document.title = `Analysis: ${tickers.join(', ')} | AI Investment Analyst`
+      }
+    }
+  }, [isStreaming, error, tickers, analyses])
+
   if (tickers.length === 0) {
     return (
       <div className="max-w-4xl mx-auto px-6 py-12 text-center">

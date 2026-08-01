@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 
 export interface CommandItem {
   id: string
@@ -105,6 +105,24 @@ export function useCommandPalette(items: CommandItem[]) {
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [isOpen, open, close])
+
+  // Listen for programmatic open requests (e.g. Header button click).
+  // Use a ref for isOpen to avoid re-registering the listener on state change,
+  // which could cause a brief gap where clicks are missed.
+  const isOpenRef = useRef(isOpen)
+  useEffect(() => { isOpenRef.current = isOpen }, [isOpen])
+
+  useEffect(() => {
+    function handleOpenRequest() {
+      if (!isOpenRef.current) open()
+    }
+    document.addEventListener('open-command-palette', handleOpenRequest)
+    window.addEventListener('open-command-palette', handleOpenRequest)
+    return () => {
+      document.removeEventListener('open-command-palette', handleOpenRequest)
+      window.removeEventListener('open-command-palette', handleOpenRequest)
+    }
+  }, [open])
 
   return {
     isOpen,

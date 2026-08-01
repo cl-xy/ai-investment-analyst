@@ -22,6 +22,13 @@ export default function ContextualHint({ message, targetSelector, onDismiss }: C
     if (!target || !tooltip) return
 
     const rect = target.getBoundingClientRect()
+
+    // If the target is hidden (e.g. inside a md:hidden container), hide the tooltip
+    if (rect.width === 0 && rect.height === 0) {
+      setVisible(false)
+      return
+    }
+
     const tooltipRect = tooltip.getBoundingClientRect()
     const gap = 10
 
