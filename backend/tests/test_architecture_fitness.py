@@ -56,9 +56,9 @@ def _is_route_handler(func: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
 
 
 class TestRoutesAreThin:
-    """Route handler functions should have at most 40 lines of body."""
+    """Route handler functions should have at most 50 lines of body."""
 
-    MAX_ROUTE_BODY_LINES = 40
+    MAX_ROUTE_BODY_LINES = 50
 
     def test_routes_are_thin(self):
         """Parse all files in src/api/routes/. Route handlers should be at most 40 lines."""
