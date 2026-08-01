@@ -57,6 +57,34 @@ def _coerce_str_list(items: list) -> list[str]:
     return result
 
 
+def _dedup_text(text: str) -> str:
+    """Remove repeated sentences/phrases from LLM output.
+
+    Free-tier models (nemotron-120b) occasionally enter generation loops,
+    producing the same sentence 5-20 times. This strips consecutive and
+    non-consecutive duplicates while preserving order of first occurrence.
+    """
+    if not text or len(text) < 100:
+        return text
+    # Split on sentence boundaries (period, newline)
+    import re as _re
+    sentences = _re.split(r'(?<=[.!?\n])\s+', text)
+    if len(sentences) < 4:
+        return text
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for s in sentences:
+        normalized = s.strip().lower()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            deduped.append(s)
+    result = " ".join(deduped)
+    # If we removed more than 30% of sentences, the model was looping
+    if len(deduped) < len(sentences) * 0.7:
+        log.warning("dedup_stripped_repetition", original_sentences=len(sentences), kept=len(deduped))
+    return result
+
+
 def _normalize_content(content) -> str:
     """Normalize LangChain message content to a plain string.
 
@@ -99,7 +127,7 @@ async def _invoke_with_retry(messages: list) -> object:
     Uses higher temperature for diverse debate perspectives.
     """
     return await invoke_with_fallback(
-        messages, temperature=0.3, max_tokens=8192, request_timeout=120
+        messages, temperature=0.5, max_tokens=8192, request_timeout=120
     )
 
 
@@ -482,15 +510,16 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
         )
 
         # Convert moderator output to the standard TickerAnalysis format
+        # Apply dedup to free-form text fields to strip generation loops
         analysis_result: dict[str, Any] = {
             "ticker": ticker,
             "signal": moderator.signal,
             "confidence": moderator.confidence,
             "sentiment_score": moderator.sentiment_score,
-            "thesis": moderator.thesis,
+            "thesis": _dedup_text(moderator.thesis),
             "bull_case": moderator.bull_case,
             "bear_case": moderator.bear_case,
-            "news_summary": moderator.news_summary or moderator.thesis,
+            "news_summary": _dedup_text(moderator.news_summary or moderator.thesis),
             "risk_flags": moderator.risk_flags,
             "citations": [c.model_dump() for c in moderator.citations],
             "data_gaps": moderator.data_gaps,
@@ -500,7 +529,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
             "sec_notes": moderator.sec_notes,
             # Debate-specific fields for persistence
             "_debate": debate_record.model_dump(),
-            "_verdict_rationale": moderator.verdict_rationale,
+            "_verdict_rationale": _dedup_text(moderator.verdict_rationale),
             "_key_disagreements": moderator.key_disagreements,
         }
     except Exception as e:

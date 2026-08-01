@@ -14,7 +14,8 @@ from datetime import datetime, timezone
 import asyncpg
 
 from src.db import get_pool
-from src.numeric import safe_float as _safe_float, safe_json_dumps as _safe_json_dumps
+from src.numeric import safe_float as _safe_float
+from src.numeric import safe_json_dumps as _safe_json_dumps
 
 log = logging.getLogger(__name__)
 

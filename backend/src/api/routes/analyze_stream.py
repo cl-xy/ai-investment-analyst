@@ -25,7 +25,7 @@ from src.agent.debate_schemas import DEBATE_ROLES
 from src.agent.events import EventEmitter, EventType, StreamEvent
 from src.agent.graph import build_graph
 from src.agent.json_utils import extract_json
-from src.agent.singleflight import analysis_singleflight
+from src.agent.nodes.debate import _dedup_text
 from src.api.schemas import VALID_TICKER_RE
 from src.api.shutdown import shutdown_coordinator
 from src.logging_config import request_id_ctx
@@ -397,7 +397,7 @@ async def _run_agent(
                             ev = emitter.debate_turn(
                                 ticker=_current_ticker,
                                 role=role,
-                                thesis=turn_data.get("thesis", ""),
+                                thesis=_dedup_text(turn_data.get("thesis", "")),
                                 confidence=turn_data.get("confidence", "medium"),
                                 key_arguments=key_args,
                                 turn_index=count,
@@ -411,7 +411,7 @@ async def _run_agent(
                                     ticker=_current_ticker,
                                     signal=turn_data.get("signal", "hold"),
                                     confidence=turn_data.get("confidence", "medium"),
-                                    verdict_rationale=turn_data.get("verdict_rationale", ""),
+                                    verdict_rationale=_dedup_text(turn_data.get("verdict_rationale", "")),
                                     key_disagreements=turn_data.get("key_disagreements", []),
                                     duration_ms=duration_ms,
                                 )

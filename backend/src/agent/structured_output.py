@@ -7,7 +7,7 @@ Single retry on validation failure. Sends errors back to the model.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
