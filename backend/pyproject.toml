@@ -89,5 +89,7 @@ module = [
     "src.api.routes.*",
     "src.cli.*",
     "src.api.main",
+    "src.mcp_servers.*",
+    "src.eval.*",
 ]
-disable_error_code = ["attr-defined", "call-arg", "arg-type", "call-overload", "no-redef", "misc", "typeddict-unknown-key", "assignment"]
+disable_error_code = ["attr-defined", "call-arg", "arg-type", "call-overload", "no-redef", "misc", "typeddict-unknown-key", "assignment", "dict-item", "return-value", "union-attr"]

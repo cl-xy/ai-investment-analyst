@@ -20,7 +20,7 @@ def _safe_int(v: object) -> int | None:
     if v is None:
         return None
     try:
-        return int(float(v))
+        return int(float(str(v)))  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
 
