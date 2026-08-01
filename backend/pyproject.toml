@@ -71,7 +71,7 @@ select = ["E", "F", "I", "W"]
 ignore = ["E402", "E501"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 ignore_missing_imports = true
 
 # numpy stubs ship Python 3.12+ syntax (type statements) that mypy rejects
