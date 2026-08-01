@@ -74,6 +74,12 @@ ignore = ["E402", "E501"]
 python_version = "3.11"
 ignore_missing_imports = true
 
+# numpy stubs ship Python 3.12+ syntax (type statements) that mypy rejects
+# when checking under python_version = "3.11"
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
+
 # langchain/langgraph have incomplete type stubs that produce false positives
 # for .content access, ChatOpenAI kwargs, compiled graph methods, and
 # AsyncSqliteSaver context manager protocol.
