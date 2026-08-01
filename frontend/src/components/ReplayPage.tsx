@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useTraceReplay, type ReplaySpeed } from '../hooks/useTraceReplay'
 import { useAnalysisStore } from '../stores/analysisStore'
 import { API_BASE, authHeaders } from '../api/config'
+import Markdown from './Markdown'
 import AgentTracePanel from './AgentTracePanel'
 import DebatePanel from './DebatePanel'
 import type { AnalysisOutput, PeerComparisonPayload, StreamEvent } from '../types/stream'
@@ -582,9 +583,7 @@ function ReplayAnalysisCard({ analysis }: { analysis: AnalysisOutput }) {
             {analysis.ticker}
           </h2>
           {analysis.thesis && (
-            <p className="text-sm text-[var(--text-secondary)] mt-1 max-w-lg">
-              {analysis.thesis}
-            </p>
+            <Markdown className="mt-1 max-w-lg">{analysis.thesis}</Markdown>
           )}
         </div>
         <div className="flex items-center gap-2">

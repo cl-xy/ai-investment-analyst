@@ -4,6 +4,7 @@ import { ArrowRight, Loader2, Plus, X, Scale } from 'lucide-react'
 
 import { API_BASE, authHeaders } from '../api/config'
 import { useCompareStore } from '../stores/compareStore'
+import Markdown from './Markdown'
 
 const POPULAR_TICKERS = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'TSLA', 'META', 'SPY', 'QQQ', 'BRK.B']
 const TICKER_PATTERN = /^[A-Z0-9][A-Z0-9.]{0,9}$/
@@ -339,9 +340,7 @@ export default function ComparePage() {
       {result?.comparison?.status === 'ok' && (
         <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-5 space-y-4">
           {result.comparison.summary && (
-            <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-              {result.comparison.summary}
-            </p>
+            <Markdown>{result.comparison.summary}</Markdown>
           )}
 
           {!!result.comparison.relative_ranking?.length && (

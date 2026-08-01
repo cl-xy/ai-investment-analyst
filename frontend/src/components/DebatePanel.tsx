@@ -1,6 +1,7 @@
 import { TrendingUp, TrendingDown, Scale, ChevronDown, ChevronUp } from 'lucide-react'
 import { useState } from 'react'
 import { useAnalysisStore } from '../stores/analysisStore'
+import Markdown from './Markdown'
 
 /** Safely extract a display string from an argument that may be a string or an object. */
 function toDisplayString(value: unknown): string {
@@ -116,9 +117,7 @@ export default function DebatePanel({ ticker }: DebatePanelProps) {
                 </div>
 
                 {/* Thesis */}
-                <p className="text-sm text-[var(--text-primary)] leading-relaxed mb-2">
-                  {turn.thesis}
-                </p>
+                <Markdown className="mb-2">{turn.thesis}</Markdown>
 
                 {/* Arguments */}
                 {turn.key_arguments.length > 0 && (
@@ -154,9 +153,7 @@ export default function DebatePanel({ ticker }: DebatePanelProps) {
                   {debate.verdict.signal.toUpperCase()} ({debate.verdict.confidence})
                 </span>
               </div>
-              <p className="text-sm text-[var(--text-primary)] leading-relaxed mb-3">
-                {debate.verdict.verdict_rationale}
-              </p>
+              <Markdown className="mb-3">{debate.verdict.verdict_rationale}</Markdown>
               {debate.verdict.key_disagreements.length > 0 && (
                 <div>
                   <p className="text-[10px] font-medium text-[var(--text-muted)] uppercase tracking-wider mb-1">

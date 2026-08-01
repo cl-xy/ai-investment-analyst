@@ -4,7 +4,8 @@
  * Strategy:
  *   - GIF: Capture the "wow" moments — input, add ticker, start analysis, watch trace light up
  *     with tool calls. The fast data-fetch phase (100ms-13s per tool) is visually impressive.
- *     We don't need to wait for the full 3-min debate. Cut after ~15s of streaming.
+ *     Polls for "Running investment debate..." text and cuts just before it appears,
+ *     so the GIF never stalls on the 90-120s debate spinner.
  *   - Video: Show breadth — home, input, streaming start, then jump to completed results,
  *     compare page, chat, command palette, theme toggle. Pre-seed by running a real analysis
  *     first (already cached on backend).
@@ -109,12 +110,18 @@ async function recordDemoGif() {
   await startBtn.click()
   await sleep(1500)
 
-  // Hold on the streaming trace as tool calls come in
-  // The data-fetch phase takes 5-14s and is visually rich
-  await sleep(10000)
+  // Wait for tool calls to stream in, but cut BEFORE debate step appears.
+  // The data-fetch phase (5-14s) is visually rich with tool calls firing.
+  // Once "Running investment debate..." shows up, the UI stalls on a spinner
+  // for 90-120s which looks terrible in a looping GIF.
+  const debateOrTimeout = await Promise.race([
+    page.locator('text=Running investment debate').waitFor({ timeout: 30000 }),
+    sleep(18000), // safety cap: if debate never appears, stop after 18s
+  ]).catch(() => null)
 
-  // Final hold to show the trace with completed tool calls
-  await sleep(2000)
+  // If debate text appeared, we caught it just in time. Either way,
+  // hold 1.5s so the last completed tool calls are visible before cut.
+  await sleep(1500)
 
   // Finalize
   const videoPath = await page.video()?.path()
@@ -177,8 +184,13 @@ async function recordWalkthrough() {
   await page.getByRole('button', { name: 'Start Analysis' }).click()
   await sleep(2000)
 
-  // Scene 3: Streaming trace (show data fetch completing) (8s)
-  await sleep(8000)
+  // Scene 3: Streaming trace (show data fetch completing)
+  // Cut before debate spinner, same logic as GIF recording
+  await Promise.race([
+    page.locator('text=Running investment debate').waitFor({ timeout: 25000 }),
+    sleep(16000),
+  ]).catch(() => null)
+  await sleep(1000)
 
   // Scene 4: Jump to completed results (use dashboard link to show past analysis)
   // Navigate to dashboard to show completed analyses

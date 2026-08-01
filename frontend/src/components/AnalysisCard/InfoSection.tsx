@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import Markdown from '../Markdown'
 
 interface SectionProps {
   icon: ReactNode
@@ -11,12 +12,14 @@ export default function InfoSection({ icon, title, content, fallback = 'No data 
   const text = content?.trim()
   return (
     <div>
-      <h3 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2 flex items-center gap-1.5">
+      <h3 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2 flex items-center gap-1">
         {icon} {title}
       </h3>
-      <p className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-line">
-        {text || fallback}
-      </p>
+      {text ? (
+        <Markdown>{text}</Markdown>
+      ) : (
+        <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{fallback}</p>
+      )}
     </div>
   )
 }
