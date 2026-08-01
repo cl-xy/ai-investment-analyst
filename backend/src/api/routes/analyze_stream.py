@@ -7,6 +7,7 @@ Handles timeouts and real tool latency measurement.
 
 import asyncio
 import json
+import os
 import time
 from collections import defaultdict
 
@@ -21,15 +22,17 @@ from langchain_core.messages import HumanMessage
 from src.agent.checkpointer import get_checkpointer
 from src.agent.concurrency import acquire_analysis_slot, release_analysis_slot
 from src.agent.debate_schemas import DEBATE_ROLES
-from src.agent.events import EventEmitter
+from src.agent.events import EventEmitter, EventType, StreamEvent
 from src.agent.graph import build_graph
 from src.agent.json_utils import extract_json
+from src.agent.singleflight import analysis_singleflight
 from src.api.schemas import VALID_TICKER_RE
 from src.api.shutdown import shutdown_coordinator
 from src.logging_config import request_id_ctx
 from src.metrics import metrics
 from src.middleware.auth import limiter
 from src.middleware.cost_tracker import CostTracker
+from src.ops.cost_attribution import cost_attributor
 
 router = APIRouter()
 
@@ -45,6 +48,10 @@ _MAX_RUN_AGE = 300  # 5 minutes
 _MAX_STORED_RUNS = 100  # cap total stored runs to prevent unbounded memory growth
 _EVICT_INTERVAL = 30  # seconds between eviction sweeps
 _last_eviction: float = 0.0
+
+# In-flight ticker deduplication: prevents duplicate LLM pipeline spend when
+# multiple requests arrive for the same ticker set concurrently.
+_in_flight_tickers: set[str] = set()
 
 
 def _store_event(run_id: str, sse_msg: str):
@@ -114,6 +121,10 @@ async def _run_agent(
     debate_llm_count: dict[str, int] = defaultdict(int)
     debate_llm_start: dict[str, float] = {}  # per-ticker start times
     correlation_id = emitter.correlation_id
+
+    # Initialize per-ticker cost attribution tracking
+    for t in tickers_upper:
+        cost_attributor.start_analysis(t)
 
     event = emitter.run_started(tickers_upper)
     await queue.put(event.to_sse())
@@ -249,14 +260,44 @@ async def _run_agent(
                     # LLM completion: track tokens + emit debate events
                     elif kind == "on_chat_model_end":
                         output = data.get("output")
+                        _input_tokens = 0
+                        _output_tokens = 0
                         if output and hasattr(output, "usage_metadata"):
                             usage = output.usage_metadata
                             if usage:
+                                _input_tokens = usage.get("input_tokens", 0)
+                                _output_tokens = usage.get("output_tokens", 0)
                                 tracker.record_tokens(
-                                    prompt=usage.get("input_tokens", 0),
-                                    completion=usage.get("output_tokens", 0),
+                                    prompt=_input_tokens,
+                                    completion=_output_tokens,
                                 )
                         metrics.inc("llm_calls_total")
+
+                        # Per-ticker cost attribution: attribute LLM call to
+                        # the appropriate ticker based on current node context.
+                        _attr_model_type = (
+                            "router" if current_node == "router" else "analysis"
+                        )
+                        # Use fallback estimates when provider doesn't report usage
+                        if not _input_tokens and not _output_tokens:
+                            if current_node == "router":
+                                _input_tokens, _output_tokens = 1500, 500
+                            elif current_node == "debate":
+                                _input_tokens, _output_tokens = 3000, 2000
+                            else:
+                                _input_tokens, _output_tokens = 4000, 3000
+
+                        # For non-debate nodes, split cost evenly across tickers
+                        if current_node != "debate" and tickers_upper:
+                            _split_input = _input_tokens // len(tickers_upper)
+                            _split_output = _output_tokens // len(tickers_upper)
+                            for _t in tickers_upper:
+                                cost_attributor.record_llm_call(
+                                    ticker=_t,
+                                    model_type=_attr_model_type,
+                                    input_tokens=_split_input,
+                                    output_tokens=_split_output,
+                                )
 
                         # Emit debate turn events when inside the debate node
                         if current_node == "debate" and output and hasattr(output, "content"):
@@ -332,6 +373,15 @@ async def _run_agent(
 
                             debate_llm_count[_current_ticker] = count + 1
 
+                            # Record debate LLM cost against this ticker
+                            cost_attributor.record_llm_call(
+                                ticker=_current_ticker,
+                                model_type="analysis",
+                                input_tokens=_input_tokens,
+                                output_tokens=_output_tokens,
+                                duration_ms=duration_ms,
+                            )
+
                             role = DEBATE_ROLES[min(count, _num_debate_turns - 1)]
 
                             if count == 0:
@@ -405,6 +455,12 @@ async def _run_agent(
                 tracker.record_schema_result(
                     valid=True, citations=citations_count, data_gaps=data_gaps_count
                 )
+
+                # Flush per-ticker cost attribution to PostgreSQL
+                try:
+                    await cost_attributor.flush(ticker, correlation_id=correlation_id)
+                except Exception:
+                    pass  # Non-critical, don't break the stream
 
             peer_comparison = state_values.get("peer_comparison")
             if peer_comparison:
@@ -498,6 +554,7 @@ async def _stream_generator(
     request: Request,
     last_event_id: int | None = None,
     resume_run_id: str | None = None,
+    flight_key: str | None = None,
 ):
     """Async generator that yields SSE events."""
     slot_released = False
@@ -508,12 +565,19 @@ async def _stream_generator(
         if not replayed and resume_run_id not in _recent_runs:
             # Run state not found on this instance (likely routed to different machine).
             # Emit a terminal error so the client stops reconnecting blindly.
-            error_msg = (
-                "event: error\ndata: "
-                '{"type":"error","message":"Run state unavailable on this instance. '
-                'Please start a new analysis.","recoverable":false}\n\n'
+            from datetime import datetime, timezone
+
+            error_event = StreamEvent(
+                run_id=resume_run_id,
+                seq=last_event_id + 1 if last_event_id else 1,
+                type=EventType.ERROR,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                payload={
+                    "message": "Run state unavailable on this instance. Please start a new analysis.",
+                    "recoverable": False,
+                },
             )
-            yield error_msg
+            yield error_event.to_sse()
             release_analysis_slot()
             slot_released = True
             return
@@ -543,10 +607,16 @@ async def _stream_generator(
                 return
             # Run still in progress but no new events yet — tell client to wait
             # rather than spawning a duplicate analysis
-            yield (
-                "event: heartbeat\ndata: "
-                '{"type":"heartbeat","message":"Reconnected, waiting for new events"}\n\n'
+            from datetime import datetime, timezone
+
+            heartbeat_event = StreamEvent(
+                run_id=resume_run_id,
+                seq=last_event_id + 1 if last_event_id else 1,
+                type=EventType.HEARTBEAT,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                payload={"message": "Reconnected, waiting for new events"},
             )
+            yield heartbeat_event.to_sse()
             release_analysis_slot()
             slot_released = True
             return
@@ -562,6 +632,10 @@ async def _stream_generator(
     heartbeat_task: asyncio.Task | None = None
 
     try:
+        # Register in-flight tracking for singleflight deduplication
+        if flight_key:
+            _in_flight_tickers.add(flight_key)
+
         agent_task = asyncio.create_task(
             _run_agent(tickers, emitter, queue, tracker, request.app.state.mcp_tools)
         )
@@ -597,6 +671,9 @@ async def _stream_generator(
                 await heartbeat_task
             except (asyncio.CancelledError, Exception):
                 pass
+        # Release singleflight tracking so subsequent requests can proceed
+        if flight_key:
+            _in_flight_tickers.discard(flight_key)
         if not slot_released:
             release_analysis_slot()
 
@@ -658,6 +735,21 @@ async def analyze_stream(
             headers={"Retry-After": "5"},
         )
 
+    # Singleflight: reject duplicate concurrent requests for the same ticker set.
+    # Prevents burning rate-limit budget on parallel LLM pipelines for identical work.
+    flight_key = "|".join(sorted(ticker_list))
+    if flight_key in _in_flight_tickers:
+        release_analysis_slot()
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "in_progress",
+                "message": f"Analysis already in progress for {', '.join(ticker_list)}",
+                "retry_after": 30,
+            },
+            headers={"Retry-After": "30"},
+        )
+
     # Check for reconnection (parse safely to avoid slot leak on bad header)
     # Support both headers (standard SSE) and query params (EventSource can't set headers)
     last_event_id_header = request.headers.get("Last-Event-ID") or request.query_params.get("last_event_id")
@@ -673,17 +765,25 @@ async def analyze_stream(
             )
     resume_run_id = request.headers.get("X-Run-ID") or request.query_params.get("run_id")  # Client sends this on reconnect
 
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+
+    # Fly.io: pin SSE reconnections to this machine (holds in-memory event store)
+    fly_alloc_id = os.environ.get("FLY_ALLOC_ID")
+    if fly_alloc_id:
+        headers["fly-replay-src"] = fly_alloc_id
+
     return StreamingResponse(
         _stream_generator(
             ticker_list,
             request,
             last_event_id=last_event_id,
             resume_run_id=resume_run_id,
+            flight_key=flight_key,
         ),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+        headers=headers,
     )

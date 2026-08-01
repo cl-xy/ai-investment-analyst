@@ -162,8 +162,9 @@ async def test_tool_live(ticker: str, authorization: str | None = Header(default
 
 
 @router.get("/health/detailed")
-async def detailed_health():
-    """Extended health check with system info (public, no auth)."""
+async def detailed_health(authorization: str | None = Header(default=None)):
+    """Extended health check with system info. Protected by scheduler token."""
+    _verify_token(authorization)
     return {
         "status": "healthy",
         "version": "0.2.0",

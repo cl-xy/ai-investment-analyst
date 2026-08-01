@@ -277,3 +277,35 @@ export async function toggleChaosScenario(scenarioId: string, enabled: boolean):
 export async function resetChaos(): Promise<void> {
   await axios.post(`${API_BASE}/api/ops/chaos`, { reset: true }, { headers: authHeaders() })
 }
+
+// Cost attribution
+
+export interface CostTickerEntry {
+  ticker: string
+  analysis_count: number
+  total_tokens: number
+  total_cost: number
+  total_llm_calls: number
+  avg_duration_ms: number
+}
+
+export interface CostDailyEntry {
+  date: string
+  analyses: number
+  tokens: number
+  cost: number
+}
+
+export interface CostAttribution {
+  top_tickers: CostTickerEntry[]
+  daily_costs: CostDailyEntry[]
+  period_days: number
+}
+
+export async function getCostAttribution(days: number = 7): Promise<CostAttribution> {
+  const response = await axios.get<CostAttribution>(`${API_BASE}/api/ops/costs`, {
+    params: { days },
+    headers: authHeaders(),
+  })
+  return response.data
+}

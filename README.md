@@ -21,6 +21,7 @@ If you're reviewing this project, here's the guided path:
 4. **Open Trace Replay** (`/replay`) → step through a recorded analysis like a debugger (play/pause/rewind)
 5. **Read the ADRs** → [`docs/adr/`](docs/adr/) explains why SSE over WebSocket, why adversarial debate, why free-tier constraints shape the architecture
 6. **Run a live analysis** → add NVDA to watchlist, click Analyze, watch the full debate stream in real-time (~2 min)
+7. **Read the postmortems** → `docs/postmortems/` shows real failure analysis and what I learned operating this system
 
 The interesting engineering isn't the features. It's the failure handling, observability, and production judgment underneath.
 
@@ -298,6 +299,9 @@ DEMO_PASSWORD         # Optional: gate the demo
 | [AI Security Posture](docs/AI_SECURITY_POSTURE.md) | LLM threat model, trust boundaries |
 | [Runbook](docs/RUNBOOK.md) | Operational playbook for common failure scenarios |
 | [Design System](docs/design-system.md) | Tokens, components, loading/error/empty states |
+| [Incident Postmortems](docs/postmortems/) | Real failure analysis with correlation IDs and fixes |
+| [Load Test Report](docs/load-test-report.md) | Performance benchmarks under production constraints |
+| [Eval Results](docs/eval-results.md) | LLM evaluation pass rates, failure analysis, prompt iteration |
 
 ---
 

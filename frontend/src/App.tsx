@@ -60,8 +60,8 @@ function NotFoundPage() {
   )
 }
 
-// Validate ticker format: 1-10 alphanumeric chars, dots, hyphens
-const TICKER_PATTERN = /^[A-Z0-9.-]{1,10}$/
+// Validate ticker format: 1-10 alphanumeric chars and dots (matches backend)
+const TICKER_PATTERN = /^[A-Z0-9.]{1,10}$/
 
 function normalizeTicker(raw: string): string | null {
   const cleaned = raw.trim().toUpperCase()

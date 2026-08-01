@@ -20,7 +20,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Header
 
 router = APIRouter()
 
@@ -183,6 +183,24 @@ metrics = MetricsRegistry()
 
 
 @router.get("/metrics")
-async def get_metrics():
-    """Expose in-memory metrics as JSON."""
+async def get_metrics(authorization: str | None = Header(default=None)):
+    """Expose in-memory metrics as JSON. Protected by scheduler token."""
+    _verify_metrics_token(authorization)
     return metrics.snapshot()
+
+
+def _verify_metrics_token(authorization: str | None) -> None:
+    """Verify scheduler secret token from Authorization header."""
+    import os
+    from secrets import compare_digest
+
+    from fastapi import HTTPException
+
+    token = os.environ.get("SCHEDULER_SECRET_TOKEN", "")
+    if not token:
+        raise HTTPException(status_code=503, detail="Metrics auth not configured")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Bearer token")
+    provided = authorization.removeprefix("Bearer ").strip()
+    if not compare_digest(provided, token):
+        raise HTTPException(status_code=403, detail="Invalid token")

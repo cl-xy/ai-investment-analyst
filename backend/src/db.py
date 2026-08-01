@@ -273,6 +273,22 @@ CREATE TABLE IF NOT EXISTS ops_metrics_snapshots (
     metrics     JSONB NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_ops_metrics_snapshots_recorded_at ON ops_metrics_snapshots(recorded_at DESC);
+
+-- Per-ticker cost attribution tracking
+CREATE TABLE IF NOT EXISTS cost_attribution (
+    id SERIAL PRIMARY KEY,
+    ticker VARCHAR(10) NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens INTEGER NOT NULL DEFAULT 0,
+    estimated_cost_usd REAL NOT NULL DEFAULT 0.0,
+    llm_calls INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    correlation_id VARCHAR(64),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_cost_attribution_ticker ON cost_attribution(ticker);
+CREATE INDEX IF NOT EXISTS idx_cost_attribution_created ON cost_attribution(created_at);
 """
 
 

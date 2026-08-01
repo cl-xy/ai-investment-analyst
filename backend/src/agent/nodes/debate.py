@@ -57,6 +57,26 @@ def _coerce_str_list(items: list) -> list[str]:
     return result
 
 
+def _normalize_content(content) -> str:
+    """Normalize LangChain message content to a plain string.
+
+    LangChain providers can return content as either a str or a list of
+    content blocks (e.g. [{"type": "text", "text": "..."}]). This ensures
+    downstream JSON parsing always receives a string.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                parts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                parts.append(block)
+        return "".join(parts)
+    return str(content)
+
+
 def _safe_extract_json(text: str) -> dict | None:
     """Extract JSON dict from LLM text, returning None on failure or non-dict."""
     try:
@@ -164,20 +184,22 @@ async def _run_bull_agent(ctx: dict[str, Any]) -> BullCaseOutput:
     messages = [SystemMessage(content=BULL_SYSTEM), HumanMessage(content=prompt)]
 
     response = await _invoke_with_retry(messages)
+    content = _normalize_content(response.content)
 
     try:
-        return BullCaseOutput.model_validate_json(response.content)  # type: ignore[arg-type]
+        return BullCaseOutput.model_validate_json(content)
     except (ValidationError, ValueError, TypeError):
         # Retry with error feedback
         retry_msg = HumanMessage(
             content="Your JSON was invalid. Return valid JSON matching the schema exactly."
         )
         retry_response = await _invoke_with_retry(messages + [retry_msg])
+        retry_content = _normalize_content(retry_response.content)
         try:
-            return BullCaseOutput.model_validate_json(retry_response.content)  # type: ignore[arg-type]
+            return BullCaseOutput.model_validate_json(retry_content)
         except (ValidationError, ValueError, TypeError):
             # Fallback: try retry response first, then original
-            parsed = _safe_extract_json(retry_response.content) or _safe_extract_json(response.content)  # type: ignore[arg-type]
+            parsed = _safe_extract_json(retry_content) or _safe_extract_json(content)
             if parsed:
                 return BullCaseOutput(
                     ticker=ctx["ticker"],
@@ -206,18 +228,20 @@ async def _run_bear_agent(ctx: dict[str, Any], bull: BullCaseOutput) -> BearCase
     messages = [SystemMessage(content=BEAR_SYSTEM), HumanMessage(content=prompt)]
 
     response = await _invoke_with_retry(messages)
+    content = _normalize_content(response.content)
 
     try:
-        return BearCaseOutput.model_validate_json(response.content)  # type: ignore[arg-type]
+        return BearCaseOutput.model_validate_json(content)
     except (ValidationError, ValueError, TypeError):
         retry_msg = HumanMessage(
             content="Your JSON was invalid. Return valid JSON matching the schema exactly."
         )
         retry_response = await _invoke_with_retry(messages + [retry_msg])
+        retry_content = _normalize_content(retry_response.content)
         try:
-            return BearCaseOutput.model_validate_json(retry_response.content)  # type: ignore[arg-type]
+            return BearCaseOutput.model_validate_json(retry_content)
         except (ValidationError, ValueError, TypeError):
-            parsed = _safe_extract_json(retry_response.content) or _safe_extract_json(response.content)  # type: ignore[arg-type]
+            parsed = _safe_extract_json(retry_content) or _safe_extract_json(content)
             if parsed:
                 return BearCaseOutput(
                     ticker=ctx["ticker"],
@@ -259,18 +283,20 @@ async def _run_moderator(
     messages = [SystemMessage(content=MODERATOR_SYSTEM), HumanMessage(content=prompt)]
 
     response = await _invoke_with_retry(messages)
+    content = _normalize_content(response.content)
 
     try:
-        return ModeratorOutput.model_validate_json(response.content)  # type: ignore[arg-type]
+        return ModeratorOutput.model_validate_json(content)
     except (ValidationError, ValueError, TypeError):
         retry_msg = HumanMessage(
             content="Your JSON was invalid. Return valid JSON matching the schema exactly."
         )
         retry_response = await _invoke_with_retry(messages + [retry_msg])
+        retry_content = _normalize_content(retry_response.content)
         try:
-            return ModeratorOutput.model_validate_json(retry_response.content)  # type: ignore[arg-type]
+            return ModeratorOutput.model_validate_json(retry_content)
         except (ValidationError, ValueError, TypeError):
-            parsed = _safe_extract_json(retry_response.content) or _safe_extract_json(response.content)  # type: ignore[arg-type]
+            parsed = _safe_extract_json(retry_content) or _safe_extract_json(content)
             if parsed:
                 return ModeratorOutput(
                     ticker=ctx["ticker"],

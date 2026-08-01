@@ -246,6 +246,23 @@ async def ops_slo():
     return collector.compute_slo()
 
 
+@router.get("/costs")
+async def ops_costs(
+    days: int = Query(7, ge=1, le=90, description="Lookback period in days"),
+):
+    """Per-ticker cost breakdown for the ops dashboard."""
+    from src.ops.cost_attribution import cost_attributor
+
+    top_tickers = await cost_attributor.get_top_tickers(limit=10, days=days)
+    daily = await cost_attributor.get_daily_costs(days=days)
+
+    return {
+        "top_tickers": top_tickers,
+        "daily_costs": daily,
+        "period_days": days,
+    }
+
+
 @router.get("/chaos")
 async def ops_chaos_state():
     """Get current chaos injection state."""

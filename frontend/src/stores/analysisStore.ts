@@ -80,15 +80,21 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
   peerComparison: null,
 
   startStream: (runId: string, correlationId?: string | null) =>
-    set({
-      events: [],
-      currentNode: null,
-      isStreaming: true,
-      error: null,
-      analyses: {},
-      runMeta: { run_id: runId, startedAt: new Date().toISOString(), correlationId },
-      debates: {},
-      peerComparison: null,
+    set((state) => {
+      // If we're already streaming this run (reconnect replay), don't wipe state
+      if (state.runMeta?.run_id === runId && state.isStreaming) {
+        return state
+      }
+      return {
+        events: [],
+        currentNode: null,
+        isStreaming: true,
+        error: null,
+        analyses: {},
+        runMeta: { run_id: runId, startedAt: new Date().toISOString(), correlationId },
+        debates: {},
+        peerComparison: null,
+      }
     }),
 
   addEvent: (event: StreamEvent) =>

@@ -9,6 +9,7 @@ one probe request through. Only a successful probe closes the circuit.
 """
 
 import asyncio
+import re
 import time
 from collections import deque
 from enum import Enum
@@ -19,6 +20,20 @@ from src.logging_config import get_logger
 log = get_logger("circuit_breaker")
 
 T = TypeVar("T")
+
+
+def _is_rate_limit_error(exc: BaseException) -> bool:
+    """Return True if the exception represents a rate-limit (429) response.
+
+    Rate-limit errors mean the provider is healthy but throttling us.
+    They should NOT count as circuit breaker failures to avoid death spirals.
+    """
+    exc_str = str(exc).lower()
+    if re.search(r"\b429\b", exc_str):
+        return True
+    if "rate limit" in exc_str or "rate_limit" in exc_str:
+        return True
+    return False
 
 
 class CircuitState(Enum):
@@ -54,6 +69,7 @@ class CircuitBreaker:
         failure_threshold: int = 5,
         window_seconds: float = 60.0,
         recovery_seconds: float = 30.0,
+        adaptation_alpha: float = 0.3,
     ):
         self.name = name
         self.failure_threshold = failure_threshold
@@ -65,6 +81,14 @@ class CircuitBreaker:
         self._last_failure_time: float = 0.0
         self._probe_in_flight: bool = False
         self._lock = asyncio.Lock()
+
+        # Adaptive rate-limit tracking
+        self._base_recovery_seconds: float = recovery_seconds
+        self._adaptation_alpha: float = adaptation_alpha
+        self._rate_limit_ewma: float = 0.0
+        self._adaptation_factor: float = 1.0
+        self._total_calls: int = 0
+        self._rate_limit_calls: int = 0
 
     @property
     def state(self) -> CircuitState:
@@ -135,7 +159,19 @@ class CircuitBreaker:
             raise
         except CircuitBreakerOpen:
             raise
-        except Exception:
+        except Exception as exc:
+            # Rate-limit errors (429) should NOT trip the circuit breaker.
+            # They indicate the provider is healthy but throttling us, which
+            # is expected behavior under load. Counting them as failures
+            # creates a death spiral: 429s open breaker -> 30s outage ->
+            # recovery -> immediate 429s -> reopen.
+            if _is_rate_limit_error(exc):
+                log.info("circuit_rate_limit_ignored", breaker=self.name)
+                self._track_rate_limit(exc)
+                if is_probe:
+                    # Rate limit during probe: backend is reachable, close circuit
+                    await self._on_success(is_probe)
+                raise
             await self._on_failure(is_probe)
             raise
         else:
@@ -143,6 +179,7 @@ class CircuitBreaker:
             return result
 
     async def _on_success(self, is_probe: bool) -> None:
+        self._track_success()
         async with self._lock:
             if is_probe:
                 # Successful probe: circuit is confirmed healthy.
@@ -184,6 +221,50 @@ class CircuitBreaker:
                     failures=len(self._failures),
                     window=self.window_seconds,
                 )
+
+    def _track_rate_limit(self, exc: BaseException) -> None:
+        """Update EWMA of rate-limit frequency and adapt thresholds."""
+        self._total_calls += 1
+        self._rate_limit_calls += 1
+        # EWMA: blend new observation (1.0 = rate limited) with history
+        self._rate_limit_ewma = (
+            self._adaptation_alpha * 1.0
+            + (1 - self._adaptation_alpha) * self._rate_limit_ewma
+        )
+        self._compute_adaptation()
+
+    def _track_success(self) -> None:
+        """Record a successful (non-429) call for EWMA."""
+        self._total_calls += 1
+        self._rate_limit_ewma = (
+            self._adaptation_alpha * 0.0
+            + (1 - self._adaptation_alpha) * self._rate_limit_ewma
+        )
+        self._compute_adaptation()
+
+    def _compute_adaptation(self) -> None:
+        """Adjust recovery_seconds based on rate-limit pressure."""
+        if self._rate_limit_ewma > 0.3:
+            # High pressure: scale up to 3x
+            self._adaptation_factor = min(
+                3.0, 1.0 + (self._rate_limit_ewma - 0.3) * (2.0 / 0.7)
+            )
+        elif self._rate_limit_ewma < 0.1:
+            # Low pressure: relax toward 1.0
+            self._adaptation_factor = max(1.0, self._adaptation_factor * 0.95)
+        # Apply
+        self.recovery_seconds = self._base_recovery_seconds * self._adaptation_factor
+
+    @property
+    def adaptation_state(self) -> dict[str, Any]:
+        """Return adaptive circuit breaker metrics for the ops dashboard."""
+        return {
+            "rate_limit_ewma": round(self._rate_limit_ewma, 4),
+            "adaptation_factor": round(self._adaptation_factor, 4),
+            "effective_recovery": round(self.recovery_seconds, 2),
+            "total_calls": self._total_calls,
+            "rate_limit_calls": self._rate_limit_calls,
+        }
 
 
 # Singleton for the LLM provider

@@ -208,6 +208,7 @@ export function useAnalysisStream() {
           retryTimeoutRef.current = setTimeout(() => connect(normalizedTickers, true), delay)
         } else {
           setError('Connection lost. Please try again.')
+          setFailed('Connection lost')
         }
       }
     },

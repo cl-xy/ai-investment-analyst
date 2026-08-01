@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Copy,
   Check,
+  Coins,
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import type {
@@ -25,31 +26,35 @@ import type {
   CircuitBreaker,
   RecentError,
   LatencyEntry,
+  CostAttribution,
 } from '../api/opsService'
-import { getHealth, getMetrics, getSLO, getChaosState, toggleChaosScenario } from '../api/opsService'
+import { getHealth, getMetrics, getSLO, getChaosState, toggleChaosScenario, getCostAttribution } from '../api/opsService'
 
 export default function OpsPage() {
   const [health, setHealth] = useState<HealthStatus | null>(null)
   const [slo, setSLO] = useState<SLOData | null>(null)
   const [metrics, setMetrics] = useState<MetricsData | null>(null)
   const [chaos, setChaos] = useState<ChaosState | null>(null)
+  const [costs, setCosts] = useState<CostAttribution | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [confirmingChaos, setConfirmingChaos] = useState<string | null>(null)
 
   const fetchAll = useCallback(async () => {
-    const [h, s, m, c] = await Promise.allSettled([
+    const [h, s, m, c, co] = await Promise.allSettled([
       getHealth(),
       getSLO(),
       getMetrics(),
       getChaosState(),
+      getCostAttribution(7),
     ])
     if (h.status === 'fulfilled') setHealth(h.value)
     if (s.status === 'fulfilled') setSLO(s.value)
     if (m.status === 'fulfilled') setMetrics(m.value)
     if (c.status === 'fulfilled') setChaos(c.value)
+    if (co.status === 'fulfilled') setCosts(co.value)
 
-    const failures = [h, s, m, c].filter((r) => r.status === 'rejected')
+    const failures = [h, s, m, c, co].filter((r) => r.status === 'rejected')
     if (failures.length > 0) {
       const reasons = failures.map((f) =>
         f.status === 'rejected' ? (f.reason instanceof Error ? f.reason.message : 'Unknown error') : ''
@@ -203,6 +208,9 @@ export default function OpsPage() {
       {metrics && (metrics.latency_history?.length ?? 0) > 0 && (
         <LatencyChart entries={metrics.latency_history} />
       )}
+
+      {/* Cost Attribution (full width) */}
+      {costs && <CostAttributionPanel costs={costs} />}
     </div>
   )
 }
@@ -577,6 +585,76 @@ function LatencyChart({ entries }: { entries: LatencyEntry[] }) {
           </tbody>
         </table>
       </div>
+    </div>
+  )
+}
+
+function CostAttributionPanel({ costs }: { costs: CostAttribution }) {
+  const totalAnalyses = costs.top_tickers.reduce((sum, t) => sum + t.analysis_count, 0)
+  const totalTokens = costs.top_tickers.reduce((sum, t) => sum + t.total_tokens, 0)
+  const totalCost = costs.top_tickers.reduce((sum, t) => sum + t.total_cost, 0)
+
+  const formatTokens = (n: number): string => {
+    if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
+    return String(n)
+  }
+
+  return (
+    <div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider flex items-center gap-1.5">
+          <Coins className="w-3.5 h-3.5" />
+          Cost Attribution ({costs.period_days}d)
+        </h2>
+        <span className="text-xs text-[var(--text-muted)]">
+          Top {costs.top_tickers.length} tickers
+        </span>
+      </div>
+
+      {costs.top_tickers.length === 0 ? (
+        <p className="text-xs text-[var(--text-muted)]">No analyses in this period</p>
+      ) : (
+        <>
+          {/* Table header */}
+          <div className="grid grid-cols-4 gap-2 text-xs text-[var(--text-muted)] mb-2 px-1">
+            <span>Ticker</span>
+            <span className="text-right">Analyses</span>
+            <span className="text-right">Tokens</span>
+            <span className="text-right">Cost (eq.)</span>
+          </div>
+
+          {/* Ticker rows */}
+          <div className="space-y-1.5">
+            {costs.top_tickers.slice(0, 5).map((entry) => (
+              <div
+                key={entry.ticker}
+                className="grid grid-cols-4 gap-2 text-sm px-1 py-1 rounded hover:bg-[var(--surface)] transition-colors"
+              >
+                <span className="font-medium text-[var(--text-primary)]">{entry.ticker}</span>
+                <span className="text-right text-[var(--text-secondary)] font-mono">
+                  {entry.analysis_count}
+                </span>
+                <span className="text-right text-[var(--text-secondary)] font-mono">
+                  {formatTokens(entry.total_tokens)}
+                </span>
+                <span className="text-right text-[var(--text-secondary)] font-mono">
+                  ${entry.total_cost.toFixed(3)}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Summary footer */}
+          <div className="mt-4 pt-3 border-t border-[var(--border)] flex items-center justify-between text-xs text-[var(--text-muted)]">
+            <span>
+              Total: {totalAnalyses} {totalAnalyses === 1 ? 'analysis' : 'analyses'}
+            </span>
+            <span className="font-mono">
+              {formatTokens(totalTokens)} tokens | ${totalCost.toFixed(3)}
+            </span>
+          </div>
+        </>
+      )}
     </div>
   )
 }
