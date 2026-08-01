@@ -39,9 +39,7 @@ async def eval_summary():
 
     total = len(rows)
     schema_valid = sum(1 for r in rows if r["schema_valid"])
-    latencies = sorted(
-        r["duration_ms"] for r in rows if r["duration_ms"] is not None
-    )
+    latencies = sorted(r["duration_ms"] for r in rows if r["duration_ms"] is not None)
     total_tool_calls = sum(r["tool_calls"] or 0 for r in rows)
     total_successes = sum(r["tool_successes"] or 0 for r in rows)
     total_cache_hits = sum(r["cache_hits"] or 0 for r in rows)

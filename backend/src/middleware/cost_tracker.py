@@ -29,9 +29,7 @@ class RunMetrics(BaseModel):
     completed_at: datetime | None = None
     duration_ms: int = 0
 
-    router_model: str = Field(
-        default_factory=lambda: settings.llm_router_model
-    )
+    router_model: str = Field(default_factory=lambda: settings.llm_router_model)
     analysis_model: str = Field(default_factory=lambda: settings.llm_model)
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -93,9 +91,7 @@ class CostTracker:
 
         if self.metrics.completed_at is None:
             self.metrics.completed_at = datetime.now(timezone.utc)
-            self.metrics.duration_ms = int(
-                (time.monotonic() - self._start_time) * 1000
-            )
+            self.metrics.duration_ms = int((time.monotonic() - self._start_time) * 1000)
 
         try:
             m = self.metrics

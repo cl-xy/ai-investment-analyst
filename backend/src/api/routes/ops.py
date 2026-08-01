@@ -170,7 +170,9 @@ async def ops_traces(
     if status and status not in _VALID_STATUSES:
         return JSONResponse(
             status_code=400,
-            content={"detail": f"Invalid status. Must be one of: {', '.join(sorted(_VALID_STATUSES))}"},
+            content={
+                "detail": f"Invalid status. Must be one of: {', '.join(sorted(_VALID_STATUSES))}"
+            },
         )
 
     # First, try in-memory recent traces
@@ -207,7 +209,7 @@ async def ops_traces(
     # Sort by time descending, apply offset and limit to merged result
     persisted.sort(key=lambda t: t.get("started_at") or t.get("created_at") or "", reverse=True)
     total = len(persisted)
-    return {"traces": persisted[offset:offset + limit], "total": total}
+    return {"traces": persisted[offset : offset + limit], "total": total}
 
 
 @router.get("/traces/{trace_id}")

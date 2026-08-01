@@ -32,7 +32,7 @@ def _parse_article(a: dict, include_snippet: bool = False) -> dict | None:
     """Safely extract article fields, returning None for malformed entries."""
     if not isinstance(a, dict):
         return None
-    source = (a.get("source") or {})
+    source = a.get("source") or {}
     if not isinstance(source, dict):
         source = {}
     result = {

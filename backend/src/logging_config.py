@@ -46,7 +46,9 @@ def _redact_value(value, depth: int = 0):
         return value
     if isinstance(value, dict):
         return {
-            k: _REDACTED if isinstance(k, str) and _is_sensitive_key(k) else _redact_value(v, depth + 1)
+            k: _REDACTED
+            if isinstance(k, str) and _is_sensitive_key(k)
+            else _redact_value(v, depth + 1)
             for k, v in value.items()
         }
     if isinstance(value, (list, tuple)):
@@ -135,9 +137,7 @@ def setup_logging(json_output: bool = True, level: str = "INFO"):
             *shared_processors,  # type: ignore[list-item]
             renderer,
         ],
-        wrapper_class=structlog.make_filtering_bound_logger(
-            getattr(logging, level_upper)
-        ),
+        wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, level_upper)),
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(file=sys.stdout),
         cache_logger_on_first_use=True,

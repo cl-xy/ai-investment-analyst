@@ -89,9 +89,7 @@ async def close_pool() -> None:
             _pool = None
 
 
-async def _with_retry(
-    fn: Callable[..., Coroutine[Any, Any, T]], *args: Any
-) -> T:
+async def _with_retry(fn: Callable[..., Coroutine[Any, Any, T]], *args: Any) -> T:
     """Execute a pool operation with one retry on transient connection errors."""
     pool = await get_pool()
     try:

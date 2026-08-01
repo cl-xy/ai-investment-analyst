@@ -151,7 +151,9 @@ async def stream_replay(
                             current_ts.replace("Z", "+00:00") if isinstance(current_ts, str) else ""
                         )
                         prev_dt = datetime.fromisoformat(
-                            prev_timestamp.replace("Z", "+00:00") if isinstance(prev_timestamp, str) else ""
+                            prev_timestamp.replace("Z", "+00:00")
+                            if isinstance(prev_timestamp, str)
+                            else ""
                         )
                         delta_ms = (curr_dt - prev_dt).total_seconds() * 1000
                         # Cap individual delays to 5s (some gaps are just heartbeat intervals)

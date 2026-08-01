@@ -28,8 +28,6 @@ def extract_json(text: str) -> dict | list:
     result = json.loads(text)
 
     if not isinstance(result, (dict, list)):
-        raise ValueError(
-            f"Expected JSON object or array, got {type(result).__name__}"
-        )
+        raise ValueError(f"Expected JSON object or array, got {type(result).__name__}")
 
     return result

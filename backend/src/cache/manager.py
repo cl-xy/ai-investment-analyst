@@ -172,8 +172,7 @@ class CacheManager:
         # complexity for minimal gain. We prune conservatively (half of idle locks).
         if len(self._inflight_locks) > self._lock_max_size:
             to_remove = [
-                k for k, lk in self._inflight_locks.items()
-                if not lk.locked() and k != key
+                k for k, lk in self._inflight_locks.items() if not lk.locked() and k != key
             ]
             # Only prune half to reduce probability of hitting the release-to-acquire window
             for k in to_remove[: len(to_remove) // 2]:

@@ -71,9 +71,7 @@ async def _chat_stream_generator(message: str, thread_id: str, request: Request)
 
                     # Wait for next event or emit heartbeat on timeout
                     try:
-                        item = await asyncio.wait_for(
-                            queue.get(), timeout=HEARTBEAT_INTERVAL
-                        )
+                        item = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_INTERVAL)
                     except asyncio.TimeoutError:
                         yield emitter.heartbeat().to_sse()
                         continue
@@ -86,9 +84,7 @@ async def _chat_stream_generator(message: str, thread_id: str, request: Request)
                     # Producer reported an error
                     if isinstance(item, BaseException):
                         if isinstance(item, TimeoutError):
-                            yield emitter.error(
-                                "Chat stream timed out", recoverable=False
-                            ).to_sse()
+                            yield emitter.error("Chat stream timed out", recoverable=False).to_sse()
                         else:
                             logger.exception(
                                 "Chat stream error for thread %s", thread_id, exc_info=item
@@ -109,9 +105,7 @@ async def _chat_stream_generator(message: str, thread_id: str, request: Request)
                             # Normalize list-of-blocks to string
                             if isinstance(content, list):
                                 content = "".join(
-                                    block.get("text", "")
-                                    if isinstance(block, dict)
-                                    else str(block)
+                                    block.get("text", "") if isinstance(block, dict) else str(block)
                                     for block in content
                                 )
                             if content:

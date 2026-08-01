@@ -20,9 +20,7 @@ async def generate_report_node(state: InvestmentAnalystState) -> dict:
     )
 
     if not analyses:
-        return {
-            "report_markdown": "No ticker analyses available to generate a report."
-        }
+        return {"report_markdown": "No ticker analyses available to generate a report."}
 
     try:
         portfolio_context = ""
@@ -60,7 +58,5 @@ async def generate_report_node(state: InvestmentAnalystState) -> dict:
     # Normalize content: some providers return list of content blocks instead of str
     content = response.content
     if isinstance(content, list):
-        content = "".join(
-            block.get("text", "") for block in content if isinstance(block, dict)
-        )
+        content = "".join(block.get("text", "") for block in content if isinstance(block, dict))
     return {"report_markdown": content}

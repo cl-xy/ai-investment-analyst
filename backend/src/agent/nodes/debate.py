@@ -68,7 +68,8 @@ def _dedup_text(text: str) -> str:
         return text
     # Split on sentence boundaries (period, newline)
     import re as _re
-    sentences = _re.split(r'(?<=[.!?\n])\s+', text)
+
+    sentences = _re.split(r"(?<=[.!?\n])\s+", text)
     if len(sentences) < 4:
         return text
     seen: set[str] = set()
@@ -81,7 +82,9 @@ def _dedup_text(text: str) -> str:
     result = " ".join(deduped)
     # If we removed more than 30% of sentences, the model was looping
     if len(deduped) < len(sentences) * 0.7:
-        log.warning("dedup_stripped_repetition", original_sentences=len(sentences), kept=len(deduped))
+        log.warning(
+            "dedup_stripped_repetition", original_sentences=len(sentences), kept=len(deduped)
+        )
     return result
 
 

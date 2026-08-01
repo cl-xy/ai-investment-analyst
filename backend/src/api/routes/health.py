@@ -74,9 +74,7 @@ async def readiness():
     # 2. LLM budget check (with timeout)
     if db_ok:
         try:
-            budget_status = await asyncio.wait_for(
-                get_budget_status(), timeout=_BUDGET_TIMEOUT
-            )
+            budget_status = await asyncio.wait_for(get_budget_status(), timeout=_BUDGET_TIMEOUT)
             llm_budget = budget_status.get("openrouter", {})
             remaining = llm_budget.get("remaining", 0)
             limit = DAILY_LIMITS.get("openrouter", 1400)
@@ -95,9 +93,7 @@ async def readiness():
         except Exception as exc:
             checks["llm_budget"] = {"status": "unknown"}
             status = "degraded" if status == "healthy" else status
-            logger.warning(
-                "Health check: budget status error: %s", type(exc).__name__
-            )
+            logger.warning("Health check: budget status error: %s", type(exc).__name__)
 
     # 3. Circuit breaker state
     try:
@@ -110,9 +106,7 @@ async def readiness():
             status = "degraded" if status == "healthy" else status
     except Exception as exc:
         checks["circuit_breaker"] = {"status": "unknown", "provider": "openrouter"}
-        logger.warning(
-            "Health check: circuit breaker error: %s", type(exc).__name__
-        )
+        logger.warning("Health check: circuit breaker error: %s", type(exc).__name__)
 
     uptime = round(time.monotonic() - _start_time, 1)
 

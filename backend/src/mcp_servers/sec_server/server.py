@@ -31,7 +31,9 @@ def search_sec_filings(ticker: str, form_type: str = "10-K", count: int = 3) -> 
 
     form_type = form_type.strip().upper() if isinstance(form_type, str) else "10-K"
     if form_type not in _VALID_FORM_TYPES:
-        return [{"error": f"Unsupported form type: {form_type}", "data_gaps": ["form_type_validation"]}]
+        return [
+            {"error": f"Unsupported form type: {form_type}", "data_gaps": ["form_type_validation"]}
+        ]
 
     count = max(1, min(int(count), _MAX_COUNT))
 

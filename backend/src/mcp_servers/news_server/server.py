@@ -15,7 +15,15 @@ log = logging.getLogger(__name__)
 
 mcp = FastMCP("news-server")
 
-_VALID_CATEGORIES = {"business", "technology", "science", "health", "general", "entertainment", "sports"}
+_VALID_CATEGORIES = {
+    "business",
+    "technology",
+    "science",
+    "health",
+    "general",
+    "entertainment",
+    "sports",
+}
 
 
 def _validate_ticker(ticker: str) -> str:

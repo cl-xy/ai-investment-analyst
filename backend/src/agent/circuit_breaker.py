@@ -124,9 +124,7 @@ class CircuitBreaker:
             state = self._refresh_state_locked()
 
             if state == CircuitState.OPEN:
-                retry_after = self.recovery_seconds - (
-                    time.monotonic() - self._last_failure_time
-                )
+                retry_after = self.recovery_seconds - (time.monotonic() - self._last_failure_time)
                 raise CircuitBreakerOpen(retry_after=max(0, retry_after))
 
             if state == CircuitState.HALF_OPEN:
@@ -228,8 +226,7 @@ class CircuitBreaker:
         self._rate_limit_calls += 1
         # EWMA: blend new observation (1.0 = rate limited) with history
         self._rate_limit_ewma = (
-            self._adaptation_alpha * 1.0
-            + (1 - self._adaptation_alpha) * self._rate_limit_ewma
+            self._adaptation_alpha * 1.0 + (1 - self._adaptation_alpha) * self._rate_limit_ewma
         )
         self._compute_adaptation()
 
@@ -237,8 +234,7 @@ class CircuitBreaker:
         """Record a successful (non-429) call for EWMA."""
         self._total_calls += 1
         self._rate_limit_ewma = (
-            self._adaptation_alpha * 0.0
-            + (1 - self._adaptation_alpha) * self._rate_limit_ewma
+            self._adaptation_alpha * 0.0 + (1 - self._adaptation_alpha) * self._rate_limit_ewma
         )
         self._compute_adaptation()
 
@@ -246,9 +242,7 @@ class CircuitBreaker:
         """Adjust recovery_seconds based on rate-limit pressure."""
         if self._rate_limit_ewma > 0.3:
             # High pressure: scale up to 3x
-            self._adaptation_factor = min(
-                3.0, 1.0 + (self._rate_limit_ewma - 0.3) * (2.0 / 0.7)
-            )
+            self._adaptation_factor = min(3.0, 1.0 + (self._rate_limit_ewma - 0.3) * (2.0 / 0.7))
         elif self._rate_limit_ewma < 0.1:
             # Low pressure: relax toward 1.0
             self._adaptation_factor = max(1.0, self._adaptation_factor * 0.95)

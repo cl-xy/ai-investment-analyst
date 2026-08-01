@@ -79,7 +79,9 @@ class CostAttributor:
         record.model_breakdown[model_type]["tokens"] += input_tokens + output_tokens
         record.model_breakdown[model_type]["cost"] += cost
 
-    async def flush(self, ticker: str, correlation_id: str | None = None) -> AnalysisCostRecord | None:
+    async def flush(
+        self, ticker: str, correlation_id: str | None = None
+    ) -> AnalysisCostRecord | None:
         """Persist the cost record for a completed analysis and clear session state."""
         record = self._current_session.pop(ticker, None)
         if not record:

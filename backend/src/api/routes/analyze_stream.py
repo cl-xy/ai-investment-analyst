@@ -275,9 +275,7 @@ async def _run_agent(
 
                         # Per-ticker cost attribution: attribute LLM call to
                         # the appropriate ticker based on current node context.
-                        _attr_model_type = (
-                            "router" if current_node == "router" else "analysis"
-                        )
+                        _attr_model_type = "router" if current_node == "router" else "analysis"
                         # Use fallback estimates when provider doesn't report usage
                         if not _input_tokens and not _output_tokens:
                             if current_node == "router":
@@ -411,7 +409,9 @@ async def _run_agent(
                                     ticker=_current_ticker,
                                     signal=turn_data.get("signal", "hold"),
                                     confidence=turn_data.get("confidence", "medium"),
-                                    verdict_rationale=_dedup_text(turn_data.get("verdict_rationale", "")),
+                                    verdict_rationale=_dedup_text(
+                                        turn_data.get("verdict_rationale", "")
+                                    ),
                                     key_disagreements=turn_data.get("key_disagreements", []),
                                     duration_ms=duration_ms,
                                 )
@@ -752,7 +752,9 @@ async def analyze_stream(
 
     # Check for reconnection (parse safely to avoid slot leak on bad header)
     # Support both headers (standard SSE) and query params (EventSource can't set headers)
-    last_event_id_header = request.headers.get("Last-Event-ID") or request.query_params.get("last_event_id")
+    last_event_id_header = request.headers.get("Last-Event-ID") or request.query_params.get(
+        "last_event_id"
+    )
     last_event_id: int | None = None
     if last_event_id_header:
         try:
@@ -763,7 +765,9 @@ async def analyze_stream(
                 status_code=400,
                 content={"error": "Invalid Last-Event-ID header"},
             )
-    resume_run_id = request.headers.get("X-Run-ID") or request.query_params.get("run_id")  # Client sends this on reconnect
+    resume_run_id = request.headers.get("X-Run-ID") or request.query_params.get(
+        "run_id"
+    )  # Client sends this on reconnect
 
     headers = {
         "Cache-Control": "no-cache",

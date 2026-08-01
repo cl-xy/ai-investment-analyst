@@ -26,7 +26,12 @@ NormalizedConfidence = Annotated[
 
 
 VALID_PROVIDERS: Final[tuple[str, ...]] = (
-    "yfinance", "newsapi", "sec_edgar", "alpha_vantage", "rss", "stocktwits",
+    "yfinance",
+    "newsapi",
+    "sec_edgar",
+    "alpha_vantage",
+    "rss",
+    "stocktwits",
 )
 
 

@@ -163,9 +163,7 @@ async def get_portfolio_value(prices: dict[str, float]) -> dict:
                     {**pos, "current_price": None, "position_value": None, "gain_pct": None}
                 )
 
-        unrealized_gain_pct = (
-            (total_value - total_cost) / total_cost * 100 if total_cost else 0.0
-        )
+        unrealized_gain_pct = (total_value - total_cost) / total_cost * 100 if total_cost else 0.0
         return {
             "total_value": total_value,
             "total_cost": total_cost,

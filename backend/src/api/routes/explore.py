@@ -27,7 +27,9 @@ _CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; investment-analyst/1.0)"}
 _CACHE: TTLCache = TTLCache(maxsize=1, ttl=300)  # 5-minute TTL for trending list
 _DETAIL_CACHE: TTLCache = TTLCache(maxsize=50, ttl=900)  # 15-minute TTL per ticker
-_DETAIL_LOCKS: dict[str, asyncio.Lock] = {}  # Plain dict; manual pruning prevents eviction of held locks
+_DETAIL_LOCKS: dict[
+    str, asyncio.Lock
+] = {}  # Plain dict; manual pruning prevents eviction of held locks
 _DETAIL_LOCK_MAX = 100
 _CACHE_KEY = "explore"
 _YF_EXECUTOR = ThreadPoolExecutor(max_workers=4)
@@ -121,9 +123,7 @@ async def _fetch_yf_info(ticker: str) -> dict:
             return {}
 
     try:
-        return await asyncio.wait_for(
-            loop.run_in_executor(_YF_EXECUTOR, _get), timeout=_YF_TIMEOUT
-        )
+        return await asyncio.wait_for(loop.run_in_executor(_YF_EXECUTOR, _get), timeout=_YF_TIMEOUT)
     except asyncio.TimeoutError:
         logger.warning("yfinance info timeout for %s", ticker)
         return {}
@@ -153,9 +153,7 @@ async def _fetch_yf_news(ticker: str) -> list[NewsItem]:
             return []
 
     try:
-        return await asyncio.wait_for(
-            loop.run_in_executor(_YF_EXECUTOR, _get), timeout=_YF_TIMEOUT
-        )
+        return await asyncio.wait_for(loop.run_in_executor(_YF_EXECUTOR, _get), timeout=_YF_TIMEOUT)
     except asyncio.TimeoutError:
         logger.warning("yfinance news timeout for %s", ticker)
         return []
@@ -226,7 +224,7 @@ async def get_stock_detail(request: Request, ticker: str) -> StockDetail:
         # Prune unlocked entries if pool is full (safe: never evicts held locks)
         if len(_DETAIL_LOCKS) >= _DETAIL_LOCK_MAX:
             idle = [k for k, lk in _DETAIL_LOCKS.items() if not lk.locked()]
-            for k in idle[:len(idle) // 2]:
+            for k in idle[: len(idle) // 2]:
                 del _DETAIL_LOCKS[k]
         _DETAIL_LOCKS[ticker] = asyncio.Lock()
     lock = _DETAIL_LOCKS[ticker]

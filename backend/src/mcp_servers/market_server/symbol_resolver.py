@@ -58,8 +58,12 @@ def resolve_symbol(bare_ticker: str) -> str | None:
         is_yf = quote.get("isYahooFinance", False)
         if symbol and is_yf and symbol.upper() != key:
             resolved = symbol.upper()
-            log.info("symbol_resolved bare=%s resolved=%s exchange=%s",
-                     key, resolved, quote.get("exchDisp", "unknown"))
+            log.info(
+                "symbol_resolved bare=%s resolved=%s exchange=%s",
+                key,
+                resolved,
+                quote.get("exchDisp", "unknown"),
+            )
             with _cache_lock:
                 _symbol_cache[key] = resolved
             return resolved

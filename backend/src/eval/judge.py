@@ -85,8 +85,7 @@ async def score_analysis(analysis: dict[str, Any]) -> JudgeScore:
     # Handle content blocks (list of dicts) from some LangChain versions
     if isinstance(content, list):
         content = "".join(
-            block.get("text", "") if isinstance(block, dict) else str(block)
-            for block in content
+            block.get("text", "") if isinstance(block, dict) else str(block) for block in content
         )
     raw = str(content).strip()
     # Strip markdown fences if the model wraps its JSON

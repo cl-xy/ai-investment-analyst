@@ -25,6 +25,7 @@ _WAIT_TIMEOUT = 200.0
 @dataclass
 class _Flight:
     """A single in-flight or recently-completed analysis."""
+
     future: asyncio.Future
     created_at: float = field(default_factory=time.monotonic)
     completed_at: float | None = None
@@ -56,7 +57,10 @@ class Singleflight:
                 if not flight.future.done():
                     log.info("singleflight_join", key=key)
                     # Join existing in-flight request
-                elif flight.completed_at and (time.monotonic() - flight.completed_at) < self._result_ttl:
+                elif (
+                    flight.completed_at
+                    and (time.monotonic() - flight.completed_at) < self._result_ttl
+                ):
                     log.info("singleflight_cached", key=key)
                     # Return cached result
                     return flight.future.result()
@@ -93,10 +97,7 @@ class Singleflight:
             # Wait for the owner to complete
             flight = self._flights[key]
             try:
-                return await asyncio.wait_for(
-                    asyncio.shield(flight.future),
-                    timeout=_WAIT_TIMEOUT
-                )
+                return await asyncio.wait_for(asyncio.shield(flight.future), timeout=_WAIT_TIMEOUT)
             except asyncio.TimeoutError:
                 log.warning("singleflight_timeout", key=key)
                 raise
@@ -105,7 +106,8 @@ class Singleflight:
         """Remove completed flights past their TTL. Must hold _lock."""
         now = time.monotonic()
         expired = [
-            k for k, f in self._flights.items()
+            k
+            for k, f in self._flights.items()
             if f.completed_at and (now - f.completed_at) > self._result_ttl
         ]
         for k in expired:
@@ -115,21 +117,14 @@ class Singleflight:
     def in_flight(self) -> dict[str, float]:
         """Return currently in-flight keys with their age in seconds."""
         now = time.monotonic()
-        return {
-            k: now - f.created_at
-            for k, f in self._flights.items()
-            if not f.future.done()
-        }
+        return {k: now - f.created_at for k, f in self._flights.items() if not f.future.done()}
 
     @property
     def stats(self) -> dict[str, int]:
         """Return coalescing statistics for the ops dashboard."""
         total = len(self._flights)
         active = sum(1 for f in self._flights.values() if not f.future.done())
-        cached = sum(
-            1 for f in self._flights.values()
-            if f.future.done() and f.completed_at
-        )
+        cached = sum(1 for f in self._flights.values() if f.future.done() and f.completed_at)
         return {"active": active, "cached": cached, "total": total}
 
 

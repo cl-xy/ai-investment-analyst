@@ -129,13 +129,17 @@ def _get_fundamentals_cached(ticker: str) -> dict:
         except Exception:
             resolved = None
         if resolved:
-            log.info("market-server: retrying fundamentals with resolved symbol %s -> %s", key, resolved)
+            log.info(
+                "market-server: retrying fundamentals with resolved symbol %s -> %s", key, resolved
+            )
             try:
                 data = _call_with_retry(yf_client.get_fundamentals, resolved)
                 if data and isinstance(data, dict):
                     data["ticker"] = key
             except Exception:
-                log.warning("market-server: resolved symbol %s also failed for fundamentals", resolved)
+                log.warning(
+                    "market-server: resolved symbol %s also failed for fundamentals", resolved
+                )
                 data = {}
 
     if data:

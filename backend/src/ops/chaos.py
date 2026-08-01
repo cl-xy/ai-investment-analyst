@@ -36,7 +36,9 @@ class ChaosScenario:
 class ChaosConfig:
     """Global chaos configuration. Thread-safe access."""
 
-    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
+    _lock: threading.Lock = field(
+        default_factory=threading.Lock, init=False, repr=False, compare=False
+    )
 
     llm_timeout: ChaosScenario = field(
         default_factory=lambda: ChaosScenario(

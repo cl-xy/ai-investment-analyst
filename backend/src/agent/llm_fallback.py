@@ -185,14 +185,14 @@ async def invoke_with_fallback(
         )
 
     # Try fallback model (uses separate breaker so primary failures don't block it)
-    fallback_llm = _build_llm(fallback, temperature, max_tokens, request_timeout, effective_json_mode)
+    fallback_llm = _build_llm(
+        fallback, temperature, max_tokens, request_timeout, effective_json_mode
+    )
     fallback_runnable: ChatOpenAI | Runnable = (
         fallback_llm.bind_tools(tools) if tools else fallback_llm
     )
     try:
-        result = await _invoke_with_retry(
-            fallback_runnable, messages, breaker=_fallback_breaker
-        )
+        result = await _invoke_with_retry(fallback_runnable, messages, breaker=_fallback_breaker)
         log.info("fallback_model_succeeded model=%s", fallback)
         return result
     except Exception as fallback_exc:
