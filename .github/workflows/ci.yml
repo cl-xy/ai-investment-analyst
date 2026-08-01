@@ -16,14 +16,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
       - run: pip install ruff mypy
       - run: ruff check src/
       - run: ruff format --check src/
       - run: pip install -e ".[dev]"
-      - name: Remove numpy stubs (py3.12 type syntax breaks mypy on 3.11)
-        run: find $(pip show numpy | grep Location | cut -d' ' -f2)/numpy -name '*.pyi' -delete 2>/dev/null || true
       - run: mypy src/ --ignore-missing-imports --no-error-summary
 
   lint-frontend:
