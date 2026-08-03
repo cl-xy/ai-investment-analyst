@@ -122,7 +122,7 @@ def _build_llm(
         max_tokens=max_tokens,  # type: ignore[call-arg]
         base_url=settings.llm_base_url,
         api_key=api_key,  # type: ignore[arg-type]
-        model_kwargs={**kwargs, "repetition_penalty": 1.15},
+        model_kwargs=kwargs,
         request_timeout=request_timeout,  # type: ignore[call-arg]
     )
 
