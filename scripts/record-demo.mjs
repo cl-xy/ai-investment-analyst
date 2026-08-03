@@ -61,22 +61,39 @@ async function cleanOverlays(page) {
 async function recordDemoGif() {
   console.log('🎬 Recording demo GIF source...')
   const browser = await chromium.launch({ headless: true })
-  const context = await browser.newContext({
+
+  // Use an unrecorded context to load the page first, then start recording
+  // after the UI is fully rendered. This eliminates the black opening frame.
+  const setupContext = await browser.newContext({
     viewport: { width: 960, height: 540 },
-    recordVideo: { dir: ASSETS_DIR, size: { width: 960, height: 540 } },
     colorScheme: 'dark',
   })
-
-  const page = await context.newPage()
+  const setupPage = await setupContext.newPage()
 
   // Pre-seed localStorage to suppress onboarding
-  await page.addInitScript(() => {
+  await setupPage.addInitScript(() => {
     localStorage.setItem('invest-state:tour-completed', 'true')
     localStorage.setItem('invest-hint-dismissed:watchlist-input', 'true')
     localStorage.setItem('invest-hint-dismissed:trace-panel', 'true')
     localStorage.setItem('invest-hint-dismissed:ops-nav', 'true')
     localStorage.setItem('invest-hint-dismissed:dashboard-card', 'true')
   })
+
+  await setupPage.goto(BASE_URL)
+  await setupPage.waitForLoadState('networkidle')
+  const storageState = await setupContext.storageState()
+  await setupPage.close()
+  await setupContext.close()
+
+  // Now start the recorded context (page already cached, loads instantly)
+  const context = await browser.newContext({
+    viewport: { width: 960, height: 540 },
+    recordVideo: { dir: ASSETS_DIR, size: { width: 960, height: 540 } },
+    colorScheme: 'dark',
+    storageState,
+  })
+
+  const page = await context.newPage()
 
   await page.goto(BASE_URL)
   await page.waitForLoadState('networkidle')
@@ -114,14 +131,14 @@ async function recordDemoGif() {
   // The data-fetch phase (5-14s) is visually rich with tool calls firing.
   // Once "Running investment debate..." shows up, the UI stalls on a spinner
   // for 90-120s which looks terrible in a looping GIF.
-  const debateOrTimeout = await Promise.race([
+  // Safety cap reduced to 12s to avoid a long static stretch if tools finish fast.
+  await Promise.race([
     page.locator('text=Running investment debate').waitFor({ timeout: 30000 }),
-    sleep(18000), // safety cap: if debate never appears, stop after 18s
+    sleep(12000), // safety cap: cut after 12s max of trace streaming
   ]).catch(() => null)
 
-  // If debate text appeared, we caught it just in time. Either way,
-  // hold 1.5s so the last completed tool calls are visible before cut.
-  await sleep(1500)
+  // Brief hold so the last completed tool calls are visible before cut.
+  await sleep(800)
 
   // Finalize
   const videoPath = await page.video()?.path()
@@ -144,22 +161,34 @@ async function recordDemoGif() {
 async function recordWalkthrough() {
   console.log('🎬 Recording walkthrough video...')
   const browser = await chromium.launch({ headless: true })
-  const context = await browser.newContext({
+
+  // Load page in unrecorded context first to eliminate black opening frame
+  const setupContext = await browser.newContext({
     viewport: { width: 1920, height: 1080 },
-    recordVideo: { dir: ASSETS_DIR, size: { width: 1920, height: 1080 } },
     colorScheme: 'dark',
   })
-
-  const page = await context.newPage()
-
-  // Pre-seed localStorage
-  await page.addInitScript(() => {
+  const setupPage = await setupContext.newPage()
+  await setupPage.addInitScript(() => {
     localStorage.setItem('invest-state:tour-completed', 'true')
     localStorage.setItem('invest-hint-dismissed:watchlist-input', 'true')
     localStorage.setItem('invest-hint-dismissed:trace-panel', 'true')
     localStorage.setItem('invest-hint-dismissed:ops-nav', 'true')
     localStorage.setItem('invest-hint-dismissed:dashboard-card', 'true')
   })
+  await setupPage.goto(BASE_URL)
+  await setupPage.waitForLoadState('networkidle')
+  const walkStorageState = await setupContext.storageState()
+  await setupPage.close()
+  await setupContext.close()
+
+  const context = await browser.newContext({
+    viewport: { width: 1920, height: 1080 },
+    recordVideo: { dir: ASSETS_DIR, size: { width: 1920, height: 1080 } },
+    colorScheme: 'dark',
+    storageState: walkStorageState,
+  })
+
+  const page = await context.newPage()
 
   // Scene 1: Home page (2s)
   await page.goto(BASE_URL)
@@ -188,9 +217,9 @@ async function recordWalkthrough() {
   // Cut before debate spinner, same logic as GIF recording
   await Promise.race([
     page.locator('text=Running investment debate').waitFor({ timeout: 25000 }),
-    sleep(16000),
+    sleep(12000),
   ]).catch(() => null)
-  await sleep(1000)
+  await sleep(800)
 
   // Scene 4: Jump to completed results (use dashboard link to show past analysis)
   // Navigate to dashboard to show completed analyses
@@ -260,12 +289,12 @@ console.log('━━━━━━━━━━━━━━━━━━━━━━�
 console.log('Post-processing commands:')
 console.log('')
 console.log('  # GIF (target <5MB for GitHub README)')
-console.log('  ffmpeg -y -i docs/assets/demo-raw.webm \\')
+console.log('  ffmpeg -y -ss 1.2 -i docs/assets/demo-raw.webm \\')
 console.log('    -vf "fps=12,scale=960:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=192[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3" \\')
 console.log('    -loop 0 docs/assets/demo.gif')
 console.log('')
 console.log('  # MP4 (h264, web-optimized)')
-console.log('  ffmpeg -y -i docs/assets/walkthrough-raw.webm \\')
+console.log('  ffmpeg -y -ss 0.3 -i docs/assets/walkthrough-raw.webm \\')
 console.log('    -c:v libx264 -preset slow -crf 22 -pix_fmt yuv420p \\')
 console.log('    -movflags +faststart docs/assets/walkthrough.mp4')
 console.log('')

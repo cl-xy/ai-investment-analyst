@@ -25,6 +25,20 @@ const DEMO_URL = process.env.DEMO_URL || 'https://ai-investment-analyst-iota.ver
 const DEMO_PASSWORD = process.env.DEMO_PASSWORD || 'investor2026';
 const OUTPUT_DIR = path.resolve(__dirname, '../docs/assets');
 
+/** Remove overlays that block clicks (tour spotlight, contextual hints) */
+async function cleanOverlays(page: any) {
+  await page.evaluate(() => {
+    const tour = document.getElementById('tour-portal');
+    if (tour) tour.remove();
+    document.querySelectorAll('[role="tooltip"]').forEach((el: Element) => el.remove());
+    localStorage.setItem('invest-state:tour-completed', 'true');
+    ['watchlist-input', 'trace-panel', 'ops-nav', 'dashboard-card'].forEach((id) => {
+      localStorage.setItem(`invest-hint-dismissed:${id}`, 'true');
+    });
+  });
+  await page.waitForTimeout(200);
+}
+
 async function main() {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
@@ -69,17 +83,21 @@ async function main() {
   // --- Scene 1: Watchlist (5s) ---
   console.log('[0s] Showing watchlist...');
   await page.goto(DEMO_URL);
-  await page.waitForTimeout(4000);
+  await page.waitForLoadState('networkidle');
+  await cleanOverlays(page);
+  await page.waitForTimeout(3500);
 
   // --- Scene 2: Trace Replay - Featured Demo (20s) ---
   console.log('[5s] Opening Trace Replay...');
   await page.goto(`${DEMO_URL}/replay`);
+  await page.waitForLoadState('networkidle');
+  await cleanOverlays(page);
   await page.waitForTimeout(1500);
 
   const featuredBtn = page.locator('button:has-text("Featured Demo"), button:has-text("featured")').first();
   if (await featuredBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
     console.log('[7s] Loading featured trace...');
-    await featuredBtn.click();
+    await featuredBtn.click({ force: true });
 
     // Wait for content to actually load
     try {
@@ -118,7 +136,9 @@ async function main() {
   // --- Scene 3: Ops Dashboard (15s) ---
   console.log('[25s] Opening Ops Dashboard...');
   await page.goto(`${DEMO_URL}/ops`);
-  await page.waitForTimeout(4000);
+  await page.waitForLoadState('networkidle');
+  await cleanOverlays(page);
+  await page.waitForTimeout(3500);
 
   // Scroll through the dashboard
   await page.evaluate(() => window.scrollBy(0, 300));
@@ -164,7 +184,9 @@ async function main() {
   // --- Scene 6: End on watchlist (5s) ---
   console.log('[65s] Back to watchlist...');
   await page.goto(DEMO_URL);
-  await page.waitForTimeout(4000);
+  await page.waitForLoadState('networkidle');
+  await cleanOverlays(page);
+  await page.waitForTimeout(3500);
 
   // --- Done ---
   console.log('[70s] Stopping recording...');
