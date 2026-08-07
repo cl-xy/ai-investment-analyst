@@ -62,6 +62,9 @@ export default function DebatePanel({ ticker }: DebatePanelProps) {
           <span className="text-sm font-semibold text-[var(--text-primary)]">
             Investment Committee Debate
           </span>
+          <span className="text-xs font-mono font-medium text-[var(--text-secondary)]">
+            {ticker}
+          </span>
           {debate.isActive && (
             <span className="flex items-center gap-1 text-[10px] font-medium text-[var(--live)] uppercase tracking-wider">
               <span className="w-1.5 h-1.5 rounded-full bg-[var(--live)] animate-pulse" />
