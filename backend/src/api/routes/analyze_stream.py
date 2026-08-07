@@ -720,10 +720,10 @@ async def analyze_stream(
             content={"detail": f"Invalid ticker symbols: {', '.join(invalid)}"},
         )
 
-    if len(ticker_list) > 3:
+    if len(ticker_list) > 4:
         return JSONResponse(
             status_code=400,
-            content={"detail": "Maximum 3 tickers per streaming analysis request"},
+            content={"detail": "Maximum 4 tickers per streaming analysis request"},
         )
 
     # Acquire concurrency slot

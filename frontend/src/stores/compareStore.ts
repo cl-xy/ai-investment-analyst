@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 
 const MIN_SLOTS = 2
-const MAX_SLOTS = 3
+const MAX_SLOTS = 4
 const DEFAULT_TICKERS: string[] = ['', '']
 
 interface CompareStore {

@@ -180,7 +180,7 @@ export default function ComparePage() {
           </h1>
         </div>
         <p className="text-sm text-[var(--text-muted)]">
-          Enter 2-3 tickers to see a side-by-side comparison of signals, sentiment, and risk.
+          Enter 2-4 tickers to see a side-by-side comparison of signals, sentiment, and risk.
         </p>
       </div>
 
@@ -242,7 +242,7 @@ export default function ComparePage() {
           )
         })}
 
-        {tickers.length < 3 && (
+        {tickers.length < 4 && (
           <button
             onClick={addSlot}
             aria-label="Add ticker"
