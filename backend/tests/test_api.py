@@ -45,7 +45,7 @@ class TestStreamEndpoint:
         assert response.status_code == 400
         data = response.json()
         assert "detail" in data
-        assert "Maximum 3" in data["detail"]
+        assert "Maximum 4" in data["detail"]
 
     def test_stream_accepts_valid_tickers(self, client):
         # This will fail to connect to the actual agent, but validates input

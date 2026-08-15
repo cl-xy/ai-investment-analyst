@@ -198,23 +198,23 @@ class TestInvalidTickerReturnsError:
 
 
 class TestTooManyTickersRejected:
-    """More than 3 tickers returns error."""
+    """More than 4 tickers returns error."""
 
     def test_too_many_tickers_rejected(self, client):
-        """More than 3 tickers returns error."""
-        response = client.get("/api/analyze/stream?tickers=A,B,C,D")
+        """More than 4 tickers returns error."""
+        response = client.get("/api/analyze/stream?tickers=A,B,C,D,E")
         assert response.status_code == 400
         data = response.json()
         assert "detail" in data
-        assert "Maximum 3" in data["detail"]
+        assert "Maximum 4" in data["detail"]
 
-    def test_exactly_three_tickers_accepted(self, client):
-        """Exactly 3 tickers should be accepted (not rejected)."""
-        response = client.get("/api/analyze/stream?tickers=A,B,C")
-        # Should not contain a validation error about "Maximum 3"
+    def test_exactly_four_tickers_accepted(self, client):
+        """Exactly 4 tickers should be accepted (not rejected)."""
+        response = client.get("/api/analyze/stream?tickers=A,B,C,D")
+        # Should not contain a validation error about "Maximum 4"
         if response.headers.get("content-type", "").startswith("application/json"):
             data = response.json()
-            assert "Maximum 3" not in data.get("detail", "")
+            assert "Maximum 4" not in data.get("detail", "")
 
 
 class TestClientDisconnectCancelsTask:

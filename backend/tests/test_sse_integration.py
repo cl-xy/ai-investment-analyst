@@ -156,11 +156,11 @@ class TestSSEEventContract:
         assert "Invalid ticker" in data["detail"]
 
     def test_stream_rejects_too_many_tickers(self, client):
-        """More than 3 tickers should be rejected."""
+        """More than 4 tickers should be rejected."""
         response = client.get("/api/analyze/stream?tickers=A,B,C,D,E,F")
         assert response.status_code == 400
         data = response.json()
-        assert "Maximum 3" in data["detail"]
+        assert "Maximum 4" in data["detail"]
 
     def test_stream_headers(self, client):
         """SSE responses need correct headers to prevent buffering."""
