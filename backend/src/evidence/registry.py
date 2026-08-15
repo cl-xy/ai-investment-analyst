@@ -422,6 +422,8 @@ async def get_audit_bundle(run_id: str) -> dict[str, Any] | None:
 
     # Compute bundle integrity hash (excludes the hash field itself)
     bundle_content = json.dumps(bundle, sort_keys=True, separators=(",", ":"), default=str)
-    bundle["integrity"]["bundle_hash"] = hashlib.sha256(bundle_content.encode()).hexdigest()
+    bundle["integrity"]["bundle_hash"] = hashlib.sha256(  # type: ignore[index,call-overload]
+        bundle_content.encode()
+    ).hexdigest()
 
     return bundle
