@@ -83,3 +83,12 @@ repos:
     hooks:
       - id: hadolint-docker
         args: ["--ignore", "DL3008"]
+
+  - repo: local
+    hooks:
+      - id: ai-doctor
+        name: AI IDE architecture lint
+        entry: ai-doctor
+        language: system
+        always_run: true
+        pass_filenames: false

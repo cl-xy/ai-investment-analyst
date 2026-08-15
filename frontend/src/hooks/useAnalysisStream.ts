@@ -96,7 +96,6 @@ export function useAnalysisStream() {
 
       const es = new EventSource(url)
       eventSourceRef.current = es
-      setSaving()
 
       const handleEvent = (e: MessageEvent) => {
         // Guard: ignore events from stale connections
@@ -123,6 +122,7 @@ export function useAnalysisStream() {
           if (event.type === 'analysis_complete') {
             const payload = event.payload as unknown as AnalysisCompletePayload
             setAnalysis(payload.ticker, payload.analysis)
+            setSaving()
           }
 
           // Debate events

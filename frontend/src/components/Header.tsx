@@ -3,6 +3,7 @@ import { TrendingUp, Menu, X, ChevronDown } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { ThemeSwitcher } from './ThemeSwitcher'
 import { SaveStatusChip } from './SaveStatusChip'
+import { useSaveStatusStore } from '../stores/saveStatusStore'
 
 const PRIMARY_NAV = [
   { to: '/', label: 'Analyze' },
@@ -37,6 +38,12 @@ export default function Header() {
   useEffect(() => {
     setOpenDropdownId(null)
   }, [pathname])
+
+  // Clear transient save status on route change (BUG 2 fix)
+  const setIdle = useSaveStatusStore((s) => s.setIdle)
+  useEffect(() => {
+    setIdle()
+  }, [pathname, setIdle])
 
   const handleDropdownToggle = useCallback((id: string) => {
     setOpenDropdownId((prev) => (prev === id ? null : id))

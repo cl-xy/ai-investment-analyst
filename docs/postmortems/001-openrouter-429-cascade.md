@@ -1,7 +1,7 @@
 # Incident 001: OpenRouter 429 Cascade
 
 **Date:** 2026-03-14
-**Duration:** 12 minutes (3 min hard outage, 9 min degraded)
+**Duration:** 11 minutes (4 min hard outage, 7 min degraded)
 **Severity:** SEV-2 (partial service outage)
 **Correlation ID:** `corr_8f3a2b1c-429d-4e5f-9a1b-2c3d4e5f6a7b`
 
@@ -35,8 +35,8 @@ The core issue: rate limiting is a signal to slow down, not a signal that the se
 
 ## Impact
 
-- 3 minutes of complete service unavailability (all requests returned 503)
-- 9 minutes of degraded service (intermittent 429s on live analyses, cached responses working)
+- 4 minutes of complete service unavailability (all requests returned 503)
+- 7 minutes of degraded service (intermittent 429s on live analyses, cached responses working)
 - Approximately 47 unique users affected based on Fly.io access logs
 - No data loss or corruption
 
@@ -60,7 +60,7 @@ Follow-up (next week):
 
 3. **Free-tier services can change limits without notice.** OpenRouter's status page updated after the limit change, not before. We need to handle sudden limit reductions gracefully.
 
-4. **The 60-second window was borderline.** Five failures in 60 seconds is normal variance on a rate-limited free tier. Considered widening the window, but ultimately the real fix was removing 429s from the failure count entirely. With only true server errors counting, 5/60s is a reasonable threshold.
+4. **The 60-second window was borderline.** Five failures in 60 seconds is normal variance on a rate-limited free tier. Considered widening the window, but the real fix was removing 429s from the failure count entirely. With only true server errors counting, 5/60s is a reasonable threshold.
 
 ## Action Items
 

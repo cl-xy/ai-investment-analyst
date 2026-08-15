@@ -30,7 +30,7 @@ Rate limiter exhaustion (timeout waiting for a slot) raises `CircuitBreakerOpen`
 - **5 failures, not 3.** With 3 sequential calls per debate and the 4-second inter-call delay, a single bad minute could produce 3 failures from one analysis attempt. Threshold of 5 ensures we don't trip from a single analysis timing out, only from a genuine provider outage.
 - **60-second window matches rate limit period.** OpenRouter measures rate limits per minute. Aligning the circuit breaker window means one bad minute opens the circuit, protecting the next minute's budget.
 - **30-second recovery is fast enough.** Free-tier outages are typically either very short (10-30s, worker recycling) or very long (hours, model taken offline). 30s catches the short ones without over-waiting.
-- **Lock prevents thundering herd.** Without it, 3 coroutines (bull, bear, moderator) could all see HALF_OPEN simultaneously and all make probe calls, wasting 3 rate limit slots on a potentially dead provider.
+- **Lock prevents thundering herd.** Without it, 3 coroutines (bull, bear, CIO) could all see HALF_OPEN simultaneously and all make probe calls, wasting 3 rate limit slots on a potentially dead provider.
 
 ## Consequences
 

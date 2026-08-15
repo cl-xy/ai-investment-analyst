@@ -7,7 +7,7 @@
 
 ![Demo](docs/assets/demo.gif)
 
-**[Live Demo](https://ai-investment-analyst-iota.vercel.app)** · Password: `investor2026` · [90s Video Walkthrough](#walkthrough)
+**[Live Demo](https://ai-investment-analyst-iota.vercel.app)** · Password: `investor2026` · [Video Walkthrough](#walkthrough)
 
 ---
 
@@ -50,7 +50,7 @@ The interesting engineering isn't the features. It's the failure handling, obser
 │  │  (20B)      (6 tools ∥)    Bull → Bear → CIO     (120B)    (if 2+)  │ │
 │  │                             (120B x3, sequential)                     │ │
 │  │                                                                       │ │
-│  │  Circuit Breaker: trip@5 failures, 60s recovery, half-open probe     │ │
+│  │  Circuit Breaker: trip@5 server errors/60s, 30s recovery, half-open  │ │
 │  │  Rate Limiter: token bucket, per-IP + global caps                    │ │
 │  │  Budget Guard: daily LLM call ceiling, stale-cache fallback          │ │
 │  └───────────────────────────────────────────────────────────────────────┘ │
@@ -85,7 +85,7 @@ This project is designed around real constraints, not unlimited API budgets:
 | Free-tier model quality | Occasional malformed JSON, hallucinated data | JSON mode + Pydantic validation + 1 retry + fallback extraction + data_gaps disclosure |
 | Nondeterministic LLM outputs | Hard to test, hard to reproduce bugs | Trace recording + deterministic replay + golden fixture tests + promptfoo eval suite |
 
-Every constraint produced a better architecture than "throw money at it" would have.
+The constraints shaped the architecture more than any budget could have.
 
 ---
 
@@ -93,7 +93,7 @@ Every constraint produced a better architecture than "throw money at it" would h
 
 Enter a ticker symbol and watch an adversarial investment committee debate in real-time:
 
-1. **Router** classifies intent and extracts tickers (GPT-OSS 20B, ~100ms)
+1. **Router** classifies intent and extracts tickers (GPT-OSS 20B, sub-second)
 2. **Fetch Data** calls 6 tools across 5 MCP servers in parallel (market quotes, fundamentals, indicators, news, SEC filings, StockTwits sentiment)
 3. **Bull Analyst** builds the strongest possible long case with cited evidence
 4. **Bear Analyst** rebuts the bull case point-by-point and argues the short case
@@ -108,8 +108,12 @@ Every step streams to the frontend via SSE with domain-specific events. The deba
 - **Trace replay**: Step through any past analysis like a debugger (play/pause/rewind/speed control)
 - **Ops dashboard**: Live SLOs, circuit breaker state, budget consumption, error rates
 - **Correlation IDs**: Every request traced end-to-end from frontend through LangGraph to MCP tools
-- **Circuit breaker**: Trips at 5 failures within 60s, serves cached results, probes recovery
+- **Circuit breaker**: Trips at 5 server errors within 60s (rate limits excluded), 30s recovery, half-open probe
 - **Stale-while-revalidate cache**: Never shows "loading" for previously-analyzed tickers
+- **Singleflight coalescing**: Concurrent requests for the same ticker share one in-flight analysis instead of stampeding
+- **Adaptive rate limit tracking**: EWMA-based 429 monitoring adjusts request spacing without tripping the breaker
+- **Fly-Replay SSE pinning**: Reconnecting SSE clients are routed back to the machine holding their stream state
+- **Per-ticker cost attribution**: Every LLM call is tagged with the ticker and user context for budget accounting
 
 ### Track Record
 
@@ -119,7 +123,7 @@ Every signal is a prediction. After 30 days, the system checks the actual market
 - Hit rate by confidence bucket (does "high confidence" actually mean high accuracy?)
 - Full prediction ledger with wrong calls unhidden
 
-The system is epistemically honest: it shows you when it was wrong.
+It shows you when it was wrong, not just when it was right.
 
 ---
 
@@ -136,7 +140,7 @@ Detailed rationale in [`docs/adr/`](docs/adr/). Summary:
 | Structured output | JSON mode + Pydantic + retry | Schema validation prevents silent data corruption |
 | Caching | PostgreSQL stale-while-revalidate | One fewer service, JSONB flexibility, transactional consistency |
 | Observability | Custom in-app (no paid SaaS) | Metrics collector + trace store + SLO computation in Postgres |
-| Failure handling | Circuit breaker + graceful degradation | Every layer has a fallback; never crashes, always communicates |
+| Failure handling | Circuit breaker + graceful degradation | Each layer degrades independently; partial results over blank screens |
 
 ---
 

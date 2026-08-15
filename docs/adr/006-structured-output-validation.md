@@ -5,7 +5,7 @@
 
 ## Context
 
-Every LLM call in the pipeline produces structured data: router intent classification, bull/bear debate arguments, moderator verdicts, and final reports. These outputs feed directly into downstream agent nodes, the cache layer, and the frontend via SSE events.
+Every LLM call in the pipeline produces structured data: router intent classification, bull/bear debate arguments, CIO verdicts, and final reports. These outputs feed directly into downstream agent nodes, the cache layer, and the frontend via SSE events.
 
 LLMs are unreliable format producers. Common failure modes: wrapping JSON in markdown code fences, truncating output (missing closing braces), inventing fields not in the schema, omitting required fields, and inconsistent nested structures.
 

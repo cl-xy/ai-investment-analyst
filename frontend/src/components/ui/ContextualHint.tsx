@@ -89,7 +89,7 @@ export default function ContextualHint({ message, targetSelector, onDismiss }: C
       ref={tooltipRef}
       role="tooltip"
       aria-live="polite"
-      className="fixed z-[100] max-w-xs transition-all duration-200 ease-out"
+      className="fixed z-[100] max-w-xs transition-all duration-200 ease-out pointer-events-none"
       style={{
         top: position ? `${position.top}px` : '-9999px',
         left: position ? `${position.left}px` : '0',
@@ -97,10 +97,9 @@ export default function ContextualHint({ message, targetSelector, onDismiss }: C
         transform: visible && position
           ? 'translateY(0)'
           : position?.above ? 'translateY(8px)' : 'translateY(-8px)',
-        pointerEvents: visible ? 'auto' : 'none',
       }}
     >
-      <div className="relative rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] shadow-lg px-4 py-3">
+      <div className="relative rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] shadow-lg px-4 py-3 pointer-events-auto">
         {/* Arrow */}
         <div
           className="absolute w-2.5 h-2.5 border border-[var(--border)] bg-[var(--surface-elevated)] rotate-45"

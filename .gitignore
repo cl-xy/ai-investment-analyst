@@ -32,3 +32,9 @@ CLAUDE.md
 # IDE
 .vscode/
 .idea/
+
+# Kiro + AGENTS.md
+.kiro/
+AGENTS.md
+opencode.json
+.opencode/

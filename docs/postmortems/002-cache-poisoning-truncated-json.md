@@ -1,9 +1,9 @@
 # Incident 002: Cache Poisoning from Truncated LLM JSON
 
 **Date:** 2026-04-22
-**Duration:** ~4 hours (silent data corruption)
+**Duration:** ~3 hours 45 minutes (silent data corruption until manual invalidation)
 **Severity:** SEV-3 (data quality degradation, no service outage)
-**Correlation ID:** `corr_2d4f6a8b-0c1e-4a3c-5b7d-9e1f3a5b7c9d`
+**Correlation ID:** `corr_2d4f6a8b-0c1e-4a3c-5b7d-9e1f3a5c7d9e`
 
 ## Summary
 
@@ -37,7 +37,7 @@ Three factors combined:
 
 ## Impact
 
-- TSLA analysis served without bear case or risk flags for approximately 3.5 hours
+- TSLA analysis served without bear case or risk flags for approximately 3 hours 45 minutes (09:16 to 13:01)
 - Estimated 12 unique users saw the incomplete analysis (based on request logs)
 - No other tickers affected (TSLA's verbose output was uniquely long enough to hit the token limit)
 - No service outage, no errors in logs (the failure was silent)

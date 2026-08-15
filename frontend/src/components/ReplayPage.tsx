@@ -403,10 +403,18 @@ function ReplayControls({
           </button>
 
           <button
-            onClick={isPlaying ? onPause : onPlay}
-            disabled={isComplete}
-            className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--accent)] text-white hover:bg-[var(--accent)]/90 transition-colors disabled:opacity-50 focus-ring"
-            aria-label={isPlaying ? 'Pause' : 'Play'}
+            onClick={() => {
+              if (isComplete) {
+                onSeek(0)
+                onPlay()
+              } else if (isPlaying) {
+                onPause()
+              } else {
+                onPlay()
+              }
+            }}
+            className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--accent)] text-white hover:bg-[var(--accent)]/90 transition-colors focus-ring"
+            aria-label={isComplete ? 'Restart' : isPlaying ? 'Pause' : 'Play'}
           >
             {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
           </button>

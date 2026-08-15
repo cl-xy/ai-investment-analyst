@@ -144,7 +144,16 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
     })),
 
   setError: (error: string) =>
-    set({ error, isStreaming: false, currentNode: null }),
+    set((state) => {
+      // Clear all active debates on error so loading text doesn't persist
+      const debates = { ...state.debates }
+      for (const ticker of Object.keys(debates)) {
+        if (debates[ticker].isActive) {
+          debates[ticker] = { ...debates[ticker], isActive: false }
+        }
+      }
+      return { error, isStreaming: false, currentNode: null, debates }
+    }),
 
   addDebateTurn: (ticker: string, turn: DebateTurnPayload) =>
     set((state) => {

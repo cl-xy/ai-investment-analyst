@@ -33,6 +33,7 @@ from src.metrics import metrics
 from src.middleware.auth import limiter
 from src.middleware.cost_tracker import CostTracker
 from src.ops.cost_attribution import cost_attributor
+from src.ops.collector import collector
 
 router = APIRouter()
 
@@ -498,8 +499,24 @@ async def _run_agent(
     try:
         summary = tracker.summary()
 
-        if _run_succeeded:
-            metrics.observe("analysis_duration_seconds", summary["total_duration_ms"] / 1000)
+        # Record duration for ALL analyses (success + timeout + error)
+        duration_s = summary["total_duration_ms"] / 1000
+        outcome = "success" if _run_succeeded else "timeout" if _timed_out else "error"
+        metrics.observe("analysis_duration_seconds", duration_s, labels={"status": outcome})
+
+        # Also record to ops collector so /ops dashboard shows activity
+        collector.record_request(
+            endpoint="/api/analyze/stream",
+            status_code=200 if _run_succeeded else 504 if _timed_out else 500,
+            duration_ms=summary["total_duration_ms"],
+        )
+
+        # Flush cost attribution for all started tickers (even on timeout)
+        for ticker in tickers_upper:
+            try:
+                await cost_attributor.flush(ticker, correlation_id=correlation_id)
+            except Exception:
+                pass
 
         ev = emitter.run_completed(
             tickers_upper,
