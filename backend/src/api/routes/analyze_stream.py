@@ -482,6 +482,35 @@ async def _run_agent(
                         "Persistence failed: %s", persist_err
                     )
 
+                # Persist evidence artifacts and citation validations
+                run_evidence = state_values.get("run_evidence")
+                if run_evidence:
+                    try:
+                        from src.evidence.registry import (
+                            persist_citation_validation,
+                            persist_run_evidence,
+                        )
+
+                        await persist_run_evidence(run_evidence)
+
+                        # Persist citation validation for each ticker
+                        for _tk, _analysis in ticker_analyses.items():
+                            cv = _analysis.get("_citation_validation")
+                            if cv:
+                                await persist_citation_validation(
+                                    run_id=correlation_id or "unknown",
+                                    results=cv.get("results", []),
+                                    confidence_multiplier=cv.get("confidence_multiplier", 1.0),
+                                    original_confidence=cv.get("original_confidence", ""),
+                                    adjusted_confidence=cv.get("adjusted_confidence", cv.get("original_confidence", "")),
+                                )
+                    except Exception as ev_err:
+                        import logging as _logging
+
+                        _logging.getLogger("analyze_stream").warning(
+                            "Evidence persistence failed: %s", ev_err
+                        )
+
     except Exception as exc:
         metrics.inc("analyses_total", labels={"status": "error"})
         ev = emitter.error(str(exc), recoverable=False, context="agent_execution")

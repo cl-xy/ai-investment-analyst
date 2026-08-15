@@ -121,6 +121,14 @@ async def fetchval(query: str, *args):
     return await _with_retry(lambda p, q, *a: p.fetchval(q, *a), query, *args)
 
 
+async def executemany(query: str, args: list[tuple]) -> None:
+    """Execute a query for multiple rows (batch insert). Atomic: all-or-nothing."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.executemany(query, args)
+
+
 SCHEMA_SQL = """
 -- Analyses
 CREATE TABLE IF NOT EXISTS analyses (
@@ -287,6 +295,70 @@ CREATE TABLE IF NOT EXISTS cost_attribution (
 );
 CREATE INDEX IF NOT EXISTS idx_cost_attribution_ticker ON cost_attribution(ticker);
 CREATE INDEX IF NOT EXISTS idx_cost_attribution_created ON cost_attribution(created_at);
+
+-- Evidence Integrity Ledger: immutable artifact storage
+CREATE TABLE IF NOT EXISTS evidence_artifacts (
+    artifact_id     TEXT NOT NULL,
+    content_hash    TEXT NOT NULL,
+    provider        TEXT NOT NULL,
+    tool            TEXT NOT NULL,
+    ticker          TEXT NOT NULL,
+    run_id          TEXT NOT NULL,
+    retrieved_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    cache_hit       BOOLEAN NOT NULL DEFAULT FALSE,
+    payload_excerpt TEXT NOT NULL DEFAULT '',
+    payload_size    INTEGER NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (artifact_id, run_id)
+);
+CREATE INDEX IF NOT EXISTS idx_evidence_artifacts_run_id ON evidence_artifacts(run_id);
+CREATE INDEX IF NOT EXISTS idx_evidence_artifacts_ticker ON evidence_artifacts(ticker);
+CREATE INDEX IF NOT EXISTS idx_evidence_artifacts_content_hash ON evidence_artifacts(content_hash);
+
+-- Citation validation results per run
+CREATE TABLE IF NOT EXISTS citation_validations (
+    run_id          TEXT PRIMARY KEY,
+    validation_data JSONB NOT NULL DEFAULT '{}',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Distributed run ownership (replaces per-process _in_flight_tickers)
+CREATE TABLE IF NOT EXISTS analysis_runs (
+    run_id          TEXT PRIMARY KEY,
+    ticker          TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'running',
+    owner_machine   TEXT NOT NULL,
+    lease_expires   TIMESTAMPTZ NOT NULL,
+    started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at    TIMESTAMPTZ,
+    CONSTRAINT status_check CHECK (status IN ('running', 'completed', 'failed', 'abandoned'))
+);
+CREATE INDEX IF NOT EXISTS idx_analysis_runs_ticker_status ON analysis_runs(ticker, status);
+CREATE INDEX IF NOT EXISTS idx_analysis_runs_lease ON analysis_runs(lease_expires) WHERE status = 'running';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_runs_active_ticker ON analysis_runs(ticker) WHERE status = 'running';
+
+-- Distributed rate limiter (replaces per-process TokenBucket)
+CREATE TABLE IF NOT EXISTS rate_limit_state (
+    scope           TEXT PRIMARY KEY,
+    tokens          DOUBLE PRECISION NOT NULL,
+    capacity        DOUBLE PRECISION NOT NULL,
+    refill_rate     DOUBLE PRECISION NOT NULL,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Initialize OpenRouter rate limit bucket (20 req/min = 0.333 req/sec)
+INSERT INTO rate_limit_state (scope, tokens, capacity, refill_rate)
+VALUES ('openrouter', 10, 10, 0.333)
+ON CONFLICT (scope) DO UPDATE SET
+    capacity = EXCLUDED.capacity,
+    refill_rate = EXCLUDED.refill_rate;
+
+-- Enhanced calibration: add benchmark and adjusted-price columns
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS benchmark_return DOUBLE PRECISION;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS excess_return DOUBLE PRECISION;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS adj_price_at_prediction DOUBLE PRECISION;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS adj_outcome_price DOUBLE PRECISION;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS resolution_method TEXT NOT NULL DEFAULT 'adjusted_close';
 """
 
 

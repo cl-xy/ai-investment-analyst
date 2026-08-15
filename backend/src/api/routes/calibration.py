@@ -219,36 +219,92 @@ async def list_predictions(
     ]
 
 
+def _fetch_adjusted_price(ticker: str, target_date: datetime) -> float | None:
+    """Fetch adjusted close price at or near target date via yfinance."""
+    import yfinance as yf
+    from datetime import timedelta
+
+    try:
+        stock = yf.Ticker(ticker)
+        start = target_date - timedelta(days=5)
+        end = target_date + timedelta(days=3)
+        hist = stock.history(start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"), timeout=15)
+        if hist.empty:
+            return None
+        target_str = target_date.strftime("%Y-%m-%d")
+        after = hist[hist.index >= target_str]
+        if not after.empty:
+            return float(after["Close"].iloc[0])
+        return float(hist["Close"].iloc[-1])
+    except Exception as exc:
+        log.warning("resolve_price_fetch_failed ticker=%s error=%s", ticker, exc)
+        return None
+
+
+def _fetch_benchmark_return(prediction_date: datetime, resolution_date: datetime) -> float | None:
+    """Fetch SPY return over the same period as the prediction horizon."""
+    import yfinance as yf
+    from datetime import timedelta
+
+    try:
+        spy = yf.Ticker("SPY")
+        start = prediction_date - timedelta(days=5)
+        end = resolution_date + timedelta(days=3)
+        hist = spy.history(start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"), timeout=15)
+        if len(hist) < 2:
+            return None
+        pred_str = prediction_date.strftime("%Y-%m-%d")
+        res_str = resolution_date.strftime("%Y-%m-%d")
+        pred_prices = hist[hist.index <= pred_str]
+        res_prices = hist[hist.index >= res_str]
+        if pred_prices.empty or res_prices.empty:
+            return None
+        spy_at_pred = float(pred_prices["Close"].iloc[-1])
+        spy_at_res = float(res_prices["Close"].iloc[0])
+        return (spy_at_res - spy_at_pred) / spy_at_pred if spy_at_pred > 0 else None
+    except Exception as exc:
+        log.warning("benchmark_fetch_failed error=%s", exc)
+        return None
+
+
+def _determine_outcome(signal: str, check_return: float, is_excess: bool = False) -> str:
+    """Determine prediction outcome based on signal and return.
+
+    Args:
+        signal: The predicted signal (buy/sell/hold)
+        check_return: The return value to check against thresholds
+        is_excess: If True, check_return is benchmark-relative (excess return).
+                   Thresholds are tighter for excess returns since they measure
+                   alpha, not raw market movement.
+    """
+    # Excess return thresholds: smaller because alpha is harder to generate
+    # Absolute return thresholds: larger because they include market beta
+    threshold = 0.01 if is_excess else 0.02
+    hold_band = 0.03 if is_excess else 0.05
+
+    if signal == "buy":
+        return "correct" if check_return > threshold else ("incorrect" if check_return < -threshold else "neutral")
+    elif signal == "sell":
+        return "correct" if check_return < -threshold else ("incorrect" if check_return > threshold else "neutral")
+    else:
+        return "correct" if abs(check_return) < hold_band else "incorrect"
+
+
 @router.post("/calibration/resolve")
 async def resolve_predictions():
     """
     Resolve pending predictions whose horizon has elapsed.
 
-    Fetches current price and computes outcome. Called via scheduled job or manually.
-    Returns count of newly resolved predictions.
+    Uses split/dividend-adjusted close prices and computes benchmark-relative
+    (SPY) returns for proper calibration science. Called via scheduled job.
     """
     import asyncio
-
-    import yfinance as yf
+    from datetime import timedelta
 
     from src.db import get_pool
 
     pool = await get_pool()
 
-    def _fetch_price(ticker: str) -> float | None:
-        """Fetch current price via yfinance (sync, runs in thread pool)."""
-        try:
-            stock = yf.Ticker(ticker)
-            hist = stock.history(period="1d", timeout=15)
-            if hist.empty:
-                return None
-            return float(hist["Close"].iloc[-1])
-        except Exception as exc:
-            log.warning("resolve_price_fetch_failed ticker=%s error=%s", ticker, exc)
-            return None
-
-    # Use a single connection + transaction so FOR UPDATE SKIP LOCKED
-    # holds row locks until all updates complete (prevents concurrent resolution).
     async with pool.acquire() as conn:
         async with conn.transaction():
             rows = await conn.fetch(
@@ -270,55 +326,139 @@ async def resolve_predictions():
             for row in rows:
                 ticker = row["ticker"]
                 prediction_price = row["price_at_prediction"]
+                prediction_date = row["created_at"]
+                horizon_days = row["horizon_days"]
 
                 if prediction_price is None or prediction_price <= 0:
                     continue
 
-                # Run sync yfinance in thread pool with a timeout to avoid
-                # holding row locks indefinitely on a hung upstream call
+                resolution_date = prediction_date + timedelta(days=horizon_days)
+
                 try:
-                    current_price = await asyncio.wait_for(
-                        asyncio.to_thread(_fetch_price, ticker), timeout=20
+                    outcome_price = await asyncio.wait_for(
+                        asyncio.to_thread(_fetch_adjusted_price, ticker, resolution_date), timeout=20
                     )
                 except asyncio.TimeoutError:
-                    log.warning("resolve_price_timeout ticker=%s", ticker)
-                    current_price = None
-                if current_price is None:
+                    continue
+                if outcome_price is None:
                     continue
 
-                # Compute return
-                realized_return = (current_price - prediction_price) / prediction_price
+                try:
+                    benchmark_return = await asyncio.wait_for(
+                        asyncio.to_thread(_fetch_benchmark_return, prediction_date, resolution_date), timeout=20
+                    )
+                except asyncio.TimeoutError:
+                    benchmark_return = None
 
-                # Determine outcome based on signal
-                signal = row["signal"]
-                if signal == "buy":
-                    outcome = (
-                        "correct"
-                        if realized_return > 0.02
-                        else ("incorrect" if realized_return < -0.02 else "neutral")
-                    )
-                elif signal == "sell":
-                    outcome = (
-                        "correct"
-                        if realized_return < -0.02
-                        else ("incorrect" if realized_return > 0.02 else "neutral")
-                    )
-                else:
-                    # hold: correct if price stayed within +/-5%
-                    outcome = "correct" if abs(realized_return) < 0.05 else "incorrect"
+                realized_return = (outcome_price - prediction_price) / prediction_price
+                excess_return = realized_return - benchmark_return if benchmark_return is not None else None
+                check_return = excess_return if excess_return is not None else realized_return
+                outcome = _determine_outcome(row["signal"], check_return, is_excess=(excess_return is not None))
 
                 await conn.execute(
                     """
                     UPDATE predictions
-                    SET resolved_at = $1, outcome_price = $2, realized_return = $3, outcome = $4
-                    WHERE id = $5
+                    SET resolved_at = $1, outcome_price = $2, realized_return = $3,
+                        outcome = $4, benchmark_return = $5, excess_return = $6,
+                        adj_price_at_prediction = $7, adj_outcome_price = $8,
+                        resolution_method = 'adjusted_close_benchmark'
+                    WHERE id = $9
                     """,
-                    datetime.now(timezone.utc),
-                    current_price,
-                    realized_return,
-                    outcome,
-                    row["id"],
+                    datetime.now(timezone.utc), outcome_price, realized_return,
+                    outcome, benchmark_return, excess_return,
+                    prediction_price, outcome_price, row["id"],
                 )
                 resolved_count += 1
 
     return {"resolved_count": resolved_count}
+
+
+@router.get("/calibration/reliability")
+async def get_reliability_diagram():
+    """
+    Generate data for a reliability diagram (calibration curve).
+
+    Maps predicted probabilities to actual outcomes for proper calibration
+    assessment. Shows whether "high confidence" actually means high accuracy.
+    """
+    rows = await fetch(
+        """
+        SELECT signal, confidence, outcome, realized_return,
+               benchmark_return, excess_return
+        FROM predictions
+        WHERE resolved_at IS NOT NULL
+        ORDER BY created_at DESC
+        """
+    )
+
+    if not rows:
+        return {"status": "insufficient_data", "bins": []}
+
+    # Map confidence to probability bins for reliability diagram
+    confidence_to_prob = {"high": 0.80, "medium": 0.55, "low": 0.30}
+
+    # Build reliability data: for each probability bin, what's the actual success rate?
+    bins = {}
+    for row in rows:
+        prob = confidence_to_prob.get(row["confidence"], 0.5)
+        if prob not in bins:
+            bins[prob] = {"predicted_prob": prob, "outcomes": [], "returns": [], "excess_returns": []}
+        bins[prob]["outcomes"].append(1.0 if row["outcome"] == "correct" else 0.0)
+        if row["realized_return"] is not None:
+            bins[prob]["returns"].append(row["realized_return"])
+        if row["excess_return"] is not None:
+            bins[prob]["excess_returns"].append(row["excess_return"])
+
+    # Compute statistics per bin
+    import math
+    reliability_bins = []
+    for prob, data in sorted(bins.items()):
+        n = len(data["outcomes"])
+        actual_rate = sum(data["outcomes"]) / n if n > 0 else 0
+        # Wilson confidence interval for binomial proportion
+        z = 1.96  # 95% CI
+        denominator = 1 + z**2 / n
+        center = (actual_rate + z**2 / (2 * n)) / denominator
+        spread = z * math.sqrt((actual_rate * (1 - actual_rate) + z**2 / (4 * n)) / n) / denominator
+
+        avg_return = sum(data["returns"]) / len(data["returns"]) if data["returns"] else None
+        avg_excess = sum(data["excess_returns"]) / len(data["excess_returns"]) if data["excess_returns"] else None
+
+        reliability_bins.append({
+            "predicted_probability": prob,
+            "actual_success_rate": round(actual_rate, 4),
+            "sample_size": n,
+            "confidence_interval_95": [round(max(0, center - spread), 4), round(min(1, center + spread), 4)],
+            "avg_return": round(avg_return, 4) if avg_return is not None else None,
+            "avg_excess_return": round(avg_excess, 4) if avg_excess is not None else None,
+            "confidence_label": {0.80: "high", 0.55: "medium", 0.30: "low"}.get(prob, "unknown"),
+        })
+
+    # Expected Calibration Error (ECE)
+    total_samples = sum(b["sample_size"] for b in reliability_bins)
+    ece = sum(
+        b["sample_size"] / total_samples * abs(b["predicted_probability"] - b["actual_success_rate"])
+        for b in reliability_bins
+    ) if total_samples > 0 else None
+
+    # Brier score (proper scoring rule)
+    brier_sum = 0.0
+    for row in rows:
+        prob = confidence_to_prob.get(row["confidence"], 0.5)
+        actual = 1.0 if row["outcome"] == "correct" else 0.0
+        brier_sum += (prob - actual) ** 2
+    brier_score = brier_sum / len(rows) if rows else None
+
+    return {
+        "status": "ok",
+        "total_resolved": len(rows),
+        "reliability_bins": reliability_bins,
+        "expected_calibration_error": round(ece, 4) if ece is not None else None,
+        "brier_score": round(brier_score, 4) if brier_score is not None else None,
+        "methodology": {
+            "resolution": "adjusted_close_benchmark",
+            "benchmark": "SPY",
+            "neutral_band": "2%",
+            "confidence_intervals": "Wilson score 95%",
+        },
+    }

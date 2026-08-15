@@ -275,6 +275,12 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
     raw_sentiment: dict[str, dict] = {}
     all_gaps: list[str] = []
 
+    # Evidence Integrity Ledger: register all retrieved data as immutable artifacts
+    from src.evidence.registry import RunEvidence
+
+    run_id = state.get("correlation_id", "unknown")
+    run_evidence = RunEvidence(run_id=run_id)
+
     for i, result in enumerate(all_results):
         ticker = tickers[i]
         if isinstance(result, BaseException):
@@ -294,6 +300,22 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
         raw_sentiment[ticker] = sentiment
         all_gaps.extend(gaps)
 
+        # Register each data source as an evidence artifact
+        if news:
+            run_evidence.register("newsapi", "get_ticker_news", ticker, news)
+        if prices.get("quote"):
+            run_evidence.register("yfinance", "get_quote", ticker, prices["quote"])
+        if prices.get("fundamentals"):
+            run_evidence.register("yfinance", "get_fundamentals", ticker, prices["fundamentals"])
+        if prices.get("indicators"):
+            run_evidence.register("yfinance", "get_technical_indicators", ticker, prices["indicators"])
+        if filing_text:
+            run_evidence.register("sec_edgar", "get_latest_filing_summary", ticker, filing_text)
+        if earnings:
+            run_evidence.register("yfinance", "get_earnings_calendar", ticker, earnings)
+        if sentiment:
+            run_evidence.register("stocktwits", "get_ticker_sentiment", ticker, sentiment)
+
     return {
         "raw_news": raw_news,
         "raw_prices": raw_prices,
@@ -301,4 +323,5 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
         "raw_earnings": raw_earnings,
         "raw_sentiment": raw_sentiment,
         "data_gaps": all_gaps,
+        "run_evidence": run_evidence,
     }

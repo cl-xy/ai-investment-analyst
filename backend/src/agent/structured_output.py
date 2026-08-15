@@ -28,11 +28,11 @@ class Citation(BaseModel):
     """Links a claim in the analysis to a specific data source."""
 
     source_id: str = Field(
-        description="References a tool_result source_id (e.g. 'yfinance:NVDA:1706140800')"
+        description="References an evidence artifact ID (e.g. 'ev_abc123def456ab')"
     )
     claim: str = Field(description="The specific claim being cited")
-    provider: Literal["yfinance", "newsapi", "sec_edgar", "alpha_vantage", "rss"] = Field(
-        description="Data provider"
+    provider: Literal["yfinance", "newsapi", "sec_edgar", "alpha_vantage", "rss", "stocktwits"] = (
+        Field(description="Data provider")
     )
 
     @field_validator("provider", mode="before")

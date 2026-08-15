@@ -166,7 +166,25 @@ def _format_news(articles: list[dict]) -> str:
 
 
 def _make_source_id(provider: str, ticker: str) -> str:
+    """Legacy source ID generator. Deprecated: use evidence registry artifact IDs."""
     return f"{provider}:{ticker}:{int(time.time())}"
+
+
+def _get_artifact_id(state: InvestmentAnalystState, provider: str, tool: str, ticker: str) -> str:
+    """Get artifact ID from evidence registry, fallback to legacy source ID format."""
+    run_evidence = state.get("run_evidence")
+    if run_evidence:
+        # Look up the artifact by provider+tool+ticker
+        for aid, artifact in run_evidence.artifacts.items():
+            if (
+                artifact.provider == provider
+                and artifact.tool == tool
+                and artifact.ticker == ticker
+            ):
+                return aid
+    # Fallback: use legacy format so citation validation can identify it as
+    # legacy_unverified rather than not_in_run (avoids ghost artifact IDs)
+    return _make_source_id(provider, ticker)
 
 
 def _build_data_context(ticker: str, state: InvestmentAnalystState) -> dict[str, Any]:
@@ -181,22 +199,22 @@ def _build_data_context(ticker: str, state: InvestmentAnalystState) -> dict[str,
         "ticker": ticker,
         "current_date": date.today().isoformat(),
         "price_data": json.dumps(price_data.get("quote", {}), indent=2),
-        "price_source_id": _make_source_id("yfinance", ticker),
+        "price_source_id": _get_artifact_id(state, "yfinance", "get_quote", ticker),
         "fundamentals": json.dumps(price_data.get("fundamentals", {}), indent=2),
-        "fundamentals_source_id": _make_source_id("yfinance", ticker),
+        "fundamentals_source_id": _get_artifact_id(state, "yfinance", "get_fundamentals", ticker),
         "indicators": json.dumps(price_data.get("indicators", {}), indent=2),
-        "indicators_source_id": _make_source_id("yfinance", ticker),
+        "indicators_source_id": _get_artifact_id(state, "yfinance", "get_technical_indicators", ticker),
         "earnings": json.dumps(earnings, indent=2)
         if earnings
         else "No confirmed upcoming earnings date.",
-        "earnings_source_id": _make_source_id("yfinance", ticker),
+        "earnings_source_id": _get_artifact_id(state, "yfinance", "get_earnings_calendar", ticker),
         "article_count": len(news),
         "news_text": _format_news(news),
-        "news_source_id": _make_source_id("newsapi", ticker),
+        "news_source_id": _get_artifact_id(state, "newsapi", "get_ticker_news", ticker),
         "sentiment_text": _format_sentiment(sentiment),
-        "sentiment_source_id": _make_source_id("stocktwits", ticker),
+        "sentiment_source_id": _get_artifact_id(state, "stocktwits", "get_ticker_sentiment", ticker),
         "sec_notes": sec_text[:1500],
-        "sec_source_id": _make_source_id("sec_edgar", ticker),
+        "sec_source_id": _get_artifact_id(state, "sec_edgar", "get_latest_filing_summary", ticker),
         "raw_price_data": price_data,
         "raw_earnings": earnings,
         "raw_sentiment": sentiment,
@@ -558,4 +576,41 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
 
     existing = dict(state.get("ticker_analyses", {}))
     existing[ticker] = analysis_result
+
+    # Evidence Integrity Ledger: validate citations against run evidence
+    run_evidence = state.get("run_evidence")
+    if run_evidence and analysis_result.get("citations"):
+        from src.evidence.registry import validate_citations
+
+        validation_results, confidence_multiplier = validate_citations(
+            analysis_result["citations"], run_evidence
+        )
+        # Store validation metadata on the analysis for persistence and audit
+        analysis_result["_citation_validation"] = {
+            "results": [
+                {"source_id": r.source_id, "resolved": r.resolved, "reason": r.reason}
+                for r in validation_results
+            ],
+            "confidence_multiplier": confidence_multiplier,
+            "original_confidence": analysis_result["confidence"],
+        }
+        # Downgrade confidence if citations are unresolvable
+        if confidence_multiplier < 1.0:
+            confidence_map = {"high": 2, "medium": 1, "low": 0}
+            current_level = confidence_map.get(analysis_result["confidence"], 1)
+            # Reduce by one level if multiplier < 0.8
+            if confidence_multiplier < 0.8 and current_level > 0:
+                reverse_map = {2: "high", 1: "medium", 0: "low"}
+                analysis_result["confidence"] = reverse_map[current_level - 1]
+                analysis_result["_citation_validation"]["adjusted_confidence"] = (
+                    analysis_result["confidence"]
+                )
+                _log.info(
+                    "confidence_downgraded",
+                    ticker=ticker,
+                    original=analysis_result["_citation_validation"]["original_confidence"],
+                    adjusted=analysis_result["confidence"],
+                    multiplier=confidence_multiplier,
+                )
+
     return {"ticker_analyses": existing, "current_ticker": ticker}

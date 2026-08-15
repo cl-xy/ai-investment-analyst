@@ -115,8 +115,13 @@ async def ops_metrics():
     """
     Current system metrics: request counts, error counts, latency percentiles,
     circuit breaker states, rate limit budget, cache hit rates, model call counts.
+
+    Sources: src.metrics (actually wired into hot path) + live component state.
     """
-    metrics_data = collector.get_metrics()
+    from src.metrics import metrics as real_metrics
+
+    # Get real measured metrics from the metrics module (actually wired into analyze_stream)
+    metrics_data = real_metrics.snapshot()
 
     # Enrich with live circuit breaker state
     metrics_data["circuit_breakers"] = {
@@ -127,12 +132,18 @@ async def ops_metrics():
         },
     }
 
-    # Enrich with rate limiter state
-    metrics_data["rate_limiter"] = {
-        "tokens_available": round(llm_limiter._tokens, 2),
-        "capacity": llm_limiter._capacity,
-        "rate_per_second": llm_limiter._rate,
-    }
+    # Enrich with rate limiter state (distributed, from Postgres)
+    try:
+        from src.coordination import get_rate_limit_status
+
+        metrics_data["rate_limiter"] = await get_rate_limit_status()
+    except Exception:
+        # Fallback to in-process limiter if coordination module unavailable
+        metrics_data["rate_limiter"] = {
+            "tokens_available": round(llm_limiter._tokens, 2),
+            "capacity": llm_limiter._capacity,
+            "rate_per_second": llm_limiter._rate,
+        }
 
     # Budget remaining
     try:
@@ -152,10 +163,10 @@ async def ops_traces(
     status: str | None = Query(None, description="Filter by status: success/degraded/failed"),
 ):
     """
-    Recent traces with timing breakdowns per stage.
+    Recent analysis traces from the durable traces table.
 
-    Returns the last N traces from both in-memory buffer and Postgres.
-    Supports filtering by ticker and status.
+    This returns REAL data from completed analysis runs, not facade metrics.
+    Each trace contains the full SSE event sequence for replay.
     """
     # Validate ticker format
     if ticker:
@@ -175,41 +186,34 @@ async def ops_traces(
             },
         )
 
-    # First, try in-memory recent traces
-    recent = collector.get_recent_traces(limit=limit + offset)
+    # Query the authoritative traces table (populated by analyze_stream on every run)
+    from src.ops.trace_recorder import list_traces
 
-    # Also query persisted traces from Postgres
     try:
-        persisted = await query_traces(
-            ticker=ticker,
-            status=status,
-            limit=limit + offset,
-            offset=0,
-        )
+        traces = await list_traces(limit=limit + offset)
+        # Apply filters
+        filtered = []
+        for t in traces:
+            if ticker:
+                trace_tickers = t.get("tickers", [])
+                if ticker not in [tk.upper() for tk in trace_tickers]:
+                    continue
+            if status and t.get("status") != status:
+                continue
+            filtered.append(t)
+
+        total = len(filtered)
+        return {"traces": filtered[offset : offset + limit], "total": total}
     except Exception as exc:
         log.warning("trace_query_failed", error=str(exc))
-        persisted = []
-
-    # Merge: prefer persisted (has full data), supplement with in-memory
-    # Deduplicate by correlation_id
-    seen_ids = {t.get("correlation_id") for t in persisted if t.get("correlation_id")}
-    for trace in recent:
-        trace_cid = trace.get("correlation_id")
-        if not trace_cid:
-            continue
-        if trace_cid not in seen_ids:
-            # Apply filters if provided
-            if ticker and (trace.get("ticker") or "").upper() != ticker:
-                continue
-            if status and trace.get("status") != status:
-                continue
-            persisted.append(trace)
-            seen_ids.add(trace_cid)
-
-    # Sort by time descending, apply offset and limit to merged result
-    persisted.sort(key=lambda t: t.get("started_at") or t.get("created_at") or "", reverse=True)
-    total = len(persisted)
-    return {"traces": persisted[offset : offset + limit], "total": total}
+        # Fall back to ops_traces table if traces table fails
+        try:
+            persisted = await query_traces(
+                ticker=ticker, status=status, limit=limit, offset=offset
+            )
+            return {"traces": persisted, "total": len(persisted)}
+        except Exception:
+            return {"traces": [], "total": 0}
 
 
 @router.get("/traces/{trace_id}")
@@ -242,10 +246,51 @@ async def ops_slo():
     """
     SLO targets vs actuals.
 
-    Reports availability, latency, and error budget burn over a 7-day
-    rolling window.
+    Computes availability, latency, and error budget from REAL metrics
+    (analyses_total counter, analysis_duration_seconds histogram).
     """
-    return collector.compute_slo()
+    from src.metrics import metrics as real_metrics
+
+    snapshot = real_metrics.snapshot()
+    counters = snapshot.get("counters", {})
+    histograms = snapshot.get("histograms", {})
+
+    # Compute availability from analyses_total counter
+    analyses_counter = counters.get("analyses_total", {})
+    success_count = 0
+    error_count = 0
+    for key, val in analyses_counter.items():
+        if key == "status=success" or key.startswith("status=success,") or ",status=success" in key:
+            success_count += val
+        elif key == "status=error" or key.startswith("status=error,") or ",status=error" in key:
+            error_count += val
+
+    total_requests = success_count + error_count
+    availability = success_count / total_requests if total_requests > 0 else 1.0
+
+    # Extract latency percentiles from histogram
+    latency_data = histograms.get("analysis_duration_seconds", {})
+
+    return {
+        "targets": {
+            "availability": 0.995,
+            "latency_p95_seconds": 15.0,
+            "error_budget_monthly": 0.005,
+        },
+        "actuals": {
+            "availability": round(availability, 4),
+            "total_requests": total_requests,
+            "success_count": success_count,
+            "error_count": error_count,
+            "latency": latency_data or {"message": "No latency data recorded yet"},
+            "uptime_seconds": snapshot.get("uptime_seconds", 0),
+        },
+        "error_budget": {
+            "remaining": round(max(0, 0.005 - (1 - availability)), 6) if total_requests > 0 else 0.005,
+            "burn_rate": round((1 - availability) / 0.005, 2) if total_requests > 0 and availability < 1.0 else 0.0,
+        },
+        "data_source": "src.metrics (wired into analyze_stream hot path)",
+    }
 
 
 @router.get("/costs")

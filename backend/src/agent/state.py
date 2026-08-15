@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 from typing_extensions import NotRequired, TypedDict
+
+if TYPE_CHECKING:
+    from src.evidence.registry import RunEvidence
 
 
 class TickerAnalysis(TypedDict):
@@ -60,6 +63,9 @@ class InvestmentAnalystState(TypedDict):
 
     # Graceful degradation: tracks what data was unavailable (set by fetch_data)
     data_gaps: NotRequired[list[str]]
+
+    # Evidence Integrity Ledger: immutable artifact registry for this run
+    run_evidence: NotRequired["RunEvidence | None"]  # from src.evidence.registry
 
     report_markdown: NotRequired[str]
     comparison: NotRequired[dict | None]  # Populated when 2+ tickers analyzed
