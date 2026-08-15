@@ -40,6 +40,7 @@ from src.middleware.security_headers import SecurityHeadersMiddleware
 from .routes.admin import router as admin_router
 from .routes.analyze import router as analyze_router
 from .routes.analyze_stream import router as analyze_stream_router
+from .routes.audit import router as audit_router
 from .routes.backtest import router as backtest_router
 from .routes.calibration import router as calibration_router
 from .routes.chat import router as chat_router
@@ -96,9 +97,8 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-app.add_middleware(DemoAuthMiddleware)
-app.add_middleware(RequestIDMiddleware)
-app.add_middleware(SecurityHeadersMiddleware)
+# CORS must be outermost middleware so it adds headers even on auth-rejected responses.
+# In FastAPI/Starlette, middleware wraps in reverse order: first added = outermost.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -106,10 +106,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(DemoAuthMiddleware)
+app.add_middleware(RequestIDMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(health_router, prefix="/api")
 app.include_router(analyze_router, prefix="/api")
 app.include_router(analyze_stream_router, prefix="/api")
+app.include_router(audit_router)
 app.include_router(backtest_router, prefix="/api")
 app.include_router(calibration_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")

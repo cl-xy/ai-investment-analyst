@@ -10,6 +10,8 @@ import { useState, useCallback, useRef, useEffect } from 'react'
  */
 export default function AgentTracePanel() {
   const { events, currentNode, isStreaming, runMeta } = useAnalysisStore()
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const prevEventCountRef = useRef(0)
 
   // Filter to meaningful events (skip heartbeats and raw llm_tokens for the timeline)
   const traceEvents = events.filter(
@@ -18,6 +20,25 @@ export default function AgentTracePanel() {
       e.type !== 'llm_token' &&
       e.type !== 'run_started',
   )
+
+  // Scroll to top when many events appear at once (instant replay load)
+  // Scroll to bottom during live streaming (new events arriving one-by-one)
+  useEffect(() => {
+    if (!scrollRef.current) return
+    const prevCount = prevEventCountRef.current
+    const newCount = traceEvents.length
+    prevEventCountRef.current = newCount
+
+    if (newCount === 0) return
+
+    if (prevCount === 0 && newCount > 5) {
+      // Bulk load (replay): scroll to top so all entries are visible
+      scrollRef.current.scrollTop = 0
+    } else if (newCount > prevCount && isStreaming) {
+      // Live streaming: scroll to bottom to follow new events
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [traceEvents.length, isStreaming])
 
   const isComplete = !isStreaming && events.some((e) => e.type === 'run_completed')
   const hasError = events.some(
@@ -56,7 +77,7 @@ export default function AgentTracePanel() {
       </p>
 
       {/* Timeline */}
-      <div className="px-5 py-4 space-y-1 max-h-[600px] overflow-y-auto" role="log" aria-label="Agent execution trace" aria-live="off">
+      <div ref={scrollRef} className="px-5 py-4 space-y-1 max-h-[600px] overflow-y-auto" role="log" aria-label="Agent execution trace" aria-live="off">
         {traceEvents.length === 0 && isStreaming && (
           <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
             <div className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse" />

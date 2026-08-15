@@ -67,7 +67,11 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
       setInputError(error)
       return
     }
-    addTicker(input)
+    const added = addTicker(input)
+    if (!added) {
+      setInputError(`${input.trim().toUpperCase()} is already in your watchlist`)
+      return
+    }
     setInput('')
     setInputError(null)
     // Return focus to input after adding

@@ -162,7 +162,9 @@ export default function StreamingAnalysisPage() {
       {/* Ticker header */}
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-[var(--text-primary)]">
-          Analyzing {tickers.join(', ')}
+          {!isStreaming && Object.keys(analyses).length > 0
+            ? `Analysis: ${tickers.join(', ')}`
+            : `Analyzing ${tickers.join(', ')}`}
         </h1>
         {isStreaming && (
           <p className="text-sm text-[var(--text-muted)] mt-1">

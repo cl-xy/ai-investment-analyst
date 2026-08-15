@@ -166,12 +166,14 @@ export function useTraceReplay() {
       }
 
       const delay = getDelayForSpeed(deltaMs, speedRef.current)
-      if (delay === 0) {
+      if (speedRef.current === 'instant') {
         // Instant mode: batch process remaining events with microtask breaks
-        // to avoid blocking the main thread
         timerRef.current = setTimeout(playNextEvent, 0)
       } else {
-        timerRef.current = setTimeout(playNextEvent, delay)
+        // Ensure minimum 30ms between events for visible progression
+        // (events may have near-identical timestamps from batch storage)
+        const effectiveDelay = Math.max(delay, 30)
+        timerRef.current = setTimeout(playNextEvent, effectiveDelay)
       }
     } else {
       // Last event

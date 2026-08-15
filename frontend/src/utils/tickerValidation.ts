@@ -9,9 +9,9 @@ export function isValidTicker(input: string): boolean {
 
 export function normalizeTicker(input: string): string {
   const stripped = input.trim().toUpperCase().replace(/[^A-Z0-9.]/g, '')
-  // Remove leading dots and enforce max length
+  // Remove leading dots
   const cleaned = stripped.replace(/^\.+/, '')
-  return cleaned.slice(0, 10)
+  return cleaned
 }
 
 export function getTickerError(input: string): string | null {
