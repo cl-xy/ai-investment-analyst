@@ -57,21 +57,30 @@ repos:
     hooks:
       - id: no-blocking-in-async
         name: no-blocking-in-async
-        entry: bash -c 'EXIT=0; for f in "$@"; do if grep -q "async def" "$f"; then if grep -nE "(requests\.(get|post)|time\.sleep|[^a]open\()" "$f"; then echo "Blocking call in async code: $f"; EXIT=1; fi; fi; done; exit $EXIT'
+        entry: >
+          bash -c 'EXIT=0; for f in "$@"; do if grep -q "async def" "$f";
+          then if grep -nE "(requests\.(get|post)|time\.sleep|[^a]open\()" "$f";
+          then echo "Blocking call in async code: $f"; EXIT=1; fi; fi; done; exit $EXIT'
         language: system
         files: ^backend/src/.*\.py$
         types: [python]
 
       - id: no-raw-llm-imports
         name: no-raw-llm-imports
-        entry: bash -c 'EXIT=0; for f in "$@"; do if grep -nE "^from langchain_(openai|groq) import" "$f"; then echo "Direct LLM import not allowed in agent nodes: $f (use structured_output layer)"; EXIT=1; fi; done; exit $EXIT'
+        entry: >
+          bash -c 'EXIT=0; for f in "$@"; do if grep -nE
+          "^from langchain_(openai|groq) import" "$f"; then echo
+          "Direct LLM import not allowed in agent nodes: $f (use structured_output layer)";
+          EXIT=1; fi; done; exit $EXIT'
         language: system
         files: ^backend/src/agent/nodes/.*\.py$
         types: [python]
 
       - id: no-em-dashes
         name: no-em-dashes
-        entry: bash -c 'EXIT=0; for f in "$@"; do if grep -nP "\x{2014}" "$f"; then echo "Em dash found in: $f"; EXIT=1; fi; done; exit $EXIT'
+        entry: >
+          bash -c 'EXIT=0; for f in "$@"; do if grep -nP "\x{2014}" "$f";
+          then echo "Em dash found in: $f"; EXIT=1; fi; done; exit $EXIT'
         language: system
         files: \.(md|py|ts|tsx)$
 

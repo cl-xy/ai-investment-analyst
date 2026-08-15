@@ -85,7 +85,7 @@ class Singleflight:
                         self._flights[key].future.set_result(result)
                         self._flights[key].completed_at = time.monotonic()
                 return result
-            except Exception as exc:
+            except BaseException as exc:
                 async with self._lock:
                     if key in self._flights:
                         flight = self._flights[key]

@@ -16,7 +16,6 @@
     "test:e2e:live": "playwright test --grep @live-analysis"
   },
   "dependencies": {
-    "@types/react-router-dom": "^5.3.3",
     "axios": "^1.18.1",
     "lucide-react": "^1.27.0",
     "react": "^19.2.8",

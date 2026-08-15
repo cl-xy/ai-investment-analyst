@@ -13,7 +13,7 @@ from fastapi import APIRouter, Header, HTTPException
 
 from src.cache.budget import get_budget_status
 
-_TICKER_RE = re.compile(r"^[A-Za-z0-9.]{1,10}$")
+_TICKER_RE = re.compile(r"^[A-Za-z0-9.\-]{1,10}$")
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 

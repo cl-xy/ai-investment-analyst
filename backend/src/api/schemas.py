@@ -8,8 +8,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-# Shared ticker validation regex. Alphanumeric + dots, 1-10 chars.
-VALID_TICKER_RE = re.compile(r"\A[A-Z0-9.]{1,10}\Z")
+# Shared ticker validation regex. Alphanumeric + dots + hyphens, 1-10 chars.
+# Must accept tickers like BRK-B, BRK.B (hyphens are valid in some systems).
+VALID_TICKER_RE = re.compile(r"\A[A-Z0-9.\-]{1,10}\Z")
 
 
 class AnalyzeRequest(BaseModel):

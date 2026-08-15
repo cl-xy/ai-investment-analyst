@@ -7,9 +7,9 @@ servers and API routes. Import from here instead of defining per-module.
 
 import re
 
-# Accepts letters, digits, dots, hyphens. Max 12 chars covers crypto symbols
-# like BTC.X and extended tickers like BRK-B. Case-insensitive via normalization.
-TICKER_RE = re.compile(r"^[A-Za-z0-9.\-]{1,12}$")
+# Accepts letters, digits, dots, hyphens. Max 10 chars matches the API schema
+# (schemas.py VALID_TICKER_RE). Normalization uppercases before matching.
+TICKER_RE = re.compile(r"^[A-Z0-9.\-]{1,10}$")
 
 
 def validate_ticker(ticker: str) -> str:

@@ -73,9 +73,10 @@ class DemoAuthMiddleware(BaseHTTPMiddleware):
         if not any(path.startswith(prefix) for prefix in self.PROTECTED_PREFIXES):
             return await call_next(request)
 
-        # Check credentials
+        # Check credentials (header preferred; query param accepted for EventSource
+        # which cannot set custom headers in the browser API)
         provided = (
-            request.query_params.get("password") or request.headers.get("X-Demo-Password") or ""
+            request.headers.get("X-Demo-Password") or request.query_params.get("password") or ""
         )
 
         if not hmac.compare_digest(provided.encode(), demo_password.encode()):

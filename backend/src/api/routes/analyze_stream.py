@@ -626,7 +626,7 @@ async def _stream_generator(
                 },
             )
             yield error_event.to_sse()
-            release_analysis_slot()
+            # No slot to release: reconnections don't acquire analysis slots
             slot_released = True
             return
         for ev in replayed:
@@ -635,12 +635,10 @@ async def _stream_generator(
             # Check if run already completed
             _, stored = _recent_runs.get(resume_run_id, (0, []))
             if any("run_completed" in ev for ev in stored):
-                release_analysis_slot()
                 slot_released = True
                 return  # Run finished, nothing to stream
             # Run still in progress; client got replayed events but we cannot
             # attach to the live run from here. Do NOT start a new agent.
-            release_analysis_slot()
             slot_released = True
             return
         else:
@@ -650,7 +648,6 @@ async def _stream_generator(
             _, stored = _recent_runs.get(resume_run_id, (0, []))
             if any("run_completed" in ev for ev in stored):
                 # Run already finished, client is caught up
-                release_analysis_slot()
                 slot_released = True
                 return
             # Run still in progress but no new events yet — tell client to wait
@@ -665,7 +662,6 @@ async def _stream_generator(
                 payload={"message": "Reconnected, waiting for new events"},
             )
             yield heartbeat_event.to_sse()
-            release_analysis_slot()
             slot_released = True
             return
 
@@ -680,9 +676,7 @@ async def _stream_generator(
     heartbeat_task: asyncio.Task | None = None
 
     try:
-        # Register in-flight tracking for singleflight deduplication
-        if flight_key:
-            _in_flight_tickers.add(flight_key)
+        # flight_key already registered in _in_flight_tickers by analyze_stream()
 
         agent_task = asyncio.create_task(
             _run_agent(tickers, emitter, queue, tracker, request.app.state.mcp_tools)
@@ -774,7 +768,51 @@ async def analyze_stream(
             content={"detail": "Maximum 4 tickers per streaming analysis request"},
         )
 
-    # Acquire concurrency slot
+    # Check for reconnection BEFORE slot acquisition so replay-only requests
+    # don't consume analysis slots. Reconnections replay cached events without
+    # running agent tasks, so they must not hold scarce execution capacity.
+    last_event_id_header = request.headers.get("Last-Event-ID") or request.query_params.get(
+        "last_event_id"
+    )
+    last_event_id: int | None = None
+    if last_event_id_header:
+        try:
+            last_event_id = int(last_event_id_header)
+        except (ValueError, TypeError):
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Invalid Last-Event-ID header"},
+            )
+    resume_run_id = request.headers.get("X-Run-ID") or request.query_params.get(
+        "run_id"
+    )  # Client sends this on reconnect
+
+    is_reconnection = last_event_id is not None and resume_run_id is not None
+
+    # Reconnections don't need a slot or dedup check - they only replay cached events
+    if is_reconnection:
+        headers = {
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+        fly_alloc_id = os.environ.get("FLY_ALLOC_ID")
+        if fly_alloc_id:
+            headers["fly-replay-src"] = fly_alloc_id
+
+        return StreamingResponse(
+            _stream_generator(
+                ticker_list,
+                request,
+                last_event_id=last_event_id,
+                resume_run_id=resume_run_id,
+                flight_key=None,
+            ),
+            media_type="text/event-stream",
+            headers=headers,
+        )
+
+    # Acquire concurrency slot (new analyses only)
     slot_acquired = await acquire_analysis_slot()
     if not slot_acquired:
         return JSONResponse(
@@ -797,25 +835,8 @@ async def analyze_stream(
             },
             headers={"Retry-After": "30"},
         )
-
-    # Check for reconnection (parse safely to avoid slot leak on bad header)
-    # Support both headers (standard SSE) and query params (EventSource can't set headers)
-    last_event_id_header = request.headers.get("Last-Event-ID") or request.query_params.get(
-        "last_event_id"
-    )
-    last_event_id: int | None = None
-    if last_event_id_header:
-        try:
-            last_event_id = int(last_event_id_header)
-        except (ValueError, TypeError):
-            release_analysis_slot()
-            return JSONResponse(
-                status_code=400,
-                content={"error": "Invalid Last-Event-ID header"},
-            )
-    resume_run_id = request.headers.get("X-Run-ID") or request.query_params.get(
-        "run_id"
-    )  # Client sends this on reconnect
+    # Claim immediately (no await between check and add = atomic in asyncio)
+    _in_flight_tickers.add(flight_key)
 
     headers = {
         "Cache-Control": "no-cache",
@@ -832,8 +853,8 @@ async def analyze_stream(
         _stream_generator(
             ticker_list,
             request,
-            last_event_id=last_event_id,
-            resume_run_id=resume_run_id,
+            last_event_id=None,
+            resume_run_id=None,
             flight_key=flight_key,
         ),
         media_type="text/event-stream",
