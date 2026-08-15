@@ -502,7 +502,9 @@ async def _run_agent(
                                     results=cv.get("results", []),
                                     confidence_multiplier=cv.get("confidence_multiplier", 1.0),
                                     original_confidence=cv.get("original_confidence", ""),
-                                    adjusted_confidence=cv.get("adjusted_confidence", cv.get("original_confidence", "")),
+                                    adjusted_confidence=cv.get(
+                                        "adjusted_confidence", cv.get("original_confidence", "")
+                                    ),
                                 )
                     except Exception as ev_err:
                         import logging as _logging

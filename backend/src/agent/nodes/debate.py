@@ -203,7 +203,9 @@ def _build_data_context(ticker: str, state: InvestmentAnalystState) -> dict[str,
         "fundamentals": json.dumps(price_data.get("fundamentals", {}), indent=2),
         "fundamentals_source_id": _get_artifact_id(state, "yfinance", "get_fundamentals", ticker),
         "indicators": json.dumps(price_data.get("indicators", {}), indent=2),
-        "indicators_source_id": _get_artifact_id(state, "yfinance", "get_technical_indicators", ticker),
+        "indicators_source_id": _get_artifact_id(
+            state, "yfinance", "get_technical_indicators", ticker
+        ),
         "earnings": json.dumps(earnings, indent=2)
         if earnings
         else "No confirmed upcoming earnings date.",
@@ -212,7 +214,9 @@ def _build_data_context(ticker: str, state: InvestmentAnalystState) -> dict[str,
         "news_text": _format_news(news),
         "news_source_id": _get_artifact_id(state, "newsapi", "get_ticker_news", ticker),
         "sentiment_text": _format_sentiment(sentiment),
-        "sentiment_source_id": _get_artifact_id(state, "stocktwits", "get_ticker_sentiment", ticker),
+        "sentiment_source_id": _get_artifact_id(
+            state, "stocktwits", "get_ticker_sentiment", ticker
+        ),
         "sec_notes": sec_text[:1500],
         "sec_source_id": _get_artifact_id(state, "sec_edgar", "get_latest_filing_summary", ticker),
         "raw_price_data": price_data,
@@ -602,9 +606,9 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
             if confidence_multiplier < 0.8 and current_level > 0:
                 reverse_map = {2: "high", 1: "medium", 0: "low"}
                 analysis_result["confidence"] = reverse_map[current_level - 1]
-                analysis_result["_citation_validation"]["adjusted_confidence"] = (
-                    analysis_result["confidence"]
-                )
+                analysis_result["_citation_validation"]["adjusted_confidence"] = analysis_result[
+                    "confidence"
+                ]
                 _log.info(
                     "confidence_downgraded",
                     ticker=ticker,

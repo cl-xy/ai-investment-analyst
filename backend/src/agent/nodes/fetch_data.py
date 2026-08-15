@@ -308,7 +308,9 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
         if prices.get("fundamentals"):
             run_evidence.register("yfinance", "get_fundamentals", ticker, prices["fundamentals"])
         if prices.get("indicators"):
-            run_evidence.register("yfinance", "get_technical_indicators", ticker, prices["indicators"])
+            run_evidence.register(
+                "yfinance", "get_technical_indicators", ticker, prices["indicators"]
+            )
         if filing_text:
             run_evidence.register("sec_edgar", "get_latest_filing_summary", ticker, filing_text)
         if earnings:

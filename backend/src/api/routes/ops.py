@@ -207,9 +207,7 @@ async def ops_traces(
         log.warning("trace_query_failed", error=str(exc))
         # Fall back to ops_traces table if traces table fails
         try:
-            persisted = await query_traces(
-                ticker=ticker, status=status, limit=limit, offset=offset
-            )
+            persisted = await query_traces(ticker=ticker, status=status, limit=limit, offset=offset)
             return {"traces": persisted, "total": len(persisted)}
         except Exception:
             return {"traces": [], "total": 0}
@@ -285,8 +283,12 @@ async def ops_slo():
             "uptime_seconds": snapshot.get("uptime_seconds", 0),
         },
         "error_budget": {
-            "remaining": round(max(0, 0.005 - (1 - availability)), 6) if total_requests > 0 else 0.005,
-            "burn_rate": round((1 - availability) / 0.005, 2) if total_requests > 0 and availability < 1.0 else 0.0,
+            "remaining": round(max(0, 0.005 - (1 - availability)), 6)
+            if total_requests > 0
+            else 0.005,
+            "burn_rate": round((1 - availability) / 0.005, 2)
+            if total_requests > 0 and availability < 1.0
+            else 0.0,
         },
         "data_source": "src.metrics (wired into analyze_stream hot path)",
     }

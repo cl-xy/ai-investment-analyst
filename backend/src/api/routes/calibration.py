@@ -229,7 +229,9 @@ def _fetch_adjusted_price(ticker: str, target_date: datetime) -> float | None:
         stock = yf.Ticker(ticker)
         start = target_date - timedelta(days=5)
         end = target_date + timedelta(days=3)
-        hist = stock.history(start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"), timeout=15)
+        hist = stock.history(
+            start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"), timeout=15
+        )
         if hist.empty:
             return None
         target_str = target_date.strftime("%Y-%m-%d")
@@ -252,7 +254,9 @@ def _fetch_benchmark_return(prediction_date: datetime, resolution_date: datetime
         spy = yf.Ticker("SPY")
         start = prediction_date - timedelta(days=5)
         end = resolution_date + timedelta(days=3)
-        hist = spy.history(start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"), timeout=15)
+        hist = spy.history(
+            start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"), timeout=15
+        )
         if len(hist) < 2:
             return None
         pred_str = prediction_date.strftime("%Y-%m-%d")
@@ -285,9 +289,17 @@ def _determine_outcome(signal: str, check_return: float, is_excess: bool = False
     hold_band = 0.03 if is_excess else 0.05
 
     if signal == "buy":
-        return "correct" if check_return > threshold else ("incorrect" if check_return < -threshold else "neutral")
+        return (
+            "correct"
+            if check_return > threshold
+            else ("incorrect" if check_return < -threshold else "neutral")
+        )
     elif signal == "sell":
-        return "correct" if check_return < -threshold else ("incorrect" if check_return > threshold else "neutral")
+        return (
+            "correct"
+            if check_return < -threshold
+            else ("incorrect" if check_return > threshold else "neutral")
+        )
     else:
         return "correct" if abs(check_return) < hold_band else "incorrect"
 
@@ -338,7 +350,8 @@ async def resolve_predictions():
 
                 try:
                     outcome_price = await asyncio.wait_for(
-                        asyncio.to_thread(_fetch_adjusted_price, ticker, resolution_date), timeout=20
+                        asyncio.to_thread(_fetch_adjusted_price, ticker, resolution_date),
+                        timeout=20,
                     )
                 except asyncio.TimeoutError:
                     continue
@@ -347,15 +360,22 @@ async def resolve_predictions():
 
                 try:
                     benchmark_return = await asyncio.wait_for(
-                        asyncio.to_thread(_fetch_benchmark_return, prediction_date, resolution_date), timeout=20
+                        asyncio.to_thread(
+                            _fetch_benchmark_return, prediction_date, resolution_date
+                        ),
+                        timeout=20,
                     )
                 except asyncio.TimeoutError:
                     benchmark_return = None
 
                 realized_return = (outcome_price - prediction_price) / prediction_price
-                excess_return = realized_return - benchmark_return if benchmark_return is not None else None
+                excess_return = (
+                    realized_return - benchmark_return if benchmark_return is not None else None
+                )
                 check_return = excess_return if excess_return is not None else realized_return
-                outcome = _determine_outcome(row["signal"], check_return, is_excess=(excess_return is not None))
+                outcome = _determine_outcome(
+                    row["signal"], check_return, is_excess=(excess_return is not None)
+                )
 
                 await conn.execute(
                     """
@@ -366,9 +386,15 @@ async def resolve_predictions():
                         resolution_method = 'adjusted_close_benchmark'
                     WHERE id = $9
                     """,
-                    datetime.now(timezone.utc), outcome_price, realized_return,
-                    outcome, benchmark_return, excess_return,
-                    prediction_price, outcome_price, row["id"],
+                    datetime.now(timezone.utc),
+                    outcome_price,
+                    realized_return,
+                    outcome,
+                    benchmark_return,
+                    excess_return,
+                    prediction_price,
+                    outcome_price,
+                    row["id"],
                 )
                 resolved_count += 1
 
@@ -404,7 +430,12 @@ async def get_reliability_diagram():
     for row in rows:
         prob = confidence_to_prob.get(row["confidence"], 0.5)
         if prob not in bins:
-            bins[prob] = {"predicted_prob": prob, "outcomes": [], "returns": [], "excess_returns": []}
+            bins[prob] = {
+                "predicted_prob": prob,
+                "outcomes": [],
+                "returns": [],
+                "excess_returns": [],
+            }
         bins[prob]["outcomes"].append(1.0 if row["outcome"] == "correct" else 0.0)
         if row["realized_return"] is not None:
             bins[prob]["returns"].append(row["realized_return"])
@@ -413,6 +444,7 @@ async def get_reliability_diagram():
 
     # Compute statistics per bin
     import math
+
     reliability_bins = []
     for prob, data in sorted(bins.items()):
         n = len(data["outcomes"])
@@ -424,24 +456,41 @@ async def get_reliability_diagram():
         spread = z * math.sqrt((actual_rate * (1 - actual_rate) + z**2 / (4 * n)) / n) / denominator
 
         avg_return = sum(data["returns"]) / len(data["returns"]) if data["returns"] else None
-        avg_excess = sum(data["excess_returns"]) / len(data["excess_returns"]) if data["excess_returns"] else None
+        avg_excess = (
+            sum(data["excess_returns"]) / len(data["excess_returns"])
+            if data["excess_returns"]
+            else None
+        )
 
-        reliability_bins.append({
-            "predicted_probability": prob,
-            "actual_success_rate": round(actual_rate, 4),
-            "sample_size": n,
-            "confidence_interval_95": [round(max(0, center - spread), 4), round(min(1, center + spread), 4)],
-            "avg_return": round(avg_return, 4) if avg_return is not None else None,
-            "avg_excess_return": round(avg_excess, 4) if avg_excess is not None else None,
-            "confidence_label": {0.80: "high", 0.55: "medium", 0.30: "low"}.get(prob, "unknown"),
-        })
+        reliability_bins.append(
+            {
+                "predicted_probability": prob,
+                "actual_success_rate": round(actual_rate, 4),
+                "sample_size": n,
+                "confidence_interval_95": [
+                    round(max(0, center - spread), 4),
+                    round(min(1, center + spread), 4),
+                ],
+                "avg_return": round(avg_return, 4) if avg_return is not None else None,
+                "avg_excess_return": round(avg_excess, 4) if avg_excess is not None else None,
+                "confidence_label": {0.80: "high", 0.55: "medium", 0.30: "low"}.get(
+                    prob, "unknown"
+                ),
+            }
+        )
 
     # Expected Calibration Error (ECE)
     total_samples = sum(b["sample_size"] for b in reliability_bins)
-    ece = sum(
-        b["sample_size"] / total_samples * abs(b["predicted_probability"] - b["actual_success_rate"])
-        for b in reliability_bins
-    ) if total_samples > 0 else None
+    ece = (
+        sum(
+            b["sample_size"]
+            / total_samples
+            * abs(b["predicted_probability"] - b["actual_success_rate"])
+            for b in reliability_bins
+        )
+        if total_samples > 0
+        else None
+    )
 
     # Brier score (proper scoring rule)
     brier_sum = 0.0
