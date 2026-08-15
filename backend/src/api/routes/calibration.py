@@ -221,8 +221,9 @@ async def list_predictions(
 
 def _fetch_adjusted_price(ticker: str, target_date: datetime) -> float | None:
     """Fetch adjusted close price at or near target date via yfinance."""
-    import yfinance as yf
     from datetime import timedelta
+
+    import yfinance as yf
 
     try:
         stock = yf.Ticker(ticker)
@@ -243,8 +244,9 @@ def _fetch_adjusted_price(ticker: str, target_date: datetime) -> float | None:
 
 def _fetch_benchmark_return(prediction_date: datetime, resolution_date: datetime) -> float | None:
     """Fetch SPY return over the same period as the prediction horizon."""
-    import yfinance as yf
     from datetime import timedelta
+
+    import yfinance as yf
 
     try:
         spy = yf.Ticker("SPY")

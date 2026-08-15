@@ -7,7 +7,6 @@ PostgreSQL-backed coordination that works across multiple Fly.io machines.
 from __future__ import annotations
 
 import os
-import time
 from datetime import datetime, timedelta, timezone
 
 from src.db import execute, fetchrow, fetchval

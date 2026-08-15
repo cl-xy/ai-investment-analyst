@@ -32,8 +32,8 @@ from src.logging_config import request_id_ctx
 from src.metrics import metrics
 from src.middleware.auth import limiter
 from src.middleware.cost_tracker import CostTracker
-from src.ops.cost_attribution import cost_attributor
 from src.ops.collector import collector
+from src.ops.cost_attribution import cost_attributor
 
 router = APIRouter()
 

@@ -22,7 +22,6 @@ from typing import Any
 
 from src.db import execute, executemany, fetch, fetchrow
 
-
 # ---------------------------------------------------------------------------
 # Artifact model
 # ---------------------------------------------------------------------------

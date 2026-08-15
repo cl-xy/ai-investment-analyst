@@ -22,7 +22,6 @@ from src.cache.budget import get_budget_status
 from src.db import fetchval
 from src.logging_config import get_logger
 from src.ops.chaos import chaos_config
-from src.ops.collector import collector
 from src.ops.trace_store import get_trace_by_id, get_trace_events, query_traces
 
 log = get_logger("ops.routes")
