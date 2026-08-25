@@ -41,7 +41,7 @@ export default function SignalBadge({ signal, confidence }: Props) {
         <AlertCircle className="w-5 h-5 text-[var(--text-muted)] mb-1" aria-hidden="true" />
         <span className={`font-bold text-sm ${cfg.color}`}>{cfg.label}</span>
         <p className="text-[10px] text-[var(--text-muted)] text-center mt-1.5 leading-relaxed">
-          Not enough data sources returned results. Try a higher-volume ticker or check back during market hours.
+          Not enough data sources returned results. Try a higher-volume ticker or re-run in a moment if a provider was rate limited.
         </p>
       </div>
     )

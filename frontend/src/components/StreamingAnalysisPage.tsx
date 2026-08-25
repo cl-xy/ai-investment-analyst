@@ -514,7 +514,8 @@ function StreamAnalysisCard({ analysis, onCitationClick }: { analysis: AnalysisO
                 Unavailable: {analysis.data_gaps.join(', ')}
               </p>
               <p className="text-xs text-[var(--text-muted)] mt-1">
-                Try again during US market hours for better coverage.
+                Some data sources returned incomplete results. Re-running may
+                pull fresh data if a provider was temporarily rate limited.
               </p>
             </div>
           </div>

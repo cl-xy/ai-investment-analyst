@@ -134,8 +134,11 @@ def get_quote(ticker: str) -> dict:
             low_52w = full.get("fiftyTwoWeekLow")
         pe_ratio = full.get("trailingPE")
         currency = full.get("currency", "USD")
-    except Exception:
-        pass
+    except Exception as e:
+        # Field extraction failed (often a rate limit). Leave the derived
+        # fields as None but log it so the gap is diagnosable rather than
+        # silently attributed to "no data".
+        log.warning("yfinance_quote_fields_failed ticker=%s error=%s", ticker, e)
 
     return {
         "ticker": ticker.upper(),
