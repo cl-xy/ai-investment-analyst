@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import Annotated, Literal
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 from typing_extensions import NotRequired, TypedDict
 
-if TYPE_CHECKING:
-    from src.evidence.registry import RunEvidence
+# Imported at runtime (not under TYPE_CHECKING) because LangGraph calls
+# get_type_hints() on this TypedDict when building the graph, which evaluates
+# the "RunEvidence | None" annotation. registry.py only depends on src.db, so
+# there is no circular import.
+from src.evidence.registry import RunEvidence
 
 
 class TickerAnalysis(TypedDict):
@@ -65,7 +68,7 @@ class InvestmentAnalystState(TypedDict):
     data_gaps: NotRequired[list[str]]
 
     # Evidence Integrity Ledger: immutable artifact registry for this run
-    run_evidence: NotRequired["RunEvidence | None"]  # from src.evidence.registry
+    run_evidence: NotRequired[RunEvidence | None]
 
     report_markdown: NotRequired[str]
     comparison: NotRequired[dict | None]  # Populated when 2+ tickers analyzed
