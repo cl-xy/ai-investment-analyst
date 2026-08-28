@@ -11,6 +11,14 @@ npm run build     # production build
 npm run lint      # oxlint
 ```
 
+## Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `VITE_API_URL` | Backend base URL (required in production; empty uses same-origin in dev) |
+| `VITE_DEMO_PASSWORD` | Demo password sent with API requests, if the backend has `DEMO_PASSWORD` set |
+| `VITE_TELEGRAM_BOT_USERNAME` | Telegram bot username (without `@`) used to build the "Connect on Telegram" deep link on `/alerts`. Leave unset to hide the link. |
+
 ## Structure
 
 ```

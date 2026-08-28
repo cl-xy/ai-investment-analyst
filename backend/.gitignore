@@ -1,2 +1,7 @@
 backend/requirements.lock
 backend/uv.lock
+
+# Secrets - never commit
+.env
+.env.*
+!.env.example

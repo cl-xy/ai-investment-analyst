@@ -8,8 +8,9 @@ Base URL: `https://ai-investment-analyst.fly.dev/api` (production) or `http://lo
 
 In production, analysis endpoints are protected by a shared demo password (set via `DEMO_PASSWORD` env var). When configured:
 
-- **Protected endpoints**: all paths starting with `/api/analyze`
-- **Public endpoints**: `/api/health`, `/api/explore`, `/api/dashboard`, `/api/admin`
+- **Protected endpoints**: all paths starting with `/api/analyze`, `/api/compare`, `/api/chat`, `/api/backtest`, `/api/dashboard`, `/api/eval`, `/api/calibration`, `/api/replay`, `/api/ops`, `/api/alerts`
+- **Public endpoints**: `/api/health`, `/api/explore`, `/api/admin`
+- **Independently authenticated**: `/api/scheduled/*` (scheduler token) and `/api/telegram/webhook` (Telegram webhook secret) — neither uses the demo password
 
 Provide credentials via either:
 - Query parameter: `?password=<demo_password>`
@@ -568,6 +569,51 @@ curl -X POST http://localhost:8000/api/scheduled/refresh-portfolio \
 
 ---
 
+#### POST /api/scheduled/evaluate-alerts
+
+Run the Reasoning-Aware Signal Alerts pipeline against every monitored ticker (portfolio positions + opted-in watchlist subscriptions): checks event triggers, scores heuristic drift, escalates to an LLM judge when warranted, and dispatches Telegram alerts for material changes.
+
+**Headers**
+
+| Header | Required | Description |
+|--------|----------|-------------|
+| `X-Scheduler-Token` | Yes | Scheduler secret token |
+
+**Behavior**
+- Acquires a run lock (prevents concurrent evaluation passes)
+- Evaluates tickers with bounded concurrency (3 at a time)
+- Only escalates to the LLM judge when the heuristic drift score clears the threshold (default 0.4)
+- Hard 100-second timeout
+
+**Response** `200 OK` (success)
+
+```json
+{
+  "status": "success",
+  "message": "Evaluated 5 ticker(s), fired 1 alert(s)",
+  "tickers_evaluated": 5,
+  "alerts_fired": 1,
+  "llm_calls_used": 1,
+  "heuristic_only_count": 0,
+  "created_at": "2026-08-24T14:00:00Z",
+  "duration_ms": 8300
+}
+```
+
+**Errors**
+
+| Status | Condition |
+|--------|-----------|
+| 401 | Missing or invalid scheduler token |
+| 503 | Scheduler token not configured |
+
+```bash
+curl -X POST http://localhost:8000/api/scheduled/evaluate-alerts \
+  -H "X-Scheduler-Token: $SCHEDULER_SECRET_TOKEN"
+```
+
+---
+
 ### Evaluation
 
 #### GET /api/eval/summary
@@ -623,6 +669,122 @@ Daily aggregated metrics for the last 30 days.
 ```bash
 curl http://localhost:8000/api/eval/history
 ```
+
+---
+
+### Alerts
+
+Reasoning-Aware Signal Alerts: in-app alert history and watchlist-based monitoring subscriptions. Gated by the demo auth middleware like other user-facing endpoints.
+
+#### GET /api/alerts
+
+Paginated alert history, newest first.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `limit` | `int` | 50 | Max results (1-200) |
+| `offset` | `int` | 0 | Pagination offset |
+| `ticker` | `string` | — | Filter to a single ticker |
+
+**Response** `200 OK`
+
+```json
+{
+  "alerts": [
+    {
+      "id": "a1b2c3d4-...",
+      "ticker": "NVDA",
+      "alert_type": "sentiment",
+      "severity": "critical",
+      "drift_score": 0.72,
+      "old_signal": "buy",
+      "new_signal": "hold",
+      "reasoning_diff": {
+        "components": { "sentiment_delta": 1.0, "price_move_pct": 0.6 },
+        "triggered_events": [{ "type": "sentiment", "summary": "Retail sentiment deteriorated: 0.70 -> 0.10" }],
+        "llm_judgment": {
+          "changed": true,
+          "new_signal": "hold",
+          "reasoning": "Sentiment collapsed and a new 8-K raised concerns.",
+          "key_shifts": ["sentiment reversal", "new material filing"]
+        }
+      },
+      "triggered_by": ["sentiment", "sec_filing"],
+      "llm_judged": true,
+      "dispatched_telegram": true,
+      "created_at": "2026-08-24T12:00:00Z",
+      "acknowledged_at": null
+    }
+  ],
+  "total": 1
+}
+```
+
+```bash
+curl "http://localhost:8000/api/alerts?limit=20&ticker=NVDA&password=$DEMO_PASSWORD"
+```
+
+#### GET /api/alerts/unread-count
+
+```json
+{"unread_count": 3}
+```
+
+#### POST /api/alerts/{alert_id}/acknowledge
+
+Marks an alert as read. Idempotent — acknowledging an already-read alert returns it unchanged.
+
+**Response** `200 OK`: the updated `AlertItem` (see above).
+
+**Errors**: `400` invalid UUID, `404` alert not found.
+
+#### GET /api/alerts/subscriptions
+
+Lists active watchlist-based monitoring subscriptions.
+
+```json
+{
+  "subscriptions": [
+    { "ticker": "TSLA", "source": "watchlist", "trigger_types": ["sec", "sentiment", "peer", "price"], "active": true }
+  ]
+}
+```
+
+#### POST /api/alerts/subscribe
+
+Opt a ticker into monitoring (used for watchlist tickers that aren't portfolio positions; portfolio positions are monitored automatically).
+
+**Body**
+
+```json
+{"ticker": "TSLA", "trigger_types": ["sec", "price"]}
+```
+
+`trigger_types` is optional; defaults to `["sec", "sentiment", "peer", "price"]`.
+
+**Response** `200 OK`: the created/reactivated `SubscriptionItem`.
+
+#### DELETE /api/alerts/subscribe/{ticker}
+
+Deactivates the subscription for `ticker`. Returns `204 No Content`, or `404` if no active subscription exists.
+
+```bash
+curl -X DELETE "http://localhost:8000/api/alerts/subscribe/TSLA?password=$DEMO_PASSWORD"
+```
+
+---
+
+### Telegram Webhook
+
+#### POST /api/telegram/webhook
+
+Receives updates from the Telegram Bot API. **Not** gated by the demo auth middleware (Telegram can't supply a demo password) — instead validated via the `X-Telegram-Bot-Api-Secret-Token` header, which must match `TELEGRAM_WEBHOOK_SECRET`. Register this URL with Telegram via `setWebhook`.
+
+Supported commands (sent as Telegram messages): `/start` (subscribe), `/stop` (unsubscribe), `/status` (check subscription state).
+
+**Errors**: `401` if the secret token header is missing or incorrect.
 
 ---
 

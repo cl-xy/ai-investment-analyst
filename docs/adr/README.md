@@ -13,6 +13,7 @@
 | [009](009-promptfoo-llm-evaluation.md) | Promptfoo LLM Evaluation Framework | Accepted | 2025-05-15 |
 | [010](010-security-exception-policy.md) | Security Exception Tracking Policy | Accepted | 2025-05-20 |
 | [011](011-dependabot-over-renovate.md) | Dependabot Over Renovate | Accepted | 2025-06-01 |
+| [012](012-reasoning-aware-alerts.md) | Reasoning-Aware Signal Alerts | Accepted | 2026-08-24 |
 
 ## Format
 

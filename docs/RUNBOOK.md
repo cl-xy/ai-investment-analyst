@@ -327,3 +327,43 @@ fly logs -a ai-investment-analyst | grep 'draining'
 - Shutdown coordinator registered with signal handlers
 - Frontend handles 503 + Retry-After by showing "server updating, retrying shortly"
 - Consider adding explicit `kill_signal` and `kill_timeout` to `backend/fly.toml` for longer grace periods
+
+---
+
+## 9. Signal Alerts Not Firing / Telegram Not Delivering
+
+**Symptoms**:
+- No alerts appear on `/alerts` despite monitored tickers having obvious news/price moves
+- Telegram bot doesn't respond to `/start`, or dispatched alerts never arrive
+- `alerts` table stays empty after `evaluate-alerts` runs
+
+**Diagnosis**:
+
+```bash
+# Manually trigger an evaluation pass and inspect the response
+curl -X POST https://<app-domain>/api/scheduled/evaluate-alerts \
+  -H "x-scheduler-token: $SCHEDULER_SECRET_TOKEN" | jq .
+# Look at tickers_evaluated / alerts_fired / llm_calls_used in the response
+
+fly logs -a ai-investment-analyst | grep 'alert_evaluation\|alert_pipeline\|telegram_'
+
+# Check which tickers are actually monitored
+curl -s "https://<app-domain>/api/alerts/subscriptions?password=$DEMO_PASSWORD" | jq .
+```
+
+**Common root causes**:
+- **No prior analysis for the ticker.** `evaluate_ticker` skips (`skip_reason=no_prior_analysis`) any ticker that has never completed a successful debate — run one analysis first before expecting drift detection.
+- **Heuristic score never crosses the threshold (0.4 default).** Check `drift_score` in the `alerts` table or `reasoning_diff.components` on a persisted alert (if one fired at all) — small moves are intentionally filtered out to avoid noise.
+- **OpenRouter budget exhausted.** `judge_drift` returns `skip_reason=budget_exhausted` and the alert still fires but stays heuristic-only (`llm_judged=false`, severity capped at `warning`). Check `/api/ops` budget panel.
+- **`TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET` not configured.** `dispatch_alert` logs `telegram_call_skipped_no_token` and silently no-ops — alerts still persist and show in `/alerts`, they just never reach Telegram.
+- **No registered chats.** A user must `/start` the bot at least once; `get_active_chat_ids()` returning empty means `dispatch_alert` returns 0 sent with no error.
+- **4-hour per-ticker cooldown.** `alert_dispatch_state` rate-limits Telegram sends to once per ticker per 4h regardless of severity — check `last_dispatched_at` for the ticker if a second alert seems suppressed.
+
+**Mitigation**:
+- Verify the webhook is registered: `https://api.telegram.org/bot<TOKEN>/getWebhookInfo`
+- Re-register if needed: `https://api.telegram.org/bot<TOKEN>/setWebhook?url=<BACKEND_URL>/api/telegram/webhook&secret_token=<TELEGRAM_WEBHOOK_SECRET>`
+- Force a test dispatch bypassing the cooldown by calling `dispatch_alert(alert, force=True)` from a one-off script if you need to confirm delivery end-to-end
+
+**Prevention**:
+- `.github/workflows/alert-evaluation.yml` runs every 2h during US market hours; use `workflow_dispatch` to trigger on demand for testing
+- The `refresh-portfolio` success hook (`_evaluate_alerts_best_effort`) piggybacks a full evaluation pass on every successful portfolio refresh, so alerts stay reasonably fresh even if the dedicated cron is delayed

@@ -115,6 +115,18 @@ Every step streams to the frontend via SSE with domain-specific events. The deba
 - **Fly-Replay SSE pinning**: Reconnecting SSE clients are routed back to the machine holding their stream state
 - **Per-ticker cost attribution**: Every LLM call is tagged with the ticker and user context for budget accounting
 
+### Reasoning-Aware Signal Alerts
+
+Most broker apps alert on price thresholds: "NVDA dropped 5%." This system alerts on *reasoning drift* — whether the underlying investment thesis still holds, not just whether the number moved.
+
+- **Event-driven triggers**: new SEC filings, sentiment swings, sector-peer signal flips, and price moves are checked against each monitored ticker's last analysis
+- **Two-tier evaluation**: a cheap heuristic scorer (weighted sentiment/price/risk-flag/filing/news/peer signals) runs first; a single fast-model LLM call only fires when the heuristic score clears a threshold, keeping this well within the OpenRouter free-tier budget
+- **Structured reasoning diffs**: alerts carry *which arguments shifted* ("3 of 5 bull arguments now contradicted"), not just a price delta
+- **Telegram delivery**: `/start` the bot to subscribe; alerts include the signal transition, key reasoning shifts, and a deep link back into the app
+- **Portfolio + watchlist monitoring**: portfolio positions are monitored automatically; any watchlist ticker can opt in via a bell-icon toggle
+
+See [`docs/adr/012-reasoning-aware-alerts.md`](docs/adr/012-reasoning-aware-alerts.md) for the design rationale.
+
 ### Track Record
 
 Every signal is a prediction. After 30 days, the system checks the actual market outcome and scores itself:
