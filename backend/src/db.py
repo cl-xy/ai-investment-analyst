@@ -359,6 +359,61 @@ ALTER TABLE predictions ADD COLUMN IF NOT EXISTS excess_return DOUBLE PRECISION;
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS adj_price_at_prediction DOUBLE PRECISION;
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS adj_outcome_price DOUBLE PRECISION;
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS resolution_method TEXT NOT NULL DEFAULT 'adjusted_close';
+
+-- Reasoning-Aware Signal Alerts: watchlist-opt-in monitoring subscriptions.
+-- Portfolio positions (SQLite `positions` table) are implicitly monitored;
+-- this table additionally covers frontend-watchlist-only tickers that opt in.
+CREATE TABLE IF NOT EXISTS alert_subscriptions (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ticker          TEXT NOT NULL,
+    source          TEXT NOT NULL DEFAULT 'watchlist',
+    trigger_types   JSONB NOT NULL DEFAULT '["sec", "sentiment", "peer", "price"]',
+    active          BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT alert_subscriptions_source_check CHECK (source IN ('portfolio', 'watchlist'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_subscriptions_ticker_active
+    ON alert_subscriptions(ticker) WHERE active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_alert_subscriptions_active ON alert_subscriptions(active) WHERE active = TRUE;
+
+-- Reasoning-Aware Signal Alerts: alert history with structured reasoning diffs.
+CREATE TABLE IF NOT EXISTS alerts (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ticker              TEXT NOT NULL,
+    alert_type          TEXT NOT NULL,
+    severity            TEXT NOT NULL DEFAULT 'info',
+    drift_score         DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    old_signal          TEXT,
+    new_signal          TEXT,
+    reasoning_diff      JSONB NOT NULL DEFAULT '{}',
+    triggered_by        JSONB NOT NULL DEFAULT '[]',
+    llm_judged          BOOLEAN NOT NULL DEFAULT FALSE,
+    dispatched_telegram BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    acknowledged_at     TIMESTAMPTZ,
+    CONSTRAINT alerts_severity_check CHECK (severity IN ('info', 'warning', 'critical'))
+);
+CREATE INDEX IF NOT EXISTS idx_alerts_ticker ON alerts(ticker);
+CREATE INDEX IF NOT EXISTS idx_alerts_created_at ON alerts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_unacknowledged ON alerts(acknowledged_at) WHERE acknowledged_at IS NULL;
+
+-- Reasoning-Aware Signal Alerts: Telegram bot chat registrations (single bot,
+-- multiple subscribers). last_alert_sent_at is keyed per-ticker in the
+-- dispatcher's rate limiter, not here; this just tracks registration state.
+CREATE TABLE IF NOT EXISTS telegram_registrations (
+    chat_id             BIGINT PRIMARY KEY,
+    registered_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    active              BOOLEAN NOT NULL DEFAULT TRUE,
+    last_alert_sent_at  TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_telegram_registrations_active ON telegram_registrations(active) WHERE active = TRUE;
+
+-- Per-ticker Telegram dispatch rate limiting (max 1 alert per ticker per 4h,
+-- independent of chat_id since there's one bot but potentially many chats).
+CREATE TABLE IF NOT EXISTS alert_dispatch_state (
+    ticker              TEXT PRIMARY KEY,
+    last_dispatched_at  TIMESTAMPTZ NOT NULL
+);
 """
 
 

@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     scheduler_secret_token: str = ""
     scheduler_refresh_lock_seconds: int = 900
 
+    # Telegram bot (Reasoning-Aware Signal Alerts)
+    telegram_bot_token: str = ""
+    telegram_webhook_secret: str = ""
+
     # Server
     port: int = 8000
     frontend_url: str = "http://localhost:5173"
