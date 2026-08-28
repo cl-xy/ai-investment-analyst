@@ -3,6 +3,7 @@ import { TrendingUp, Menu, X, ChevronDown } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { ThemeSwitcher } from './ThemeSwitcher'
 import { SaveStatusChip } from './SaveStatusChip'
+import { AlertsBadge } from './AlertsBadge'
 import { useSaveStatusStore } from '../stores/saveStatusStore'
 
 const PRIMARY_NAV = [
@@ -17,6 +18,7 @@ const HISTORY_NAV = [
   { to: '/calibration', label: 'Track Record' },
   { to: '/backtest', label: 'Signal History' },
   { to: '/evals', label: 'Quality Metrics' },
+  { to: '/alerts', label: 'Signal Alerts' },
 ] as const
 
 const OPS_NAV = [
@@ -108,6 +110,9 @@ export default function Header() {
           </button>
 
           <ThemeSwitcher />
+
+          {/* Signal alerts (unread count badge) */}
+          <AlertsBadge />
 
           {/* Mobile hamburger */}
           <button

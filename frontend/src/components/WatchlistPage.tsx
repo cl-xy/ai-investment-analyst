@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, Sparkles, X, AlertCircle } from 'lucide-react'
+import { Plus, Search, Sparkles, X, AlertCircle, Bell, BellRing } from 'lucide-react'
 import { useRecentTickers } from '../hooks/useRecentTickers'
 import { getTickerError, normalizeTicker } from '../utils/tickerValidation'
+import { getSubscriptions, subscribeTicker, unsubscribeTicker } from '../api/alertsService'
+import { toastError, toastSuccess } from '../stores/toastStore'
 
 interface Props {
   tickers: string[]
@@ -18,6 +20,9 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
   const [input, setInput] = useState('')
   // #29: Inline validation error
   const [inputError, setInputError] = useState<string | null>(null)
+  // Reasoning-Aware Signal Alerts: tickers the user has opted into monitoring
+  const [monitoredTickers, setMonitoredTickers] = useState<Set<string>>(new Set())
+  const [monitorPending, setMonitorPending] = useState<Set<string>>(new Set())
   // First-run welcome banner (read-only initializer for render purity)
   const [showWelcome, setShowWelcome] = useState(() => {
     try {
@@ -40,6 +45,52 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
       }
     } catch { /* storage unavailable, ignore */ }
   }, [])
+
+  // Load which watchlist tickers already have alert monitoring enabled
+  useEffect(() => {
+    let cancelled = false
+    getSubscriptions()
+      .then((subs) => {
+        if (cancelled) return
+        setMonitoredTickers(new Set(subs.filter((s) => s.active).map((s) => s.ticker)))
+      })
+      .catch(() => {
+        // Best-effort; the toggle still works, it just won't reflect prior state
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const toggleMonitoring = async (ticker: string) => {
+    if (monitorPending.has(ticker)) return
+    const isMonitored = monitoredTickers.has(ticker)
+
+    setMonitorPending((prev) => new Set(prev).add(ticker))
+    try {
+      if (isMonitored) {
+        await unsubscribeTicker(ticker)
+        setMonitoredTickers((prev) => {
+          const next = new Set(prev)
+          next.delete(ticker)
+          return next
+        })
+        toastSuccess(`Stopped monitoring ${ticker}`)
+      } else {
+        await subscribeTicker(ticker)
+        setMonitoredTickers((prev) => new Set(prev).add(ticker))
+        toastSuccess(`Now monitoring ${ticker} for signal alerts`)
+      }
+    } catch {
+      toastError(`Failed to update monitoring for ${ticker}`)
+    } finally {
+      setMonitorPending((prev) => {
+        const next = new Set(prev)
+        next.delete(ticker)
+        return next
+      })
+    }
+  }
 
   const dismissWelcome = () => {
     try {
@@ -189,22 +240,49 @@ export default function WatchlistPage({ tickers, onAdd, onRemove, onAnalyze, loa
             Watchlist · {tickers.length} stock{tickers.length > 1 ? 's' : ''}
           </p>
           <div className="flex flex-wrap gap-2">
-            {tickers.map((ticker) => (
-              <span
-                key={ticker}
-                className="inline-flex items-center gap-1.5 bg-[var(--surface-elevated)] border border-[var(--border)] text-[var(--text-primary)] text-sm font-mono font-medium px-3 py-1.5 rounded-lg"
-              >
-                {ticker}
-                <button
-                  type="button"
-                  onClick={() => onRemove(ticker)}
-                  className="text-[var(--text-muted)] hover:text-[var(--bearish)] transition-colors min-w-[28px] min-h-[28px] flex items-center justify-center rounded"
-                  aria-label={`Remove ${ticker}`}
+            {tickers.map((ticker) => {
+              const isMonitored = monitoredTickers.has(ticker)
+              const isPending = monitorPending.has(ticker)
+              return (
+                <span
+                  key={ticker}
+                  className="inline-flex items-center gap-1.5 bg-[var(--surface-elevated)] border border-[var(--border)] text-[var(--text-primary)] text-sm font-mono font-medium px-3 py-1.5 rounded-lg"
                 >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </span>
-            ))}
+                  {ticker}
+                  <button
+                    type="button"
+                    onClick={() => toggleMonitoring(ticker)}
+                    disabled={isPending}
+                    className={`transition-colors min-w-[28px] min-h-[28px] flex items-center justify-center rounded disabled:opacity-50 ${
+                      isMonitored
+                        ? 'text-[var(--accent)] hover:text-[var(--accent)]/80'
+                        : 'text-[var(--text-muted)] hover:text-[var(--accent)]'
+                    }`}
+                    aria-label={
+                      isMonitored
+                        ? `Stop monitoring ${ticker} for signal alerts`
+                        : `Monitor ${ticker} for signal alerts`
+                    }
+                    aria-pressed={isMonitored}
+                    title={isMonitored ? 'Monitoring for signal alerts' : 'Enable signal alerts'}
+                  >
+                    {isMonitored ? (
+                      <BellRing className="w-3.5 h-3.5" />
+                    ) : (
+                      <Bell className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRemove(ticker)}
+                    className="text-[var(--text-muted)] hover:text-[var(--bearish)] transition-colors min-w-[28px] min-h-[28px] flex items-center justify-center rounded"
+                    aria-label={`Remove ${ticker}`}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </span>
+              )
+            })}
           </div>
         </div>
       )}
