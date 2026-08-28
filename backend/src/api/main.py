@@ -38,6 +38,7 @@ from src.middleware.request_id import RequestIDMiddleware
 from src.middleware.security_headers import SecurityHeadersMiddleware
 
 from .routes.admin import router as admin_router
+from .routes.alerts import router as alerts_router
 from .routes.analyze import router as analyze_router
 from .routes.analyze_stream import router as analyze_stream_router
 from .routes.audit import router as audit_router
@@ -52,6 +53,7 @@ from .routes.health import router as health_router
 from .routes.ops import router as ops_router
 from .routes.replay import router as replay_router
 from .routes.scheduled import router as scheduled_router
+from .routes.telegram import router as telegram_router
 
 _is_production = os.environ.get("FLY_APP_NAME") is not None
 setup_logging(json_output=_is_production, level="INFO")
@@ -126,6 +128,8 @@ app.include_router(replay_router, prefix="/api")
 app.include_router(scheduled_router, prefix="/api")
 app.include_router(ops_router, prefix="/api")
 app.include_router(metrics_router, prefix="/api")
+app.include_router(telegram_router, prefix="/api")
+app.include_router(alerts_router, prefix="/api")
 
 
 def start() -> None:

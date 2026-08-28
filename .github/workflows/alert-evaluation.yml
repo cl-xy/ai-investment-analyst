@@ -1,0 +1,57 @@
+name: Alert Evaluation
+
+on:
+  schedule:
+    # Every 2 hours; the job itself filters down to US market hours (Mon-Fri).
+    - cron: "15 */2 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: alert-evaluation
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check market-hours window (Mon-Fri, 9:30-16:00 ET)
+        id: schedule_check
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "run_now=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          weekday=$(TZ=America/New_York date '+%u')  # 1=Mon .. 7=Sun
+          hour=$(TZ=America/New_York date '+%H')
+
+          if (( weekday >= 6 )); then
+            echo "run_now=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if (( 10#$hour >= 9 && 10#$hour < 16 )); then
+            echo "run_now=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_now=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Trigger backend alert evaluation
+        if: steps.schedule_check.outputs.run_now == 'true'
+        env:
+          ALERT_EVALUATION_URL: ${{ secrets.ALERT_EVALUATION_URL }}
+          SCHEDULER_SECRET_TOKEN: ${{ secrets.SCHEDULER_SECRET_TOKEN }}
+        run: |
+          test -n "$ALERT_EVALUATION_URL"
+          test -n "$SCHEDULER_SECRET_TOKEN"
+          curl --fail --show-error --silent \
+            --retry 3 \
+            --retry-all-errors \
+            --connect-timeout 10 \
+            --max-time 120 \
+            -X POST "$ALERT_EVALUATION_URL" \
+            -H "x-scheduler-token: $SCHEDULER_SECRET_TOKEN" \
+            -H "content-type: application/json"

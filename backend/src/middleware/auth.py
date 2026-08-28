@@ -48,6 +48,7 @@ class DemoAuthMiddleware(BaseHTTPMiddleware):
         "/api/calibration",
         "/api/replay",
         "/api/ops",
+        "/api/alerts",
     )
     PUBLIC_PREFIXES = ("/api/health", "/api/explore")
 

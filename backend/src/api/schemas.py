@@ -112,6 +112,69 @@ class ScheduledRefreshResponse(BaseModel):
     duration_ms: int
 
 
+class AlertEvaluationResponse(BaseModel):
+    status: Literal["success", "skipped", "failed"]
+    message: str
+    tickers_evaluated: int = 0
+    alerts_fired: int = 0
+    llm_calls_used: int = 0
+    heuristic_only_count: int = 0
+    created_at: datetime
+    duration_ms: int
+
+
+# --- Reasoning-Aware Signal Alerts ---
+
+
+class AlertItem(BaseModel):
+    id: str
+    ticker: str
+    alert_type: str
+    severity: Literal["info", "warning", "critical"]
+    drift_score: float
+    old_signal: str | None = None
+    new_signal: str | None = None
+    reasoning_diff: dict
+    triggered_by: list[str]
+    llm_judged: bool
+    dispatched_telegram: bool
+    created_at: datetime
+    acknowledged_at: datetime | None = None
+
+
+class AlertListResponse(BaseModel):
+    alerts: list[AlertItem]
+    total: int
+
+
+class UnreadCountResponse(BaseModel):
+    unread_count: int
+
+
+class SubscriptionRequest(BaseModel):
+    ticker: str
+    trigger_types: list[str] | None = None
+
+    @field_validator("ticker")
+    @classmethod
+    def validate_ticker(cls, v: str) -> str:
+        t = v.strip().upper()
+        if not VALID_TICKER_RE.match(t):
+            raise ValueError(f"Invalid ticker symbol: {t!r}")
+        return t
+
+
+class SubscriptionItem(BaseModel):
+    ticker: str
+    source: str
+    trigger_types: list[str]
+    active: bool
+
+
+class SubscriptionListResponse(BaseModel):
+    subscriptions: list[SubscriptionItem]
+
+
 # --- Compare ---
 
 

@@ -8,11 +8,12 @@ from time import perf_counter
 from fastapi import APIRouter, Header, HTTPException, Request
 
 from src.agent.concurrency import acquire_analysis_slot, release_analysis_slot
+from src.alerts.pipeline import evaluate_all_monitored
 from src.config import settings
 from src.db import fetchrow
 from src.mcp_servers.portfolio_server import fetch_all_positions
 
-from ..schemas import ScheduledRefreshResponse
+from ..schemas import AlertEvaluationResponse, ScheduledRefreshResponse
 from .analyze import analyze_tickers
 
 router = APIRouter()
@@ -22,6 +23,8 @@ _RUN_LOCK = asyncio.Lock()
 _LAST_REFRESH_STARTED_AT: datetime | None = None
 
 _EARNINGS_RUN_LOCK = asyncio.Lock()
+
+_ALERT_EVAL_LOCK = asyncio.Lock()
 
 
 def _get_unique_portfolio_tickers(positions: list[dict]) -> list[str]:
@@ -158,6 +161,17 @@ async def refresh_portfolio_analyses(
             analysis.id,
             int((perf_counter() - started) * 1000),
         )
+
+        # Best-effort hook: piggyback a full alert-evaluation pass on a
+        # successful portfolio refresh. Note this deliberately does NOT
+        # re-check the tickers just refreshed above — force_refresh=True
+        # means their new analysis *is* the fresh baseline, so drift against
+        # itself would always be zero. Instead this catches drift on any
+        # other monitored ticker (e.g. watchlist-only subscriptions) using
+        # already-warm probe caches. Fire-and-forget: must not extend this
+        # endpoint's response latency or be bound by its timeout.
+        asyncio.create_task(_evaluate_alerts_best_effort())
+
         return ScheduledRefreshResponse(
             status="success",
             message="Portfolio analysis refreshed",
@@ -166,6 +180,18 @@ async def refresh_portfolio_analyses(
             created_at=analysis.created_at,
             duration_ms=int((perf_counter() - started) * 1000),
         )
+
+
+async def _evaluate_alerts_best_effort() -> None:
+    """Run a full monitored-universe drift evaluation without holding up the
+    refresh-portfolio response. Swallows all exceptions — this is
+    observability/notification, not part of the refresh contract."""
+    from src.alerts.pipeline import evaluate_all_monitored
+
+    try:
+        await evaluate_all_monitored()
+    except Exception:
+        logger.warning("post_refresh_alert_evaluation_failed", exc_info=True)
 
 
 async def _ticker_due_for_earnings_refresh(ticker: str) -> bool:
@@ -329,5 +355,95 @@ async def refresh_earnings_tickers(
             tickers=due_tickers,
             analysis_id=analysis.id,
             created_at=analysis.created_at,
+            duration_ms=int((perf_counter() - started) * 1000),
+        )
+
+
+@router.post("/scheduled/evaluate-alerts", response_model=AlertEvaluationResponse)
+async def evaluate_alerts(
+    request: Request,
+    x_scheduler_token: str | None = Header(default=None),
+) -> AlertEvaluationResponse:
+    """
+    Reasoning-Aware Signal Alerts: evaluate every monitored ticker (portfolio
+    positions + opted-in watchlist subscriptions) for drift since its last
+    analysis, and dispatch Telegram alerts for anything material.
+
+    Deliberately decoupled from refresh-portfolio/refresh-earnings — this
+    doesn't run a full re-analysis, just the lightweight probe + heuristic
+    scorer (+ conditional LLM judge) pipeline, so it's safe to run more
+    frequently (e.g. every 2h during market hours).
+    """
+    now = datetime.now(timezone.utc)
+    started = perf_counter()
+
+    expected_token = settings.scheduler_secret_token
+    if not expected_token:
+        raise HTTPException(status_code=503, detail="Scheduler token is not configured")
+    if not x_scheduler_token or not compare_digest(x_scheduler_token, expected_token):
+        raise HTTPException(status_code=401, detail="Unauthorized scheduler request")
+
+    if _ALERT_EVAL_LOCK.locked():
+        return AlertEvaluationResponse(
+            status="skipped",
+            message="Alert evaluation is already running",
+            created_at=now,
+            duration_ms=int((perf_counter() - started) * 1000),
+        )
+
+    async with _ALERT_EVAL_LOCK:
+        slot_acquired = await acquire_analysis_slot()
+        if not slot_acquired:
+            logger.warning("alert_evaluation_skipped_no_slot")
+            return AlertEvaluationResponse(
+                status="skipped",
+                message="Server at capacity; alert evaluation deferred",
+                created_at=datetime.now(timezone.utc),
+                duration_ms=int((perf_counter() - started) * 1000),
+            )
+
+        # Hard timeout: below GitHub Actions' curl --max-time (120s) and Fly's
+        # proxy idle limit. Each ticker's evaluation is itself bounded (probe
+        # timeouts + a single fast LLM call), so this should rarely trip, but
+        # without it a stuck probe could hold the lock + slot indefinitely.
+        _ALERT_EVAL_TIMEOUT = 100  # seconds
+        try:
+            logger.info("alert_evaluation_started")
+            summary = await asyncio.wait_for(
+                evaluate_all_monitored(), timeout=_ALERT_EVAL_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            logger.error("alert_evaluation_timeout timeout=%ds", _ALERT_EVAL_TIMEOUT)
+            return AlertEvaluationResponse(
+                status="failed",
+                message=f"Alert evaluation timed out after {_ALERT_EVAL_TIMEOUT}s",
+                created_at=datetime.now(timezone.utc),
+                duration_ms=int((perf_counter() - started) * 1000),
+            )
+        except Exception:
+            logger.exception("alert_evaluation_error")
+            return AlertEvaluationResponse(
+                status="failed",
+                message="Alert evaluation failed unexpectedly",
+                created_at=datetime.now(timezone.utc),
+                duration_ms=int((perf_counter() - started) * 1000),
+            )
+        finally:
+            release_analysis_slot()
+
+        logger.info(
+            "alert_evaluation_finished tickers=%d alerts_fired=%d duration_ms=%s",
+            summary.tickers_evaluated,
+            summary.alerts_fired,
+            int((perf_counter() - started) * 1000),
+        )
+        return AlertEvaluationResponse(
+            status="success",
+            message=f"Evaluated {summary.tickers_evaluated} ticker(s), fired {summary.alerts_fired} alert(s)",
+            tickers_evaluated=summary.tickers_evaluated,
+            alerts_fired=summary.alerts_fired,
+            llm_calls_used=summary.llm_calls_used,
+            heuristic_only_count=summary.heuristic_only_count,
+            created_at=datetime.now(timezone.utc),
             duration_ms=int((perf_counter() - started) * 1000),
         )
