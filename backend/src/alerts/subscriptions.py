@@ -56,6 +56,12 @@ async def subscribe_ticker(
             "WHERE ticker = $1 AND active = TRUE",
             ticker,
         )
+    if row is None:
+        # INSERT ... RETURNING should always produce a row on success, and
+        # the re-fetch above covers the one known edge case. If both still
+        # come back empty, something upstream is broken — fail loudly rather
+        # than returning a bogus AlertSubscription.
+        raise RuntimeError(f"subscribe_ticker: no row returned for ticker={ticker}")
     return AlertSubscription(
         ticker=row["ticker"],
         source=row["source"],
