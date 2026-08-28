@@ -76,9 +76,7 @@ async def register_chat(chat_id: int) -> None:
 async def deactivate_chat(chat_id: int) -> None:
     """Mark a chat_id inactive (in response to /stop). Row is kept for
     audit/re-activation rather than deleted."""
-    await execute(
-        "UPDATE telegram_registrations SET active = FALSE WHERE chat_id = $1", chat_id
-    )
+    await execute("UPDATE telegram_registrations SET active = FALSE WHERE chat_id = $1", chat_id)
 
 
 async def get_active_chat_ids() -> list[int]:
@@ -87,9 +85,7 @@ async def get_active_chat_ids() -> list[int]:
 
 
 async def is_chat_registered(chat_id: int) -> bool:
-    row = await fetchrow(
-        "SELECT active FROM telegram_registrations WHERE chat_id = $1", chat_id
-    )
+    row = await fetchrow("SELECT active FROM telegram_registrations WHERE chat_id = $1", chat_id)
     return bool(row and row["active"])
 
 
@@ -202,7 +198,9 @@ async def dispatch_alert(alert: Alert, *, force: bool = False) -> int:
     if sent > 0:
         await mark_alert_dispatched(alert.id)
 
-    log.info("telegram_dispatch_complete ticker=%s sent=%d total=%d", alert.ticker, sent, len(chat_ids))
+    log.info(
+        "telegram_dispatch_complete ticker=%s sent=%d total=%d", alert.ticker, sent, len(chat_ids)
+    )
     return sent
 
 
@@ -242,7 +240,9 @@ async def handle_update(update: dict) -> None:
     elif text.startswith("/status"):
         registered = await is_chat_registered(chat_id)
         status_text = (
-            "You are subscribed to alerts." if registered else "You are not subscribed. Send /start to subscribe."
+            "You are subscribed to alerts."
+            if registered
+            else "You are not subscribed. Send /start to subscribe."
         )
         await send_test_message(chat_id, status_text)
     else:

@@ -145,9 +145,7 @@ def score_drift(
             previous_risk_flag_count, current_risk_flag_count
         ),
         new_sec_filing=_score_new_sec_filing(new_sec_filing_detected),
-        news_volume_spike=_score_news_volume_spike(
-            previous_article_count, current_article_count
-        ),
+        news_volume_spike=_score_news_volume_spike(previous_article_count, current_article_count),
         peer_signal_flip=_score_peer_signal_flip(peer_signal_flipped),
     )
 

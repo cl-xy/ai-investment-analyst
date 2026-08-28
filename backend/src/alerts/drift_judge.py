@@ -84,7 +84,10 @@ to the thesis, not just noise. Respond with ONLY a JSON object, no prose, matchi
 def _build_human_prompt(
     ticker: str, snapshot: LastAnalysisSnapshot, events: list[TriggerEvent]
 ) -> str:
-    changes = "\n".join(f"- {e.summary}" for e in events) or "- (no specific events; heuristic score alone triggered this check)"
+    changes = (
+        "\n".join(f"- {e.summary}" for e in events)
+        or "- (no specific events; heuristic score alone triggered this check)"
+    )
     risk_flags = ", ".join(snapshot.risk_flags) if snapshot.risk_flags else "none recorded"
     return (
         f"Ticker: {ticker}\n"

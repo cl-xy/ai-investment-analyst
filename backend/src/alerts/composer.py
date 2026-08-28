@@ -90,8 +90,7 @@ def _build_reasoning_diff(
         },
         "details": drift.details,
         "triggered_events": [
-            {"type": e.trigger_type, "summary": e.summary, "metadata": e.metadata}
-            for e in events
+            {"type": e.trigger_type, "summary": e.summary, "metadata": e.metadata} for e in events
         ],
         "prior_signal": snapshot.signal,
         "prior_confidence": snapshot.confidence,

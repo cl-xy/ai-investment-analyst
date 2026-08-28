@@ -30,7 +30,9 @@ async def check_peer_signal_trigger(
     if snapshot is None:
         return None
 
-    sector = snapshot.fundamentals.get("sector") if isinstance(snapshot.fundamentals, dict) else None
+    sector = (
+        snapshot.fundamentals.get("sector") if isinstance(snapshot.fundamentals, dict) else None
+    )
     peers = get_sector_peers(sector, exclude={ticker}, limit=_MAX_PEERS_CHECKED)
     if not peers:
         return None
@@ -46,9 +48,7 @@ async def check_peer_signal_trigger(
         return TriggerEvent(
             ticker=ticker,
             trigger_type="peer_signal",
-            summary=(
-                f"Sector peer {peer} flipped {baseline_signal} -> {peer_snapshot.signal}"
-            ),
+            summary=(f"Sector peer {peer} flipped {baseline_signal} -> {peer_snapshot.signal}"),
             metadata={
                 "peer": peer,
                 "peer_previous_signal": baseline_signal,

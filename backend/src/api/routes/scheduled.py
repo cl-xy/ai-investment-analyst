@@ -409,9 +409,7 @@ async def evaluate_alerts(
         _ALERT_EVAL_TIMEOUT = 100  # seconds
         try:
             logger.info("alert_evaluation_started")
-            summary = await asyncio.wait_for(
-                evaluate_all_monitored(), timeout=_ALERT_EVAL_TIMEOUT
-            )
+            summary = await asyncio.wait_for(evaluate_all_monitored(), timeout=_ALERT_EVAL_TIMEOUT)
         except asyncio.TimeoutError:
             logger.error("alert_evaluation_timeout timeout=%ds", _ALERT_EVAL_TIMEOUT)
             return AlertEvaluationResponse(

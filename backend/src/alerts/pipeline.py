@@ -78,7 +78,9 @@ async def evaluate_ticker(
     # falling back to the current count as its own baseline (delta = 0).
     drift = score_drift(
         previous_sentiment=snapshot.sentiment_score,
-        current_sentiment=probe.sentiment_score if probe.sentiment_score is not None else snapshot.sentiment_score,
+        current_sentiment=probe.sentiment_score
+        if probe.sentiment_score is not None
+        else snapshot.sentiment_score,
         price_at_prediction=_extract_price(snapshot),
         current_price=probe.current_price,
         previous_risk_flag_count=len(snapshot.risk_flags),
@@ -202,7 +204,9 @@ async def evaluate_all_monitored(*, correlation_id: str | None = None) -> Pipeli
     tickers = await get_monitored_tickers()
 
     if not tickers:
-        log.info("alert_pipeline_run_skipped_no_monitored_tickers correlation_id=%s", correlation_id)
+        log.info(
+            "alert_pipeline_run_skipped_no_monitored_tickers correlation_id=%s", correlation_id
+        )
         return PipelineRunSummary(
             tickers_evaluated=0, alerts_fired=0, llm_calls_used=0, heuristic_only_count=0
         )
@@ -225,9 +229,7 @@ async def evaluate_all_monitored(*, correlation_id: str | None = None) -> Pipeli
 
     alerts_fired = sum(1 for o in outcomes if o.alert is not None)
     llm_calls_used = sum(1 for o in outcomes if o.llm_invoked)
-    heuristic_only = sum(
-        1 for o in outcomes if o.alert is not None and not o.llm_invoked
-    )
+    heuristic_only = sum(1 for o in outcomes if o.alert is not None and not o.llm_invoked)
 
     log.info(
         "alert_pipeline_run_complete tickers=%d alerts_fired=%d llm_calls=%d correlation_id=%s",
