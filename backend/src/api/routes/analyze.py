@@ -2,7 +2,6 @@
 Analyze endpoint. Runs the LangGraph agent and persists results to PostgreSQL.
 """
 
-import json
 import logging
 import sys
 import uuid
@@ -23,6 +22,7 @@ from langchain_core.messages import HumanMessage
 from src.agent.checkpointer import get_checkpointer
 from src.agent.concurrency import acquire_analysis_slot, release_analysis_slot
 from src.agent.graph import build_graph
+from src.api.json_coerce import as_dict, as_list
 from src.api.persistence import persist_full_run
 from src.db import fetchrow
 
@@ -74,18 +74,10 @@ async def _fetch_cached_analyses(tickers: list[str]) -> dict[str, TickerAnalysis
                 confidence=row["confidence"],
                 sentiment_score=row["sentiment_score"] or 0.0,
                 news_summary=row["news_summary"] or "",
-                risk_flags=row["risk_flags"]
-                if isinstance(row["risk_flags"], list)
-                else json.loads(row["risk_flags"] or "[]"),
-                price_data=row["price_data"]
-                if isinstance(row["price_data"], dict)
-                else json.loads(row["price_data"] or "{}"),
-                fundamentals=row["fundamentals"]
-                if isinstance(row["fundamentals"], dict)
-                else json.loads(row["fundamentals"] or "{}"),
-                earnings=row["earnings"]
-                if isinstance(row["earnings"], dict)
-                else json.loads(row["earnings"] or "{}"),
+                risk_flags=as_list(row["risk_flags"]),
+                price_data=as_dict(row["price_data"]),
+                fundamentals=as_dict(row["fundamentals"]),
+                earnings=as_dict(row["earnings"]),
                 sec_notes=row["sec_notes"] or "",
             )
     return cached
