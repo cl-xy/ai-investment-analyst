@@ -45,6 +45,7 @@ class DemoAuthMiddleware(BaseHTTPMiddleware):
         "/api/backtest",
         "/api/dashboard",
         "/api/eval",
+        "/api/eval-flywheel",
         "/api/calibration",
         "/api/replay",
         "/api/ops",

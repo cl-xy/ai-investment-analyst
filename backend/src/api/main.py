@@ -48,6 +48,7 @@ from .routes.chat import router as chat_router
 from .routes.compare import router as compare_router
 from .routes.dashboard import router as dashboard_router
 from .routes.eval import router as eval_router
+from .routes.eval_flywheel import router as eval_flywheel_router
 from .routes.explore import router as explore_router
 from .routes.health import router as health_router
 from .routes.ops import router as ops_router
@@ -121,6 +122,7 @@ app.include_router(calibration_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(eval_router, prefix="/api")
+app.include_router(eval_flywheel_router, prefix="/api")
 app.include_router(compare_router, prefix="/api")
 app.include_router(dashboard_router, prefix="/api")
 app.include_router(explore_router, prefix="/api")
