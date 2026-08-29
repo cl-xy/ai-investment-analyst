@@ -27,6 +27,14 @@ from src.db import execute, executemany, fetch, fetchrow
 # ---------------------------------------------------------------------------
 
 
+# Size ceiling for full_payload capture (per artifact). Payloads observed in
+# practice are small (single quote/fundamentals dicts, <=10 news articles,
+# one filing excerpt) — this is a defensive ceiling, not an expected limit.
+# Artifacts exceeding this are still registered (excerpt/hash unaffected)
+# but full_payload is left NULL and capture_status downstream reflects that.
+MAX_FULL_PAYLOAD_BYTES = 200_000
+
+
 @dataclass(frozen=True, slots=True)
 class EvidenceArtifact:
     """Immutable evidence artifact with provenance metadata."""
@@ -40,6 +48,7 @@ class EvidenceArtifact:
     cache_hit: bool
     payload_excerpt: str  # first 500 chars for audit display
     payload_size: int
+    full_payload: Any = None  # canonical content, captured at write time only
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -119,6 +128,12 @@ class RunEvidence:
         content_hash = compute_content_hash(content)
         canonical = _canonicalize(content)
 
+        # Capture the full content for later replay (Task 2), but only up to
+        # a defensive size ceiling. Must be captured now — by the time a
+        # prediction resolves (up to 30 days later) the in-memory tool
+        # response and short-TTL cache row are both gone.
+        full_payload = content if len(canonical) <= MAX_FULL_PAYLOAD_BYTES else None
+
         artifact = EvidenceArtifact(
             artifact_id=artifact_id,
             content_hash=content_hash,
@@ -129,6 +144,7 @@ class RunEvidence:
             cache_hit=cache_hit,
             payload_excerpt=canonical[:500],
             payload_size=len(canonical),
+            full_payload=full_payload,
         )
         self.artifacts[artifact_id] = artifact
         return artifact
@@ -251,6 +267,8 @@ async def persist_run_evidence(run_evidence: RunEvidence) -> None:
     if not run_evidence.artifacts:
         return
 
+    from src.numeric import safe_json_dumps
+
     rows = [
         (
             a.artifact_id,
@@ -263,6 +281,7 @@ async def persist_run_evidence(run_evidence: RunEvidence) -> None:
             a.cache_hit,
             a.payload_excerpt,
             a.payload_size,
+            safe_json_dumps(a.full_payload) if a.full_payload is not None else None,
         )
         for a in run_evidence.artifacts.values()
     ]
@@ -271,8 +290,8 @@ async def persist_run_evidence(run_evidence: RunEvidence) -> None:
         """
         INSERT INTO evidence_artifacts
             (artifact_id, content_hash, provider, tool, ticker, run_id,
-             retrieved_at, cache_hit, payload_excerpt, payload_size)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             retrieved_at, cache_hit, payload_excerpt, payload_size, full_payload)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
         ON CONFLICT (artifact_id, run_id) DO NOTHING
         """,
         rows,
