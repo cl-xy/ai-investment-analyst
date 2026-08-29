@@ -8,10 +8,10 @@ trigger agrees on what "the last known analysis" means.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from datetime import datetime
 
+from src.api.json_coerce import as_dict, as_list
 from src.db import fetchrow
 
 
@@ -30,30 +30,6 @@ class LastAnalysisSnapshot:
     fundamentals: dict
     analysis_id: str
     created_at: datetime
-
-
-def _as_list(value) -> list:
-    if isinstance(value, list):
-        return value
-    if isinstance(value, str) and value:
-        try:
-            parsed = json.loads(value)
-            return parsed if isinstance(parsed, list) else []
-        except (json.JSONDecodeError, ValueError):
-            return []
-    return []
-
-
-def _as_dict(value) -> dict:
-    if isinstance(value, dict):
-        return value
-    if isinstance(value, str) and value:
-        try:
-            parsed = json.loads(value)
-            return parsed if isinstance(parsed, dict) else {}
-        except (json.JSONDecodeError, ValueError):
-            return {}
-    return {}
 
 
 async def get_last_analysis(ticker: str) -> LastAnalysisSnapshot | None:
@@ -79,9 +55,9 @@ async def get_last_analysis(ticker: str) -> LastAnalysisSnapshot | None:
         signal=row["signal"],
         confidence=row["confidence"],
         sentiment_score=row["sentiment_score"] or 0.0,
-        risk_flags=_as_list(row["risk_flags"]),
-        price_data=_as_dict(row["price_data"]),
-        fundamentals=_as_dict(row["fundamentals"]),
+        risk_flags=as_list(row["risk_flags"]),
+        price_data=as_dict(row["price_data"]),
+        fundamentals=as_dict(row["fundamentals"]),
         analysis_id=str(row["analysis_id"]),
         created_at=row["created_at"],
     )
