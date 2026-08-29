@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import { render } from '../../test/utils'
 import AlertsPage from '../AlertsPage'
@@ -117,5 +117,38 @@ describe('AlertsPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Telegram bot not configured')).toBeInTheDocument()
     })
+  })
+
+  it('shows Connected once the backend reports an active Telegram subscription', async () => {
+    vi.stubEnv('VITE_TELEGRAM_BOT_USERNAME', 'my_investment_bot')
+    server.use(
+      http.get('/api/alerts', () => HttpResponse.json({ alerts: [], total: 0 })),
+      http.get('/api/alerts/telegram/status', () =>
+        HttpResponse.json({ connected: true, active_chat_count: 1 })
+      )
+    )
+    render(<AlertsPage />)
+    await waitFor(() => {
+      expect(screen.getByText('Connected')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Connect on Telegram')).not.toBeInTheDocument()
+  })
+
+  it('shows Connect on Telegram link when bot is configured but not yet connected', async () => {
+    vi.stubEnv('VITE_TELEGRAM_BOT_USERNAME', 'my_investment_bot')
+    server.use(
+      http.get('/api/alerts', () => HttpResponse.json({ alerts: [], total: 0 })),
+      http.get('/api/alerts/telegram/status', () =>
+        HttpResponse.json({ connected: false, active_chat_count: 0 })
+      )
+    )
+    render(<AlertsPage />)
+    await waitFor(() => {
+      expect(screen.getByText('Connect on Telegram')).toBeInTheDocument()
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
 })

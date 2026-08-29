@@ -12,6 +12,7 @@ import {
 import {
   acknowledgeAlert,
   getAlerts,
+  getTelegramStatus,
   type AlertItem,
   type AlertSeverity,
 } from '../api/alertsService'
@@ -272,6 +273,34 @@ export default function AlertsPage() {
 function TelegramSubscriptionPanel() {
   const botUsername = import.meta.env.VITE_TELEGRAM_BOT_USERNAME || ''
   const botLink = botUsername ? `https://t.me/${botUsername}` : ''
+  const [connected, setConnected] = useState<boolean | null>(null)
+
+  const checkStatus = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const status = await getTelegramStatus()
+      if (signal?.aborted) return
+      setConnected(status.connected)
+    } catch {
+      if (signal?.aborted) return
+      setConnected(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!botLink) return
+    const controller = new AbortController()
+    checkStatus(controller.signal)
+
+    // Poll while this panel is mounted so status flips to "connected" after
+    // the user completes /start in Telegram and comes back to the tab —
+    // there's no webhook->frontend push channel for this (no per-session
+    // linkage to the chat_id), so short polling is the simplest fix.
+    const interval = setInterval(() => checkStatus(), 5000)
+    return () => {
+      controller.abort()
+      clearInterval(interval)
+    }
+  }, [botLink, checkStatus])
 
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-4 flex items-center gap-4 flex-wrap">
@@ -280,19 +309,27 @@ function TelegramSubscriptionPanel() {
         <div>
           <p className="text-sm font-medium text-[var(--text-primary)]">Telegram alerts</p>
           <p className="text-xs text-[var(--text-muted)]">
-            Get notified in real time when a signal changes.
+            {connected
+              ? 'Connected — alerts will be delivered to Telegram.'
+              : 'Get notified in real time when a signal changes.'}
           </p>
         </div>
       </div>
       {botLink ? (
-        <a
-          href={botLink}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 px-3 py-2 min-h-[44px] text-sm font-medium rounded-md bg-[var(--accent)] text-white hover:opacity-90 focus-ring transition-opacity"
-        >
-          Connect on Telegram
-        </a>
+        connected ? (
+          <span className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md bg-[var(--bullish-bg)] text-[var(--bullish)]">
+            <Bell size={14} aria-hidden="true" /> Connected
+          </span>
+        ) : (
+          <a
+            href={botLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-2 min-h-[44px] text-sm font-medium rounded-md bg-[var(--accent)] text-white hover:opacity-90 focus-ring transition-opacity"
+          >
+            Connect on Telegram
+          </a>
+        )
       ) : (
         <span className="text-xs text-[var(--text-muted)] inline-flex items-center gap-1">
           <BellOff size={13} aria-hidden="true" /> Telegram bot not configured

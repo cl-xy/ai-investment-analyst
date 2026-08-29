@@ -109,3 +109,15 @@ export async function unsubscribeTicker(ticker: string): Promise<void> {
     headers: authHeaders(),
   })
 }
+
+export interface TelegramStatus {
+  connected: boolean
+  active_chat_count: number
+}
+
+export async function getTelegramStatus(): Promise<TelegramStatus> {
+  const response = await axios.get<TelegramStatus>(`${API_BASE}/api/alerts/telegram/status`, {
+    headers: authHeaders(),
+  })
+  return response.data
+}
