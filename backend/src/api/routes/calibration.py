@@ -9,9 +9,11 @@ hit rate by confidence bucket).
 import logging
 import uuid
 from datetime import datetime, timezone
+from secrets import compare_digest
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 
+from src.config import settings
 from src.db import execute, fetch, fetchval
 
 log = logging.getLogger(__name__)
@@ -305,25 +307,45 @@ def _determine_outcome(signal: str, check_return: float, is_excess: bool = False
 
 
 @router.post("/calibration/resolve")
-async def resolve_predictions():
+async def resolve_predictions(x_scheduler_token: str | None = Header(default=None)):
     """
     Resolve pending predictions whose horizon has elapsed.
 
     Uses split/dividend-adjusted close prices and computes benchmark-relative
     (SPY) returns for proper calibration science. Called via scheduled job.
+
+    Protected by the scheduler token (matches the pattern in routes/
+    scheduled.py) — this endpoint was previously unauthenticated with no
+    scheduled workflow calling it; both gaps are closed together in this
+    change (see Task 7's GitHub Actions wiring).
+
+    After resolution commits, runs the Outcome-Grounded Evaluation Flywheel's
+    deterministic promotion policy over the newly-resolved predictions. This
+    is best-effort and failure-isolated: a promotion/capture failure never
+    rolls back or blocks prediction resolution, which is the pre-existing,
+    higher-value contract this endpoint has served since before the
+    flywheel existed.
     """
+    expected_token = settings.scheduler_secret_token
+    if not expected_token:
+        raise HTTPException(status_code=503, detail="Scheduler token is not configured")
+    if not x_scheduler_token or not compare_digest(x_scheduler_token, expected_token):
+        raise HTTPException(status_code=401, detail="Unauthorized scheduler request")
+
     import asyncio
     from datetime import timedelta
 
     from src.db import get_pool
 
     pool = await get_pool()
+    newly_resolved: list[dict] = []
 
     async with pool.acquire() as conn:
         async with conn.transaction():
             rows = await conn.fetch(
                 """
-                SELECT id, ticker, signal, price_at_prediction, horizon_days, created_at
+                SELECT id, analysis_id, ticker, signal, confidence, price_at_prediction,
+                       horizon_days, created_at, correlation_id
                 FROM predictions
                 WHERE resolved_at IS NULL
                   AND created_at + (horizon_days || ' days')::interval <= now()
@@ -397,8 +419,36 @@ async def resolve_predictions():
                     row["id"],
                 )
                 resolved_count += 1
+                newly_resolved.append(
+                    {
+                        "id": row["id"],
+                        "analysis_id": row["analysis_id"],
+                        "ticker": ticker,
+                        "signal": row["signal"],
+                        "confidence": row["confidence"],
+                        "outcome": outcome,
+                        "realized_return": realized_return,
+                        "excess_return": excess_return,
+                        "correlation_id": row["correlation_id"],
+                    }
+                )
 
-    return {"resolved_count": resolved_count}
+    promotion_summary = {"promoted": 0, "excluded": 0, "already_classified": 0, "failed": 0}
+    if newly_resolved:
+        try:
+            from src.eval_flywheel.promotion import promote_resolved_predictions_batch
+
+            summary = await promote_resolved_predictions_batch(newly_resolved)
+            promotion_summary = {
+                "promoted": summary.promoted,
+                "excluded": summary.excluded,
+                "already_classified": summary.already_classified,
+                "failed": summary.failed,
+            }
+        except Exception:
+            log.warning("eval_flywheel_promotion_batch_failed", exc_info=True)
+
+    return {"resolved_count": resolved_count, "promotion": promotion_summary}
 
 
 @router.get("/calibration/reliability")
