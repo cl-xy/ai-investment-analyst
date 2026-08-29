@@ -140,6 +140,128 @@ class TestCommandHandling:
         mock_register.assert_not_called()
 
 
+class TestWatchCommands:
+    @pytest.mark.asyncio
+    async def test_watch_subscribes_valid_ticker(self):
+        from src.alerts.subscriptions import AlertSubscription
+
+        result = AlertSubscription(
+            ticker="NVDA", source="telegram", trigger_types=["sec"], active=True
+        )
+        with (
+            patch(
+                "src.alerts.subscriptions.subscribe_ticker", new=AsyncMock(return_value=result)
+            ) as mock_subscribe,
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
+        ):
+            await handle_update({"message": {"chat": {"id": 1}, "text": "/watch nvda"}})
+
+        mock_subscribe.assert_called_once_with("NVDA", source="telegram")
+        sent_text = mock_send.call_args.args[1]
+        assert "NVDA" in sent_text
+
+    @pytest.mark.asyncio
+    async def test_watch_without_ticker_shows_usage(self):
+        with (
+            patch("src.alerts.subscriptions.subscribe_ticker", new=AsyncMock()) as mock_subscribe,
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
+        ):
+            await handle_update({"message": {"chat": {"id": 1}, "text": "/watch"}})
+
+        mock_subscribe.assert_not_called()
+        assert "usage" in mock_send.call_args.args[1].lower()
+
+    @pytest.mark.asyncio
+    async def test_watch_rejects_invalid_ticker(self):
+        with (
+            patch("src.alerts.subscriptions.subscribe_ticker", new=AsyncMock()) as mock_subscribe,
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
+        ):
+            await handle_update({"message": {"chat": {"id": 1}, "text": "/watch !!!bad!!!"}})
+
+        mock_subscribe.assert_not_called()
+        assert "usage" in mock_send.call_args.args[1].lower()
+
+    @pytest.mark.asyncio
+    async def test_watch_handles_subscribe_failure_gracefully(self):
+        with (
+            patch(
+                "src.alerts.subscriptions.subscribe_ticker",
+                new=AsyncMock(side_effect=RuntimeError("db down")),
+            ),
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
+        ):
+            await handle_update({"message": {"chat": {"id": 1}, "text": "/watch NVDA"}})
+
+        assert "couldn't" in mock_send.call_args.args[1].lower()
+
+    @pytest.mark.asyncio
+    async def test_unwatch_removes_existing_subscription(self):
+        with (
+            patch(
+                "src.alerts.subscriptions.unsubscribe_ticker", new=AsyncMock(return_value=True)
+            ) as mock_unsub,
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
+        ):
+            await handle_update({"message": {"chat": {"id": 1}, "text": "/unwatch NVDA"}})
+
+        mock_unsub.assert_called_once_with("NVDA")
+        assert "stopped watching" in mock_send.call_args.args[1].lower()
+
+    @pytest.mark.asyncio
+    async def test_unwatch_reports_when_not_subscribed(self):
+        with (
+            patch(
+                "src.alerts.subscriptions.unsubscribe_ticker", new=AsyncMock(return_value=False)
+            ),
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
+        ):
+            await handle_update({"message": {"chat": {"id": 1}, "text": "/unwatch NVDA"}})
+
+        assert "wasn't on your watchlist" in mock_send.call_args.args[1]
+
+    @pytest.mark.asyncio
+    async def test_watching_lists_all_active_subscriptions(self):
+        from src.alerts.subscriptions import AlertSubscription
+
+        subs = [
+            AlertSubscription(ticker="NVDA", source="telegram", trigger_types=[], active=True),
+            AlertSubscription(ticker="AAPL", source="watchlist", trigger_types=[], active=True),
+        ]
+        with (
+            patch("src.alerts.subscriptions.list_subscriptions", new=AsyncMock(return_value=subs)),
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
+        ):
+            await handle_update({"message": {"chat": {"id": 1}, "text": "/watching"}})
+
+        sent_text = mock_send.call_args.args[1]
+        assert "NVDA" in sent_text
+        assert "AAPL" in sent_text
+
+    @pytest.mark.asyncio
+    async def test_watching_empty_shows_helpful_message(self):
+        with (
+            patch("src.alerts.subscriptions.list_subscriptions", new=AsyncMock(return_value=[])),
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
+        ):
+            await handle_update({"message": {"chat": {"id": 1}, "text": "/watching"}})
+
+        assert "/watch" in mock_send.call_args.args[1]
+
+    @pytest.mark.asyncio
+    async def test_watching_command_not_swallowed_by_watch_prefix(self):
+        """Regression guard: '/watching' starts with '/watch' as a string,
+        so command dispatch must match on the full token, not a prefix."""
+        with (
+            patch("src.alerts.subscriptions.list_subscriptions", new=AsyncMock(return_value=[])),
+            patch("src.alerts.subscriptions.subscribe_ticker", new=AsyncMock()) as mock_subscribe,
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()),
+        ):
+            await handle_update({"message": {"chat": {"id": 1}, "text": "/watching"}})
+
+        mock_subscribe.assert_not_called()
+
+
 class TestDispatchRateLimiting:
     @pytest.mark.asyncio
     async def test_allows_first_dispatch(self):

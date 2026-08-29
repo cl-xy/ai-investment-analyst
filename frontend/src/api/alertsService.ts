@@ -50,7 +50,7 @@ export interface AlertListResponse {
 
 export interface SubscriptionItem {
   ticker: string
-  source: 'portfolio' | 'watchlist'
+  source: 'portfolio' | 'watchlist' | 'telegram'
   trigger_types: string[]
   active: boolean
 }

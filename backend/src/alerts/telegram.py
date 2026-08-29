@@ -225,19 +225,25 @@ async def handle_update(update: dict) -> None:
     if not isinstance(chat_id, int):
         return
 
-    if text.startswith("/start"):
+    # Match on the first whitespace-separated token so prefix commands like
+    # /watch don't accidentally swallow /watching.
+    command = text.split()[0].lower() if text else ""
+
+    if command == "/start":
         await register_chat(chat_id)
         await send_test_message(
             chat_id,
             "You're subscribed to Reasoning-Aware Signal Alerts. "
             "You'll be notified when the investment thesis for a monitored "
             "ticker materially changes — not just when the price moves. "
-            "Send /stop to unsubscribe, /status to check your subscription.",
+            "Send /stop to unsubscribe, /status to check your subscription.\n\n"
+            "Use /watch TICKER to add a ticker to your alert watchlist, "
+            "/unwatch TICKER to remove one, and /watching to see your list.",
         )
-    elif text.startswith("/stop"):
+    elif command == "/stop":
         await deactivate_chat(chat_id)
         await send_test_message(chat_id, "Unsubscribed. Send /start to resume alerts.")
-    elif text.startswith("/status"):
+    elif command == "/status":
         registered = await is_chat_registered(chat_id)
         status_text = (
             "You are subscribed to alerts."
@@ -245,10 +251,104 @@ async def handle_update(update: dict) -> None:
             else "You are not subscribed. Send /start to subscribe."
         )
         await send_test_message(chat_id, status_text)
+    elif command == "/watch":
+        await _handle_watch_command(chat_id, text)
+    elif command == "/unwatch":
+        await _handle_unwatch_command(chat_id, text)
+    elif command == "/watching":
+        await _handle_watching_command(chat_id)
     else:
         await send_test_message(
-            chat_id, "Commands: /start (subscribe), /stop (unsubscribe), /status"
+            chat_id,
+            "Commands: /start (subscribe), /stop (unsubscribe), /status, "
+            "/watch TICKER, /unwatch TICKER, /watching",
         )
+
+
+def _parse_ticker_arg(text: str, command: str) -> str | None:
+    """Extract and validate a single ticker argument from a command like
+    '/watch NVDA'. Returns None if missing or invalid."""
+    from src.api.schemas import VALID_TICKER_RE
+
+    remainder = text[len(command) :].strip()
+    if not remainder:
+        return None
+    # Only take the first whitespace-separated token; ignore trailing junk.
+    ticker = remainder.split()[0].strip().upper()
+    if not VALID_TICKER_RE.match(ticker):
+        return None
+    return ticker
+
+
+async def _handle_watch_command(chat_id: int, text: str) -> None:
+    from src.alerts.subscriptions import subscribe_ticker
+
+    ticker = _parse_ticker_arg(text, "/watch")
+    if not ticker:
+        await send_test_message(
+            chat_id, "Usage: /watch TICKER (e.g. /watch NVDA)"
+        )
+        return
+
+    try:
+        await subscribe_ticker(ticker, source="telegram")
+    except Exception:
+        log.exception("telegram_watch_command_failed chat_id=%s ticker=%s", chat_id, ticker)
+        await send_test_message(
+            chat_id, f"Couldn't add {ticker} to your watchlist. Please try again."
+        )
+        return
+
+    await send_test_message(
+        chat_id,
+        f"Watching {ticker}. You'll get an alert if its investment thesis "
+        "materially shifts. Send /unwatch " + ticker + " to stop.",
+    )
+
+
+async def _handle_unwatch_command(chat_id: int, text: str) -> None:
+    from src.alerts.subscriptions import unsubscribe_ticker
+
+    ticker = _parse_ticker_arg(text, "/unwatch")
+    if not ticker:
+        await send_test_message(
+            chat_id, "Usage: /unwatch TICKER (e.g. /unwatch NVDA)"
+        )
+        return
+
+    try:
+        removed = await unsubscribe_ticker(ticker)
+    except Exception:
+        log.exception("telegram_unwatch_command_failed chat_id=%s ticker=%s", chat_id, ticker)
+        await send_test_message(
+            chat_id, f"Couldn't remove {ticker} from your watchlist. Please try again."
+        )
+        return
+
+    if removed:
+        await send_test_message(chat_id, f"Stopped watching {ticker}.")
+    else:
+        await send_test_message(chat_id, f"{ticker} wasn't on your watchlist.")
+
+
+async def _handle_watching_command(chat_id: int) -> None:
+    from src.alerts.subscriptions import list_subscriptions
+
+    try:
+        subs = await list_subscriptions()
+    except Exception:
+        log.exception("telegram_watching_command_failed chat_id=%s", chat_id)
+        await send_test_message(chat_id, "Couldn't load your watchlist. Please try again.")
+        return
+
+    if not subs:
+        await send_test_message(
+            chat_id, "You're not watching any tickers yet. Use /watch TICKER to add one."
+        )
+        return
+
+    tickers = ", ".join(sorted(s.ticker for s in subs))
+    await send_test_message(chat_id, f"Watching: {tickers}")
 
 
 def validate_webhook_secret(header_value: str | None) -> bool:

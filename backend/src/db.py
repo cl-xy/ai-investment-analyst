@@ -391,7 +391,7 @@ CREATE TABLE IF NOT EXISTS alert_subscriptions (
     trigger_types   JSONB NOT NULL DEFAULT '["sec", "sentiment", "peer", "price"]',
     active          BOOLEAN NOT NULL DEFAULT TRUE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT alert_subscriptions_source_check CHECK (source IN ('portfolio', 'watchlist'))
+    CONSTRAINT alert_subscriptions_source_check CHECK (source IN ('portfolio', 'watchlist', 'telegram'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_subscriptions_ticker_active
     ON alert_subscriptions(ticker) WHERE active = TRUE;
@@ -523,6 +523,15 @@ CREATE TABLE IF NOT EXISTS evaluation_results (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_evaluation_results_run_case ON evaluation_results(run_id, case_id);
 CREATE INDEX IF NOT EXISTS idx_evaluation_results_run_id ON evaluation_results(run_id);
+
+-- Allow the Telegram bot's /watch command to create subscriptions with
+-- source='telegram'. Postgres has no ADD CONSTRAINT IF NOT EXISTS, so we
+-- drop-then-add; safe to re-run every startup since it's a no-op once the
+-- widened constraint is in place (DROP IF EXISTS makes the first half
+-- idempotent, and the CHECK clause is deterministic).
+ALTER TABLE alert_subscriptions DROP CONSTRAINT IF EXISTS alert_subscriptions_source_check;
+ALTER TABLE alert_subscriptions ADD CONSTRAINT alert_subscriptions_source_check
+    CHECK (source IN ('portfolio', 'watchlist', 'telegram'));
 """
 
 
