@@ -1,0 +1,43 @@
+name: Eval Flywheel — Trigger Evaluation Run
+
+# Deliberately workflow_dispatch ONLY, no `schedule` trigger. This calls
+# /api/eval-flywheel/runs/trigger, which replays promoted cases through the
+# real bull/bear/moderator debate functions — genuine LLM calls against the
+# OpenRouter free-tier budget. Unlike calibration-resolve.yml (zero LLM
+# calls) or ci.yml (never touches production), this workflow is intended to
+# be run deliberately by a human before adopting a candidate prompt/model
+# change, not on a fixed cadence.
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_cases:
+        description: "Maximum number of promoted cases to replay in this run"
+        required: false
+        default: "20"
+
+permissions: {}
+
+concurrency:
+  group: eval-flywheel-trigger
+  cancel-in-progress: false
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger bounded evaluation run
+        env:
+          EVAL_FLYWHEEL_TRIGGER_URL: ${{ secrets.EVAL_FLYWHEEL_TRIGGER_URL }}
+          SCHEDULER_SECRET_TOKEN: ${{ secrets.SCHEDULER_SECRET_TOKEN }}
+          MAX_CASES: ${{ inputs.max_cases }}
+        run: |
+          test -n "$EVAL_FLYWHEEL_TRIGGER_URL"
+          test -n "$SCHEDULER_SECRET_TOKEN"
+          curl --fail --show-error --silent \
+            --retry 2 \
+            --connect-timeout 10 \
+            --max-time 600 \
+            -X POST "${EVAL_FLYWHEEL_TRIGGER_URL}?max_cases=${MAX_CASES}" \
+            -H "x-scheduler-token: $SCHEDULER_SECRET_TOKEN" \
+            -H "content-type: application/json"
