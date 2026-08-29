@@ -22,6 +22,7 @@ from src.alerts.subscriptions import (
     subscribe_ticker,
     unsubscribe_ticker,
 )
+from src.alerts.telegram import get_active_chat_ids
 from src.db import fetch, fetchval
 
 from ..schemas import (
@@ -30,6 +31,7 @@ from ..schemas import (
     SubscriptionItem,
     SubscriptionListResponse,
     SubscriptionRequest,
+    TelegramStatusResponse,
     UnreadCountResponse,
 )
 
@@ -135,6 +137,18 @@ async def acknowledge_alert(alert_id: str) -> AlertItem:
 
 
 # --- Watchlist-based alert subscriptions ---
+
+
+@router.get("/alerts/telegram/status", response_model=TelegramStatusResponse)
+async def telegram_status() -> TelegramStatusResponse:
+    """Whether any Telegram chat is currently registered for alert delivery.
+
+    No per-browser-session ↔ chat_id linkage exists (single-bot, no user
+    accounts) so this reflects aggregate connection state, not "this
+    specific visitor." See TelegramStatusResponse docstring.
+    """
+    chat_ids = await get_active_chat_ids()
+    return TelegramStatusResponse(connected=len(chat_ids) > 0, active_chat_count=len(chat_ids))
 
 
 @router.get("/alerts/subscriptions", response_model=SubscriptionListResponse)

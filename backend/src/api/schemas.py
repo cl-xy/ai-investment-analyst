@@ -175,6 +175,20 @@ class SubscriptionListResponse(BaseModel):
     subscriptions: list[SubscriptionItem]
 
 
+class TelegramStatusResponse(BaseModel):
+    """Aggregate Telegram connection state.
+
+    There's no per-browser-session ↔ Telegram-chat_id linkage in this
+    single-bot-per-deployment model (no user accounts), so this reports
+    whether *any* chat is currently registered rather than "you specifically"
+    are connected. Good enough signal for a demo-scale, single-password-gated
+    deployment.
+    """
+
+    connected: bool
+    active_chat_count: int
+
+
 # --- Compare ---
 
 

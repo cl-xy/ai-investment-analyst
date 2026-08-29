@@ -159,6 +159,26 @@ class TestSubscriptions:
         assert response.status_code == 404
 
 
+class TestTelegramStatus:
+    def test_reports_connected_when_active_chats_exist(self, client):
+        with patch(
+            "src.api.routes.alerts.get_active_chat_ids", new=AsyncMock(return_value=[123, 456])
+        ):
+            response = client.get("/api/alerts/telegram/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["connected"] is True
+        assert data["active_chat_count"] == 2
+
+    def test_reports_disconnected_when_no_active_chats(self, client):
+        with patch("src.api.routes.alerts.get_active_chat_ids", new=AsyncMock(return_value=[])):
+            response = client.get("/api/alerts/telegram/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["connected"] is False
+        assert data["active_chat_count"] == 0
+
+
 class TestDemoAuthGating:
     def test_alerts_endpoint_requires_password_when_configured(self, client):
         from src.middleware import auth as auth_module
