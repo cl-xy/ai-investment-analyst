@@ -474,7 +474,9 @@ async def _run_agent(
                     from src.api.persistence import persist_full_run
 
                     report_md = state_values.get("report_markdown", "")
-                    await persist_full_run(tickers_upper, ticker_analyses, report_md)
+                    await persist_full_run(
+                        tickers_upper, ticker_analyses, report_md, correlation_id=correlation_id
+                    )
                 except Exception as persist_err:
                     import logging as _logging
 

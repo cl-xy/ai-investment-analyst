@@ -136,6 +136,7 @@ async def _record_prediction(
     ticker: str,
     analysis: dict,
     horizon_days: int = 30,
+    correlation_id: str | None = None,
 ) -> uuid.UUID | None:
     """
     Record a prediction for calibration tracking. Uses the provided connection.
@@ -159,8 +160,9 @@ async def _record_prediction(
         """
         INSERT INTO predictions (
             id, analysis_id, ticker, signal, confidence,
-            sentiment_score, thesis, price_at_prediction, horizon_days
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            sentiment_score, thesis, price_at_prediction, horizon_days,
+            correlation_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         """,
         pred_id,
         analysis_id,
@@ -171,6 +173,7 @@ async def _record_prediction(
         analysis.get("thesis") or "",
         price_at_prediction,
         horizon_days,
+        correlation_id,
     )
     log.info(
         "prediction_recorded ticker=%s signal=%s price=%s", ticker, signal, price_at_prediction
@@ -182,6 +185,7 @@ async def persist_full_run(
     tickers: list[str],
     ticker_analyses: dict[str, dict],
     report_markdown: str = "",
+    correlation_id: str | None = None,
 ) -> uuid.UUID:
     """
     Persist a complete analysis run: creates the analyses row,
@@ -190,6 +194,10 @@ async def persist_full_run(
     Each ticker's work is wrapped in a savepoint so that a failure for one
     ticker does not poison the entire transaction (PostgreSQL aborts the
     transaction on any unhandled error without a savepoint).
+
+    `correlation_id`, when provided (streaming path only), is stored on each
+    recorded prediction so the evaluation flywheel can later join back to
+    evidence_artifacts/citation_validations for that run.
 
     Returns the analysis_id.
     """
@@ -217,7 +225,9 @@ async def persist_full_run(
                     # inside fails, only this savepoint is rolled back.
                     async with conn.transaction():
                         await _persist_analysis_with_debate(conn, analysis_id, ticker, analysis)
-                        await _record_prediction(conn, analysis_id, ticker, analysis)
+                        await _record_prediction(
+                            conn, analysis_id, ticker, analysis, correlation_id=correlation_id
+                        )
                 except Exception as e:
                     log.warning("Failed to persist analysis for %s: %s", ticker, e)
 

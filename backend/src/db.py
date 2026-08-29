@@ -360,6 +360,27 @@ ALTER TABLE predictions ADD COLUMN IF NOT EXISTS adj_price_at_prediction DOUBLE 
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS adj_outcome_price DOUBLE PRECISION;
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS resolution_method TEXT NOT NULL DEFAULT 'adjusted_close';
 
+-- Outcome-Grounded Evaluation Flywheel: full canonical payload alongside the
+-- existing 500-char excerpt. MUST be written at analysis time (fetch_data
+-- time), not retroactively — by the time a prediction resolves (30 days
+-- later) the in-memory tool response and short-TTL cache row are both gone,
+-- so there is no way to reconstruct it after the fact. Payloads here are
+-- small and bounded (single quote/fundamentals/indicators dicts, <=10 news
+-- articles, one filing excerpt) so storing this for every run is cheap;
+-- only promoted cases ever read it back (see evaluation_case_artifacts).
+ALTER TABLE evidence_artifacts ADD COLUMN IF NOT EXISTS full_payload JSONB;
+
+-- Outcome-Grounded Evaluation Flywheel: correlation_id links a prediction
+-- back to the SSE run that produced it, which is the join key used by
+-- evidence_artifacts.run_id and citation_validations.run_id. Nullable
+-- because the non-streaming /api/analyze path has no correlation_id today
+-- (predictions from that path are simply not eligible for citation/coverage
+-- promotion reasons — outcome-based reasons still work via realized/excess
+-- return alone).
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS correlation_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_predictions_correlation_id ON predictions(correlation_id)
+    WHERE correlation_id IS NOT NULL;
+
 -- Reasoning-Aware Signal Alerts: watchlist-opt-in monitoring subscriptions.
 -- Portfolio positions (SQLite `positions` table) are implicitly monitored;
 -- this table additionally covers frontend-watchlist-only tickers that opt in.
@@ -414,6 +435,94 @@ CREATE TABLE IF NOT EXISTS alert_dispatch_state (
     ticker              TEXT PRIMARY KEY,
     last_dispatched_at  TIMESTAMPTZ NOT NULL
 );
+
+-- Outcome-Grounded Evaluation Flywheel: promoted evaluation cases.
+-- A case is created (deterministically, no LLM) when a resolved prediction's
+-- outcome/quality signals cross the promotion policy thresholds in
+-- src/eval_flywheel/policy.py. `case_hash` dedups repeated classification of
+-- the same prediction (idempotent promotion).
+CREATE TABLE IF NOT EXISTS evaluation_cases (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    prediction_id       UUID NOT NULL REFERENCES predictions(id) ON DELETE CASCADE,
+    analysis_id         UUID REFERENCES analyses(id) ON DELETE SET NULL,
+    ticker              TEXT NOT NULL,
+    case_hash           TEXT NOT NULL,
+    state               TEXT NOT NULL DEFAULT 'candidate',
+    promotion_reasons   JSONB NOT NULL DEFAULT '[]',
+    capture_status      TEXT NOT NULL DEFAULT 'pending',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT evaluation_cases_state_check
+        CHECK (state IN ('candidate', 'promoted', 'excluded', 'retired')),
+    CONSTRAINT evaluation_cases_capture_status_check
+        CHECK (capture_status IN ('pending', 'complete', 'partial', 'failed'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_evaluation_cases_prediction_id ON evaluation_cases(prediction_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_evaluation_cases_case_hash ON evaluation_cases(case_hash);
+CREATE INDEX IF NOT EXISTS idx_evaluation_cases_ticker ON evaluation_cases(ticker);
+CREATE INDEX IF NOT EXISTS idx_evaluation_cases_state ON evaluation_cases(state);
+CREATE INDEX IF NOT EXISTS idx_evaluation_cases_created_at ON evaluation_cases(created_at DESC);
+
+-- Outcome-Grounded Evaluation Flywheel: links a promoted case to the
+-- evidence_artifacts rows needed to reconstruct its frozen, point-in-time
+-- replay input. The full payload itself lives on evidence_artifacts.
+-- full_payload (captured at analysis time — see migration above); this
+-- table is a pure link + integrity snapshot, so a case remains
+-- reconstructable even if evidence_artifacts is later pruned/rotated.
+CREATE TABLE IF NOT EXISTS evaluation_case_artifacts (
+    case_id             UUID NOT NULL REFERENCES evaluation_cases(id) ON DELETE CASCADE,
+    artifact_id         TEXT NOT NULL,
+    run_id              TEXT NOT NULL,
+    provider            TEXT NOT NULL,
+    tool                TEXT NOT NULL,
+    ticker              TEXT NOT NULL,
+    content_hash        TEXT NOT NULL,
+    payload_size        INTEGER NOT NULL DEFAULT 0,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (case_id, artifact_id)
+);
+CREATE INDEX IF NOT EXISTS idx_evaluation_case_artifacts_case_id ON evaluation_case_artifacts(case_id);
+
+-- Outcome-Grounded Evaluation Flywheel: a single evaluation run compares a
+-- baseline (original production output) against a candidate configuration
+-- (model/prompt version) replayed over a batch of promoted cases.
+CREATE TABLE IF NOT EXISTS evaluation_runs (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    candidate_config    TEXT NOT NULL,
+    corpus_version      TEXT NOT NULL,
+    case_count          INTEGER NOT NULL DEFAULT 0,
+    started_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at        TIMESTAMPTZ,
+    status              TEXT NOT NULL DEFAULT 'running',
+    decision            TEXT,
+    aggregate_scores    JSONB NOT NULL DEFAULT '{}',
+    budget_tokens_used  INTEGER NOT NULL DEFAULT 0,
+    budget_llm_calls    INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT evaluation_runs_status_check
+        CHECK (status IN ('running', 'completed', 'failed')),
+    CONSTRAINT evaluation_runs_decision_check
+        CHECK (decision IS NULL OR decision IN ('pass', 'investigate', 'reject', 'insufficient_data'))
+);
+CREATE INDEX IF NOT EXISTS idx_evaluation_runs_started_at ON evaluation_runs(started_at DESC);
+
+-- Outcome-Grounded Evaluation Flywheel: per-case result within a run.
+CREATE TABLE IF NOT EXISTS evaluation_results (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id              UUID NOT NULL REFERENCES evaluation_runs(id) ON DELETE CASCADE,
+    case_id             UUID NOT NULL REFERENCES evaluation_cases(id) ON DELETE CASCADE,
+    status              TEXT NOT NULL DEFAULT 'completed',
+    baseline_scores     JSONB NOT NULL DEFAULT '{}',
+    candidate_scores    JSONB NOT NULL DEFAULT '{}',
+    candidate_output    JSONB,
+    latency_ms          INTEGER NOT NULL DEFAULT 0,
+    tokens_used         INTEGER NOT NULL DEFAULT 0,
+    error               TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT evaluation_results_status_check
+        CHECK (status IN ('completed', 'schema_failed', 'timeout', 'error'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_evaluation_results_run_case ON evaluation_results(run_id, case_id);
+CREATE INDEX IF NOT EXISTS idx_evaluation_results_run_id ON evaluation_results(run_id);
 """
 
 
