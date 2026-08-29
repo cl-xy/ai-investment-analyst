@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 
 from src.db import execute, fetch, fetchrow
 
+from ..json_coerce import as_dict, as_list
 from ..schemas import AnalysisListItem, AnalyzeResponse, TickerAnalysis
 
 router = APIRouter()
@@ -45,13 +46,13 @@ async def get_analysis(analysis_id: str) -> AnalyzeResponse:
             ticker=tr["ticker"],
             signal=tr["signal"],
             confidence=tr["confidence"],
-            sentiment_score=tr["sentiment_score"],
-            news_summary=tr["news_summary"],
-            risk_flags=tr["risk_flags"],
-            price_data=tr["price_data"],
-            fundamentals=tr["fundamentals"],
-            earnings=tr["earnings"],
-            sec_notes=tr["sec_notes"],
+            sentiment_score=tr["sentiment_score"] or 0.0,
+            news_summary=tr["news_summary"] or "",
+            risk_flags=as_list(tr["risk_flags"]),
+            price_data=as_dict(tr["price_data"]),
+            fundamentals=as_dict(tr["fundamentals"]),
+            earnings=as_dict(tr["earnings"]),
+            sec_notes=tr["sec_notes"] or "",
         )
 
     return AnalyzeResponse(
