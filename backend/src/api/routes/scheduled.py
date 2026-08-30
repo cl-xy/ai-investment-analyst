@@ -13,7 +13,7 @@ from src.config import settings
 from src.db import fetchrow
 from src.mcp_servers.portfolio_server import fetch_all_positions
 
-from ..schemas import AlertEvaluationResponse, ScheduledRefreshResponse
+from ..schemas import AlertEvaluationResponse, DigestResponse, ScheduledRefreshResponse
 from .analyze import analyze_tickers
 
 router = APIRouter()
@@ -25,6 +25,8 @@ _LAST_REFRESH_STARTED_AT: datetime | None = None
 _EARNINGS_RUN_LOCK = asyncio.Lock()
 
 _ALERT_EVAL_LOCK = asyncio.Lock()
+
+_DIGEST_LOCK = asyncio.Lock()
 
 
 def _get_unique_portfolio_tickers(positions: list[dict]) -> list[str]:
@@ -445,3 +447,153 @@ async def evaluate_alerts(
             created_at=datetime.now(timezone.utc),
             duration_ms=int((perf_counter() - started) * 1000),
         )
+
+
+@router.post("/scheduled/send-digest", response_model=DigestResponse)
+async def send_digest(
+    request: Request,
+    x_scheduler_token: str | None = Header(default=None),
+) -> DigestResponse:
+    """
+    Daily digest: push a summary of every monitored ticker's latest cached
+    signal, plus any alerts fired in the last 24h, to every registered
+    Telegram chat.
+
+    Strictly read-only against already-cached data (ticker_analyses, alerts)
+    — this never triggers a fresh analysis or an LLM call, so it's safe to
+    run on a simple once-daily cron regardless of budget state.
+    """
+    from src.alerts.composer import get_recent_alerts
+    from src.alerts.last_analysis import get_last_analysis
+    from src.alerts.pipeline import get_monitored_tickers
+    from src.alerts.telegram import (
+        DigestAlertEntry,
+        DigestTickerEntry,
+        _call_telegram,
+        build_digest_message,
+        get_active_chat_ids,
+    )
+
+    now = datetime.now(timezone.utc)
+    started = perf_counter()
+
+    expected_token = settings.scheduler_secret_token
+    if not expected_token:
+        raise HTTPException(status_code=503, detail="Scheduler token is not configured")
+    if not x_scheduler_token or not compare_digest(x_scheduler_token, expected_token):
+        raise HTTPException(status_code=401, detail="Unauthorized scheduler request")
+
+    if _DIGEST_LOCK.locked():
+        return DigestResponse(
+            status="skipped",
+            message="Digest send is already running",
+            created_at=now,
+            duration_ms=int((perf_counter() - started) * 1000),
+        )
+
+    async with _DIGEST_LOCK:
+        # Hard timeout: below GitHub Actions' curl --max-time (120s). This
+        # endpoint only reads cached rows and sends Telegram messages, so it
+        # should be fast, but a stuck DB connection or slow Telegram API call
+        # shouldn't be able to hold the lock indefinitely.
+        _DIGEST_TIMEOUT = 60  # seconds
+
+        async def _build_and_send() -> DigestResponse:
+            tickers = await get_monitored_tickers()
+
+            ticker_entries: list[DigestTickerEntry] = []
+            for ticker in tickers:
+                try:
+                    snapshot = await get_last_analysis(ticker)
+                except Exception:
+                    logger.warning("digest_ticker_lookup_failed ticker=%s", ticker, exc_info=True)
+                    continue
+                if snapshot is not None:
+                    ticker_entries.append(
+                        DigestTickerEntry(
+                            ticker=snapshot.ticker,
+                            signal=snapshot.signal,
+                            confidence=snapshot.confidence,
+                        )
+                    )
+
+            try:
+                recent_alert_rows = await get_recent_alerts(since_hours=24)
+            except Exception:
+                logger.warning("digest_recent_alerts_lookup_failed", exc_info=True)
+                recent_alert_rows = []
+
+            alert_entries = [
+                DigestAlertEntry(
+                    ticker=row["ticker"],
+                    severity=row["severity"],
+                    alert_type=row["alert_type"],
+                    created_at=row["created_at"],
+                )
+                for row in recent_alert_rows
+            ]
+
+            message = build_digest_message(ticker_entries, alert_entries, settings.frontend_url)
+            if message is None:
+                logger.info("digest_skipped_no_monitored_tickers")
+                return DigestResponse(
+                    status="skipped",
+                    message="No monitored tickers to include in digest",
+                    tickers_included=0,
+                    recent_alerts_included=len(alert_entries),
+                    created_at=datetime.now(timezone.utc),
+                    duration_ms=int((perf_counter() - started) * 1000),
+                )
+
+            chat_ids = await get_active_chat_ids()
+            sent = 0
+            for chat_id in chat_ids:
+                result = await _call_telegram(
+                    "sendMessage",
+                    {
+                        "chat_id": chat_id,
+                        "text": message,
+                        "parse_mode": "Markdown",
+                        "disable_web_page_preview": True,
+                    },
+                )
+                if result is not None and result.get("ok"):
+                    sent += 1
+
+            return DigestResponse(
+                status="success",
+                message=f"Digest sent to {sent}/{len(chat_ids)} chat(s)",
+                tickers_included=len(ticker_entries),
+                recent_alerts_included=len(alert_entries),
+                sent_to=sent,
+                created_at=datetime.now(timezone.utc),
+                duration_ms=int((perf_counter() - started) * 1000),
+            )
+
+        try:
+            logger.info("digest_send_started")
+            response = await asyncio.wait_for(_build_and_send(), timeout=_DIGEST_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.error("digest_send_timeout timeout=%ds", _DIGEST_TIMEOUT)
+            return DigestResponse(
+                status="failed",
+                message=f"Digest send timed out after {_DIGEST_TIMEOUT}s",
+                created_at=datetime.now(timezone.utc),
+                duration_ms=int((perf_counter() - started) * 1000),
+            )
+        except Exception:
+            logger.exception("digest_send_error")
+            return DigestResponse(
+                status="failed",
+                message="Digest send failed unexpectedly",
+                created_at=datetime.now(timezone.utc),
+                duration_ms=int((perf_counter() - started) * 1000),
+            )
+
+        logger.info(
+            "digest_send_finished tickers=%d sent_to=%d duration_ms=%s",
+            response.tickers_included,
+            response.sent_to,
+            int((perf_counter() - started) * 1000),
+        )
+        return response

@@ -382,3 +382,163 @@ class TestRegisterChat:
         mock_execute.assert_called_once()
         sql = mock_execute.call_args.args[0]
         assert "ON CONFLICT" in sql
+
+
+def _snapshot(**overrides):
+    from src.alerts.last_analysis import LastAnalysisSnapshot
+
+    defaults = dict(
+        ticker="NVDA",
+        signal="buy",
+        confidence="high",
+        sentiment_score=0.42,
+        risk_flags=["High valuation", "Regulatory scrutiny"],
+        price_data={},
+        fundamentals={},
+        analysis_id="22222222-2222-2222-2222-222222222222",
+        created_at=datetime.now(timezone.utc) - timedelta(hours=3),
+    )
+    defaults.update(overrides)
+    return LastAnalysisSnapshot(**defaults)
+
+
+class TestAnalysisCommand:
+    @pytest.mark.asyncio
+    async def test_analysis_returns_cached_snapshot(self):
+        with (
+            patch(
+                "src.alerts.last_analysis.get_last_analysis",
+                new=AsyncMock(return_value=_snapshot()),
+            ),
+            patch("src.alerts.telegram._call_telegram", new=AsyncMock(return_value={"ok": True})) as mock_call,
+        ):
+            await handle_update({"message": {"chat": {"id": 1}, "text": "/analysis nvda"}})
+
+        mock_call.assert_called_once()
+        sent_text = mock_call.call_args.args[1]["text"]
+        assert "NVDA" in sent_text
+        assert "BUY" in sent_text
+        assert "High valuation" in sent_text
+        assert "ago" in sent_text
+
+    @pytest.mark.asyncio
+    async def test_analysis_reports_no_cached_data(self):
+        with (
+            patch(
+                "src.alerts.last_analysis.get_last_analysis",
+                new=AsyncMock(return_value=None),
+            ),
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
+        ):
+            await handle_update({"message": {"chat": {"id": 1}, "text": "/analysis NVDA"}})
+
+        sent_text = mock_send.call_args.args[1]
+        assert "No cached analysis" in sent_text
+        assert "/watch NVDA" in sent_text
+
+    @pytest.mark.asyncio
+    async def test_analysis_without_ticker_shows_usage(self):
+        with (
+            patch("src.alerts.last_analysis.get_last_analysis", new=AsyncMock()) as mock_get,
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
+        ):
+            await handle_update({"message": {"chat": {"id": 1}, "text": "/analysis"}})
+
+        mock_get.assert_not_called()
+        assert "usage" in mock_send.call_args.args[1].lower()
+
+    @pytest.mark.asyncio
+    async def test_analysis_rejects_invalid_ticker(self):
+        with (
+            patch("src.alerts.last_analysis.get_last_analysis", new=AsyncMock()) as mock_get,
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
+        ):
+            await handle_update({"message": {"chat": {"id": 1}, "text": "/analysis !!!bad!!!"}})
+
+        mock_get.assert_not_called()
+        assert "usage" in mock_send.call_args.args[1].lower()
+
+    @pytest.mark.asyncio
+    async def test_analysis_handles_lookup_failure_gracefully(self):
+        with (
+            patch(
+                "src.alerts.last_analysis.get_last_analysis",
+                new=AsyncMock(side_effect=RuntimeError("db down")),
+            ),
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
+        ):
+            await handle_update({"message": {"chat": {"id": 1}, "text": "/analysis NVDA"}})
+
+        assert "couldn't" in mock_send.call_args.args[1].lower()
+
+
+class TestBuildDigestMessage:
+    def test_returns_none_for_no_monitored_tickers(self):
+        from src.alerts.telegram import build_digest_message
+
+        result = build_digest_message([], [], "https://example.com")
+        assert result is None
+
+    def test_groups_tickers_by_signal(self):
+        from src.alerts.telegram import DigestTickerEntry, build_digest_message
+
+        tickers = [
+            DigestTickerEntry(ticker="NVDA", signal="buy", confidence="high"),
+            DigestTickerEntry(ticker="TSLA", signal="sell", confidence="medium"),
+            DigestTickerEntry(ticker="AAPL", signal="hold", confidence="low"),
+        ]
+        message = build_digest_message(tickers, [], "https://example.com")
+
+        assert message is not None
+        assert "BUY" in message
+        assert "NVDA" in message
+        assert "SELL" in message
+        assert "TSLA" in message
+        assert "HOLD" in message
+        assert "AAPL" in message
+
+    def test_handles_unknown_signal_as_other(self):
+        from src.alerts.telegram import DigestTickerEntry, build_digest_message
+
+        tickers = [DigestTickerEntry(ticker="XYZ", signal="insufficient_data", confidence="low")]
+        message = build_digest_message(tickers, [], "https://example.com")
+
+        assert message is not None
+        assert "NO DATA" in message
+        assert "XYZ" in message
+
+    def test_includes_recent_alerts_section(self):
+        from src.alerts.telegram import DigestAlertEntry, DigestTickerEntry, build_digest_message
+
+        tickers = [DigestTickerEntry(ticker="NVDA", signal="buy", confidence="high")]
+        alerts = [
+            DigestAlertEntry(
+                ticker="NVDA",
+                severity="critical",
+                alert_type="sec_filing",
+                created_at=datetime.now(timezone.utc),
+            )
+        ]
+        message = build_digest_message(tickers, alerts, "https://example.com")
+
+        assert message is not None
+        assert "Overnight activity" in message
+        assert "sec_filing" in message
+
+    def test_omits_alerts_section_when_no_recent_alerts(self):
+        from src.alerts.telegram import DigestTickerEntry, build_digest_message
+
+        tickers = [DigestTickerEntry(ticker="NVDA", signal="buy", confidence="high")]
+        message = build_digest_message(tickers, [], "https://example.com")
+
+        assert message is not None
+        assert "Overnight activity" not in message
+
+    def test_includes_dashboard_link(self):
+        from src.alerts.telegram import DigestTickerEntry, build_digest_message
+
+        tickers = [DigestTickerEntry(ticker="NVDA", signal="buy", confidence="high")]
+        message = build_digest_message(tickers, [], "https://example.com")
+
+        assert message is not None
+        assert "https://example.com" in message

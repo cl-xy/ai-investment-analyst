@@ -123,6 +123,16 @@ class AlertEvaluationResponse(BaseModel):
     duration_ms: int
 
 
+class DigestResponse(BaseModel):
+    status: Literal["success", "skipped", "failed"]
+    message: str
+    tickers_included: int = 0
+    recent_alerts_included: int = 0
+    sent_to: int = 0
+    created_at: datetime
+    duration_ms: int
+
+
 # --- Reasoning-Aware Signal Alerts ---
 
 

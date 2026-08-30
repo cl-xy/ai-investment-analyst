@@ -22,7 +22,7 @@ from src.alerts.drift_judge import DriftJudgment
 from src.alerts.drift_scorer import DriftResult
 from src.alerts.last_analysis import LastAnalysisSnapshot
 from src.alerts.triggers.events import TriggerEvent
-from src.db import execute, fetchrow
+from src.db import execute, fetch, fetchrow
 from src.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -183,3 +183,18 @@ async def get_alert(alert_id: str) -> dict | None:
     if row is None:
         return None
     return dict(row)
+
+
+async def get_recent_alerts(since_hours: int = 24) -> list[dict]:
+    """Fetch alerts created within the last `since_hours` hours, most recent
+    first. Used by the daily digest's "overnight activity" section — reads
+    the same persisted alert history the /alerts API and Telegram dispatch
+    already rely on, no new schema needed."""
+    from datetime import timedelta
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=since_hours)
+    rows = await fetch(
+        "SELECT * FROM alerts WHERE created_at > $1 ORDER BY created_at DESC",
+        cutoff,
+    )
+    return [dict(row) for row in rows]

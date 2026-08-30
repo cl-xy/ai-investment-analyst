@@ -1,0 +1,35 @@
+name: Daily Digest
+
+on:
+  schedule:
+    # 13:00 UTC = 9:00 AM ET (8:00 AM during EDT... note: fixed UTC cron does
+    # not shift with US daylight saving; acceptable drift of ~1h for a demo-
+    # scale digest, not worth the complexity of a DST-aware check here).
+    - cron: "0 13 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: daily-digest
+  cancel-in-progress: false
+
+jobs:
+  send-digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger backend daily digest
+        env:
+          DAILY_DIGEST_URL: ${{ secrets.DAILY_DIGEST_URL }}
+          SCHEDULER_SECRET_TOKEN: ${{ secrets.SCHEDULER_SECRET_TOKEN }}
+        run: |
+          test -n "$DAILY_DIGEST_URL"
+          test -n "$SCHEDULER_SECRET_TOKEN"
+          curl --fail --show-error --silent \
+            --retry 3 \
+            --retry-all-errors \
+            --connect-timeout 10 \
+            --max-time 120 \
+            -X POST "$DAILY_DIGEST_URL" \
+            -H "x-scheduler-token: $SCHEDULER_SECRET_TOKEN" \
+            -H "content-type: application/json"

@@ -14,6 +14,7 @@ headers on the outbound webhook calls it makes to us.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import httpx
@@ -238,7 +239,8 @@ async def handle_update(update: dict) -> None:
             "ticker materially changes — not just when the price moves. "
             "Send /stop to unsubscribe, /status to check your subscription.\n\n"
             "Use /watch TICKER to add a ticker to your alert watchlist, "
-            "/unwatch TICKER to remove one, and /watching to see your list.",
+            "/unwatch TICKER to remove one, and /watching to see your list.\n\n"
+            "Use /analysis TICKER to look up the latest cached analysis.",
         )
     elif command == "/stop":
         await deactivate_chat(chat_id)
@@ -257,11 +259,13 @@ async def handle_update(update: dict) -> None:
         await _handle_unwatch_command(chat_id, text)
     elif command == "/watching":
         await _handle_watching_command(chat_id)
+    elif command == "/analysis":
+        await _handle_analysis_command(chat_id, text)
     else:
         await send_test_message(
             chat_id,
             "Commands: /start (subscribe), /stop (unsubscribe), /status, "
-            "/watch TICKER, /unwatch TICKER, /watching",
+            "/watch TICKER, /unwatch TICKER, /watching, /analysis TICKER",
         )
 
 
@@ -349,6 +353,148 @@ async def _handle_watching_command(chat_id: int) -> None:
 
     tickers = ", ".join(sorted(s.ticker for s in subs))
     await send_test_message(chat_id, f"Watching: {tickers}")
+
+
+def _format_age(created_at: datetime) -> str:
+    """Human-readable "time since" for a cached analysis timestamp."""
+    delta = datetime.now(timezone.utc) - created_at
+    total_seconds = delta.total_seconds()
+    if total_seconds < 3600:
+        minutes = max(1, int(total_seconds // 60))
+        return f"{minutes}m ago"
+    if total_seconds < 86400:
+        hours = int(total_seconds // 3600)
+        return f"{hours}h ago"
+    days = int(total_seconds // 86400)
+    return f"{days}d ago"
+
+
+def _format_analysis_message(snapshot, frontend_url: str) -> str:
+    """Format a cached LastAnalysisSnapshot for the /analysis command reply.
+    Reuses the same signal emoji convention as alert messages."""
+    signal_icon = _SIGNAL_EMOJI.get((snapshot.signal or "").lower(), "")
+
+    lines = [f"{signal_icon} *{snapshot.ticker}* — {(snapshot.signal or 'unknown').upper()}"]
+    lines.append(f"Confidence: {snapshot.confidence}")
+    lines.append(f"Sentiment: {snapshot.sentiment_score:.2f}")
+
+    if snapshot.risk_flags:
+        lines.append("\nRisk flags:")
+        for flag in snapshot.risk_flags[:5]:
+            lines.append(f"\u2022 {flag}")
+
+    lines.append(f"\nLast analyzed {_format_age(snapshot.created_at)}")
+
+    deep_link = f"{frontend_url}/analyze?tickers={snapshot.ticker}"
+    lines.append(f"\n[View full analysis]({deep_link})")
+
+    return "\n".join(lines)
+
+
+async def _handle_analysis_command(chat_id: int, text: str) -> None:
+    """Look up the most recent cached analysis for a ticker. Read-only —
+    never triggers a fresh analysis or any LLM call, just formats whatever
+    is already in ticker_analyses."""
+    from src.alerts.last_analysis import get_last_analysis
+    from src.config import settings
+
+    ticker = _parse_ticker_arg(text, "/analysis")
+    if not ticker:
+        await send_test_message(
+            chat_id, "Usage: /analysis TICKER (e.g. /analysis NVDA)"
+        )
+        return
+
+    try:
+        snapshot = await get_last_analysis(ticker)
+    except Exception:
+        log.exception("telegram_analysis_command_failed chat_id=%s ticker=%s", chat_id, ticker)
+        await send_test_message(
+            chat_id, f"Couldn't look up {ticker} right now. Please try again."
+        )
+        return
+
+    if snapshot is None:
+        await send_test_message(
+            chat_id,
+            f"No cached analysis for {ticker} yet. Add it to your watchlist "
+            f"with /watch {ticker} or analyze it in the app first.",
+        )
+        return
+
+    message = _format_analysis_message(snapshot, settings.frontend_url)
+    await _call_telegram(
+        "sendMessage",
+        {
+            "chat_id": chat_id,
+            "text": message,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True,
+        },
+    )
+
+
+# --- Daily digest ------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class DigestTickerEntry:
+    """Minimal per-ticker projection the digest builder needs — decoupled
+    from LastAnalysisSnapshot so this stays a pure, DB-free function."""
+
+    ticker: str
+    signal: str
+    confidence: str
+
+
+@dataclass(frozen=True, slots=True)
+class DigestAlertEntry:
+    """Minimal per-alert projection for the "overnight activity" section."""
+
+    ticker: str
+    severity: str
+    alert_type: str
+    created_at: datetime
+
+
+def build_digest_message(
+    tickers: list[DigestTickerEntry],
+    recent_alerts: list[DigestAlertEntry],
+    frontend_url: str,
+) -> str | None:
+    """Pure formatter: build the daily digest text from already-cached
+    per-ticker signals and recent alert history. Returns None when there is
+    nothing to report (no monitored tickers), so callers can skip sending an
+    empty digest without needing their own guard logic."""
+    if not tickers:
+        return None
+
+    lines = ["\U0001f4ca *Daily Digest*"]
+
+    by_signal: dict[str, list[DigestTickerEntry]] = {"buy": [], "hold": [], "sell": [], "other": []}
+    for entry in tickers:
+        key = entry.signal.lower() if entry.signal.lower() in by_signal else "other"
+        by_signal[key].append(entry)
+
+    for signal_key in ("buy", "hold", "sell", "other"):
+        entries = by_signal[signal_key]
+        if not entries:
+            continue
+        icon = _SIGNAL_EMOJI.get(signal_key, "")
+        label = signal_key.upper() if signal_key != "other" else "NO DATA"
+        lines.append(f"\n{icon} *{label}*")
+        for entry in sorted(entries, key=lambda e: e.ticker):
+            lines.append(f"\u2022 {entry.ticker} ({entry.confidence} confidence)")
+
+    if recent_alerts:
+        lines.append("\n\u26a1 *Overnight activity*")
+        for alert in sorted(recent_alerts, key=lambda a: a.created_at, reverse=True)[:10]:
+            severity_icon = _SEVERITY_EMOJI.get(alert.severity, "")
+            lines.append(f"\u2022 {severity_icon} {alert.ticker} — {alert.alert_type}")
+
+    lines.append(f"\n[Open dashboard]({frontend_url})")
+
+    return "\n".join(lines)
 
 
 def validate_webhook_secret(header_value: str | None) -> bool:
