@@ -77,7 +77,13 @@ export function useSpotlightTour(): SpotlightTourReturn {
     if (el) {
       setTargetRect(el.getBoundingClientRect())
     } else {
+      // Target not present on this route/page (e.g. tour steps only exist on
+      // the watchlist page). Abort the tour entirely instead of leaving
+      // isActive=true with no visible UI, which would otherwise make #root
+      // inert with no way for the user to see or dismiss it.
       setTargetRect(null)
+      setIsActive(false)
+      setCurrentStep(0)
     }
   }, [isActive, currentStep])
 
@@ -102,9 +108,11 @@ export function useSpotlightTour(): SpotlightTourReturn {
     }
   }, [isActive, currentStep, measureTarget])
 
-  // Apply inert attribute to non-spotlighted content
+  // Apply inert attribute to non-spotlighted content.
+  // Only while the tour is actually visible (isActive AND a target was
+  // found) — otherwise #root would be inert with no visible UI to dismiss it.
   useEffect(() => {
-    if (!isActive) return
+    if (!isActive || !targetRect) return
 
     const mainContent = document.getElementById('root')
     if (mainContent) {
@@ -116,7 +124,7 @@ export function useSpotlightTour(): SpotlightTourReturn {
         mainContent.removeAttribute('inert')
       }
     }
-  }, [isActive])
+  }, [isActive, targetRect])
 
   const complete = useCallback(() => {
     setIsActive(false)
@@ -152,8 +160,12 @@ export function useSpotlightTour(): SpotlightTourReturn {
     setIsActive(true)
   }, [])
 
-  // Auto-start on first visit
+  // Auto-start on first visit — only on the watchlist page ("/"), since all
+  // tour step targets (ticker-input, demo-cta, nav-explore, etc.) only exist
+  // there. Starting it on other routes (e.g. a deep link to /analyze) leaves
+  // isActive=true with no matching target, which previously made #root inert.
   useEffect(() => {
+    if (window.location.pathname !== '/') return
     try {
       const completed = localStorage.getItem(STORAGE_KEY)
       if (!completed) {
