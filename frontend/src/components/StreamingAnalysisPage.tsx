@@ -14,6 +14,7 @@ import { DissentPrompt } from './DissentPrompt'
 import { ConfidenceBadge, DataQualityIndicator, SignalStrengthMeter } from './ConfidenceBadge'
 import { ArrowLeft, AlertCircle, Play, Clock, Layers, ChevronDown, Beaker } from 'lucide-react'
 import type { AnalysisOutput, Citation, PeerComparisonPayload, StreamEvent } from '../types/stream'
+import { isValidTicker } from '../utils/tickerValidation'
 
 /**
  * Streaming analysis page. The centerpiece demo experience.
@@ -34,16 +35,23 @@ export default function StreamingAnalysisPage() {
   const toolResults = useMemo(() => events.filter((e) => e.type === 'tool_result'), [events])
 
   const tickerParam = searchParams.get('tickers') || ''
-  const tickers = useMemo(() => {
+  // Dedup and normalize first, then split into valid/invalid so the URL can never
+  // push a malformed ticker into the SSE connection (mirrors backend VALID_TICKER_RE).
+  const { tickers, invalidTickers } = useMemo(() => {
     const seen = new Set<string>()
-    return tickerParam
-      .split(',')
-      .map((t) => t.trim().toUpperCase())
-      .filter((t) => {
-        if (!t || seen.has(t)) return false
-        seen.add(t)
-        return true
-      })
+    const valid: string[] = []
+    const invalid: string[] = []
+    for (const raw of tickerParam.split(',')) {
+      const t = raw.trim().toUpperCase()
+      if (!t || seen.has(t)) continue
+      seen.add(t)
+      if (isValidTicker(t)) {
+        valid.push(t)
+      } else {
+        invalid.push(t)
+      }
+    }
+    return { tickers: valid, invalidTickers: invalid }
   }, [tickerParam])
 
   // Only treat as "already active" if actively streaming for THIS ticker set
@@ -88,6 +96,27 @@ export default function StreamingAnalysisPage() {
       }
     }
   }, [isStreaming, error, tickers, analyses])
+
+  if (invalidTickers.length > 0) {
+    return (
+      <div className="max-w-4xl mx-auto px-6 py-12 text-center">
+        <AlertCircle className="w-8 h-8 text-[var(--error)] mx-auto mb-3" />
+        <p className="text-[var(--text-secondary)]">
+          Invalid ticker symbol{invalidTickers.length > 1 ? 's' : ''}:{' '}
+          <span className="font-mono">{invalidTickers.join(', ')}</span>
+        </p>
+        <p className="text-sm text-[var(--text-muted)] mt-1">
+          Tickers must be 1-10 characters: letters, numbers, dots, or hyphens only.
+        </p>
+        <button
+          onClick={() => navigate('/')}
+          className="mt-4 text-sm text-[var(--accent)] hover:underline focus-ring rounded"
+        >
+          Go back to watchlist
+        </button>
+      </div>
+    )
+  }
 
   if (tickers.length === 0) {
     return (
