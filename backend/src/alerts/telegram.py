@@ -289,9 +289,7 @@ async def _handle_watch_command(chat_id: int, text: str) -> None:
 
     ticker = _parse_ticker_arg(text, "/watch")
     if not ticker:
-        await send_test_message(
-            chat_id, "Usage: /watch TICKER (e.g. /watch NVDA)"
-        )
+        await send_test_message(chat_id, "Usage: /watch TICKER (e.g. /watch NVDA)")
         return
 
     try:
@@ -315,9 +313,7 @@ async def _handle_unwatch_command(chat_id: int, text: str) -> None:
 
     ticker = _parse_ticker_arg(text, "/unwatch")
     if not ticker:
-        await send_test_message(
-            chat_id, "Usage: /unwatch TICKER (e.g. /unwatch NVDA)"
-        )
+        await send_test_message(chat_id, "Usage: /unwatch TICKER (e.g. /unwatch NVDA)")
         return
 
     try:
@@ -400,18 +396,14 @@ async def _handle_analysis_command(chat_id: int, text: str) -> None:
 
     ticker = _parse_ticker_arg(text, "/analysis")
     if not ticker:
-        await send_test_message(
-            chat_id, "Usage: /analysis TICKER (e.g. /analysis NVDA)"
-        )
+        await send_test_message(chat_id, "Usage: /analysis TICKER (e.g. /analysis NVDA)")
         return
 
     try:
         snapshot = await get_last_analysis(ticker)
     except Exception:
         log.exception("telegram_analysis_command_failed chat_id=%s ticker=%s", chat_id, ticker)
-        await send_test_message(
-            chat_id, f"Couldn't look up {ticker} right now. Please try again."
-        )
+        await send_test_message(chat_id, f"Couldn't look up {ticker} right now. Please try again.")
         return
 
     if snapshot is None:
