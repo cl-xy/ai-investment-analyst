@@ -458,7 +458,10 @@ async def _run_agent(
 
                 metrics.inc(
                     "analysis_timeouts_total",
-                    labels={"stage": _timeout_stage or "unknown", "ticker_count": str(len(tickers_upper))},
+                    labels={
+                        "stage": _timeout_stage or "unknown",
+                        "ticker_count": str(len(tickers_upper)),
+                    },
                 )
 
                 ev = emitter.analysis_timeout(
