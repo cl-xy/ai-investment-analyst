@@ -14,6 +14,7 @@ headers on the outbound webhook calls it makes to us.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -285,6 +286,7 @@ def _parse_ticker_arg(text: str, command: str) -> str | None:
 
 
 async def _handle_watch_command(chat_id: int, text: str) -> None:
+    from src.alerts.last_analysis import get_last_analysis
     from src.alerts.subscriptions import subscribe_ticker
 
     ticker = _parse_ticker_arg(text, "/watch")
@@ -301,11 +303,128 @@ async def _handle_watch_command(chat_id: int, text: str) -> None:
         )
         return
 
+    # A subscription alone doesn't get you alerts: the drift pipeline
+    # (evaluate_ticker in src/alerts/pipeline.py) requires a prior
+    # non-insufficient_data analysis as its baseline and silently skips
+    # tickers that don't have one (see ADR-012 consequences). Rather than
+    # leave a freshly-watched ticker stuck in that silent-skip state until
+    # someone happens to analyze it in the app, kick off a one-time baseline
+    # analysis in the background when none exists yet.
+    has_baseline = False
+    try:
+        has_baseline = (await get_last_analysis(ticker)) is not None
+    except Exception:
+        log.exception("telegram_watch_baseline_check_failed chat_id=%s ticker=%s", chat_id, ticker)
+
+    if has_baseline:
+        await send_test_message(
+            chat_id,
+            f"Watching {ticker}. You'll get an alert if its investment thesis "
+            "materially shifts. Send /unwatch " + ticker + " to stop.",
+        )
+        return
+
     await send_test_message(
         chat_id,
-        f"Watching {ticker}. You'll get an alert if its investment thesis "
-        "materially shifts. Send /unwatch " + ticker + " to stop.",
+        f"Watching {ticker}. No cached analysis exists yet, so I'm running one now "
+        "to set the baseline for drift alerts \u2014 this can take up to ~2 minutes "
+        "on the free tier. I'll message you when it's ready.",
     )
+    asyncio.create_task(_run_baseline_analysis_and_notify(chat_id, ticker))
+
+
+# Hard timeout for a Telegram-triggered baseline analysis. Generous for a
+# single ticker (3 sequential LLM calls in the debate on the free tier), but
+# bounded so a stuck run can't hold the concurrency slot indefinitely — same
+# rationale as the timeouts in src/api/routes/scheduled.py.
+_WATCH_BASELINE_TIMEOUT = 150  # seconds
+
+
+async def _run_baseline_analysis_and_notify(chat_id: int, ticker: str) -> None:
+    """Fire-and-forget: run a fresh analysis for `ticker` so the alert
+    pipeline has a baseline to diff against, then tell the user it's ready.
+    Must never raise — this runs detached from the webhook request/response
+    cycle via asyncio.create_task, so an unhandled exception here would only
+    surface as a silent task failure with no user-visible feedback."""
+    from src.agent.concurrency import acquire_analysis_slot, release_analysis_slot
+    from src.agent.direct_tools import load_direct_tools
+    from src.api.routes.analyze import analyze_tickers
+
+    acquired = await acquire_analysis_slot()
+    if not acquired:
+        log.warning("telegram_watch_baseline_skipped_no_slot chat_id=%s ticker=%s", chat_id, ticker)
+        await send_test_message(
+            chat_id,
+            f"Couldn't run a baseline analysis for {ticker} right now (server at "
+            "capacity). Try /watch again shortly, or analyze it in the app.",
+        )
+        return
+
+    try:
+        try:
+            mcp_tools = load_direct_tools()
+            await asyncio.wait_for(
+                analyze_tickers([ticker], mcp_tools, force_refresh=False),
+                timeout=_WATCH_BASELINE_TIMEOUT,
+            )
+        finally:
+            release_analysis_slot()
+    except asyncio.TimeoutError:
+        log.error(
+            "telegram_watch_baseline_timeout chat_id=%s ticker=%s timeout=%ds",
+            chat_id,
+            ticker,
+            _WATCH_BASELINE_TIMEOUT,
+        )
+        await send_test_message(
+            chat_id,
+            f"Baseline analysis for {ticker} timed out. You're still watching it "
+            f"— use /analysis {ticker} to try again later, or check the app.",
+        )
+        return
+    except Exception:
+        log.exception("telegram_watch_baseline_failed chat_id=%s ticker=%s", chat_id, ticker)
+        await send_test_message(
+            chat_id,
+            f"Baseline analysis for {ticker} failed. You're still watching it, "
+            "but drift alerts won't fire until an analysis succeeds.",
+        )
+        return
+
+    from src.alerts.last_analysis import get_last_analysis
+    from src.config import settings
+
+    snapshot = None
+    try:
+        snapshot = await get_last_analysis(ticker)
+    except Exception:
+        log.exception("telegram_watch_baseline_snapshot_lookup_failed ticker=%s", ticker)
+
+    if snapshot is None:
+        await send_test_message(
+            chat_id,
+            f"Analysis for {ticker} completed but produced insufficient data. "
+            "Drift alerts won't fire until a full analysis succeeds.",
+        )
+        return
+
+    signal_icon = _SIGNAL_EMOJI.get((snapshot.signal or "").lower(), "")
+    deep_link = f"{settings.frontend_url}/analyze?tickers={ticker}"
+    await _call_telegram(
+        "sendMessage",
+        {
+            "chat_id": chat_id,
+            "text": (
+                f"{signal_icon} Baseline analysis for *{ticker}* is ready: "
+                f"{(snapshot.signal or 'unknown').upper()} ({snapshot.confidence} confidence). "
+                "You'll now get an alert if the thesis materially shifts.\n\n"
+                f"[View full analysis]({deep_link})"
+            ),
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True,
+        },
+    )
+    log.info("telegram_watch_baseline_complete chat_id=%s ticker=%s", chat_id, ticker)
 
 
 async def _handle_unwatch_command(chat_id: int, text: str) -> None:

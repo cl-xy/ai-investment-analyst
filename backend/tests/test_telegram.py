@@ -152,6 +152,10 @@ class TestWatchCommands:
             patch(
                 "src.alerts.subscriptions.subscribe_ticker", new=AsyncMock(return_value=result)
             ) as mock_subscribe,
+            patch(
+                "src.alerts.last_analysis.get_last_analysis",
+                new=AsyncMock(return_value=object()),
+            ),
             patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
         ):
             await handle_update({"message": {"chat": {"id": 1}, "text": "/watch nvda"}})
@@ -260,6 +264,208 @@ class TestWatchCommands:
             await handle_update({"message": {"chat": {"id": 1}, "text": "/watching"}})
 
         mock_subscribe.assert_not_called()
+
+
+class TestWatchTriggersBaselineAnalysis:
+    """Watching a ticker with no prior analysis should kick off a background
+    baseline analysis (see _run_baseline_analysis_and_notify) instead of
+    leaving the subscription silently inert until someone happens to
+    analyze it in the app (ADR-012 known gap)."""
+
+    @pytest.mark.asyncio
+    async def test_watch_skips_baseline_run_when_analysis_already_exists(self):
+        from src.alerts.subscriptions import AlertSubscription
+
+        result = AlertSubscription(
+            ticker="NVDA", source="telegram", trigger_types=["sec"], active=True
+        )
+        with (
+            patch(
+                "src.alerts.subscriptions.subscribe_ticker", new=AsyncMock(return_value=result)
+            ),
+            patch(
+                "src.alerts.last_analysis.get_last_analysis",
+                new=AsyncMock(return_value=object()),
+            ),
+            patch("src.alerts.telegram.asyncio.create_task") as mock_create_task,
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
+        ):
+            await handle_update({"message": {"chat": {"id": 1}, "text": "/watch NVDA"}})
+
+        mock_create_task.assert_not_called()
+        sent_text = mock_send.call_args.args[1]
+        assert "materially shifts" in sent_text
+
+    @pytest.mark.asyncio
+    async def test_watch_schedules_baseline_run_when_no_analysis_exists(self):
+        from src.alerts.subscriptions import AlertSubscription
+
+        result = AlertSubscription(
+            ticker="TSM", source="telegram", trigger_types=["sec"], active=True
+        )
+        with (
+            patch(
+                "src.alerts.subscriptions.subscribe_ticker", new=AsyncMock(return_value=result)
+            ),
+            patch(
+                "src.alerts.last_analysis.get_last_analysis", new=AsyncMock(return_value=None)
+            ),
+            patch(
+                "src.alerts.telegram.asyncio.create_task", side_effect=lambda coro: coro.close()
+            ) as mock_create_task,
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
+        ):
+            await handle_update({"message": {"chat": {"id": 1}, "text": "/watch TSM"}})
+
+        mock_create_task.assert_called_once()
+        sent_text = mock_send.call_args.args[1]
+        assert "running one now" in sent_text.lower()
+
+    @pytest.mark.asyncio
+    async def test_watch_still_subscribes_when_baseline_check_fails(self):
+        """A broken baseline lookup must not block the subscription itself
+        — it should still schedule a background attempt rather than fail
+        the whole /watch command."""
+        from src.alerts.subscriptions import AlertSubscription
+
+        result = AlertSubscription(
+            ticker="HPE", source="telegram", trigger_types=["sec"], active=True
+        )
+        with (
+            patch(
+                "src.alerts.subscriptions.subscribe_ticker", new=AsyncMock(return_value=result)
+            ) as mock_subscribe,
+            patch(
+                "src.alerts.last_analysis.get_last_analysis",
+                new=AsyncMock(side_effect=RuntimeError("db down")),
+            ),
+            patch(
+                "src.alerts.telegram.asyncio.create_task", side_effect=lambda coro: coro.close()
+            ) as mock_create_task,
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()),
+        ):
+            await handle_update({"message": {"chat": {"id": 1}, "text": "/watch HPE"}})
+
+        mock_subscribe.assert_called_once_with("HPE", source="telegram")
+        mock_create_task.assert_called_once()
+
+
+class TestRunBaselineAnalysisAndNotify:
+    """Direct tests of the background helper, bypassing the webhook/command
+    layer so failure paths can be exercised precisely."""
+
+    @pytest.mark.asyncio
+    async def test_sends_capacity_message_when_no_slot_available(self):
+        from src.alerts.telegram import _run_baseline_analysis_and_notify
+
+        with (
+            patch(
+                "src.agent.concurrency.acquire_analysis_slot", new=AsyncMock(return_value=False)
+            ),
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
+        ):
+            await _run_baseline_analysis_and_notify(1, "TSM")
+
+        assert "capacity" in mock_send.call_args.args[1].lower()
+
+    @pytest.mark.asyncio
+    async def test_releases_slot_and_notifies_on_timeout(self):
+        import asyncio
+
+        from src.alerts.telegram import _run_baseline_analysis_and_notify
+
+        with (
+            patch(
+                "src.agent.concurrency.acquire_analysis_slot", new=AsyncMock(return_value=True)
+            ),
+            patch("src.agent.concurrency.release_analysis_slot") as mock_release,
+            patch("src.agent.direct_tools.load_direct_tools", return_value={}),
+            patch(
+                "src.api.routes.analyze.analyze_tickers",
+                new=AsyncMock(side_effect=asyncio.TimeoutError()),
+            ),
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
+        ):
+            await _run_baseline_analysis_and_notify(1, "TSM")
+
+        mock_release.assert_called_once()
+        assert "timed out" in mock_send.call_args.args[1].lower()
+
+    @pytest.mark.asyncio
+    async def test_releases_slot_and_notifies_on_analysis_failure(self):
+        from src.alerts.telegram import _run_baseline_analysis_and_notify
+
+        with (
+            patch(
+                "src.agent.concurrency.acquire_analysis_slot", new=AsyncMock(return_value=True)
+            ),
+            patch("src.agent.concurrency.release_analysis_slot") as mock_release,
+            patch("src.agent.direct_tools.load_direct_tools", return_value={}),
+            patch(
+                "src.api.routes.analyze.analyze_tickers",
+                new=AsyncMock(side_effect=RuntimeError("boom")),
+            ),
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
+        ):
+            await _run_baseline_analysis_and_notify(1, "TSM")
+
+        mock_release.assert_called_once()
+        assert "failed" in mock_send.call_args.args[1].lower()
+
+    @pytest.mark.asyncio
+    async def test_notifies_with_signal_on_success(self):
+        from src.alerts.last_analysis import LastAnalysisSnapshot
+        from src.alerts.telegram import _run_baseline_analysis_and_notify
+
+        snapshot = LastAnalysisSnapshot(
+            ticker="TSM",
+            signal="buy",
+            confidence="high",
+            sentiment_score=0.5,
+            risk_flags=[],
+            price_data={},
+            fundamentals={},
+            analysis_id="abc123",
+            created_at=datetime.now(timezone.utc),
+        )
+        with (
+            patch(
+                "src.agent.concurrency.acquire_analysis_slot", new=AsyncMock(return_value=True)
+            ),
+            patch("src.agent.concurrency.release_analysis_slot"),
+            patch("src.agent.direct_tools.load_direct_tools", return_value={}),
+            patch("src.api.routes.analyze.analyze_tickers", new=AsyncMock(return_value=None)),
+            patch(
+                "src.alerts.last_analysis.get_last_analysis",
+                new=AsyncMock(return_value=snapshot),
+            ),
+            patch("src.alerts.telegram._call_telegram", new=AsyncMock()) as mock_call,
+        ):
+            await _run_baseline_analysis_and_notify(1, "TSM")
+
+        payload = mock_call.call_args.args[1]
+        assert "TSM" in payload["text"]
+        assert "BUY" in payload["text"]
+
+    @pytest.mark.asyncio
+    async def test_notifies_insufficient_data_when_no_snapshot_after_run(self):
+        from src.alerts.telegram import _run_baseline_analysis_and_notify
+
+        with (
+            patch(
+                "src.agent.concurrency.acquire_analysis_slot", new=AsyncMock(return_value=True)
+            ),
+            patch("src.agent.concurrency.release_analysis_slot"),
+            patch("src.agent.direct_tools.load_direct_tools", return_value={}),
+            patch("src.api.routes.analyze.analyze_tickers", new=AsyncMock(return_value=None)),
+            patch(
+                "src.alerts.last_analysis.get_last_analysis", new=AsyncMock(return_value=None)
+            ),
+            patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
+        ):
+            await _run_baseline_analysis_and_notify(1, "TSM")
+
+        assert "insufficient data" in mock_send.call_args.args[1].lower()
 
 
 class TestDispatchRateLimiting:
