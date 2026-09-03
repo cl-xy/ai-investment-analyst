@@ -423,26 +423,52 @@ async def _run_agent(
                 len(tickers_upper) * EXECUTION_TIMEOUT_PER_TICKER
             )
 
+            _timeout_stage: str | None = None
+            _run_start = time.monotonic()
+
             try:
                 await asyncio.wait_for(_execute(), timeout=execution_timeout)
             except asyncio.TimeoutError:
                 _timed_out = True
-                ev = emitter.error(
-                    f"Analysis timed out after {execution_timeout}s",
-                    recoverable=False,
-                    context="execution_timeout",
-                )
-                await queue.put(ev.to_sse())
+                _timeout_stage = current_node
 
             # Close final node
             if current_node:
                 ev = emitter.node_completed(current_node)
                 await queue.put(ev.to_sse())
 
-            # Get final state for analysis results
+            # Get final state for analysis results. Read this BEFORE emitting the
+            # timeout event so we can tell the client which tickers actually
+            # finished vs which still need a retry — a checkpointed LangGraph run
+            # may have completed some tickers before the timeout fired.
             final_state = await compiled.aget_state(config)
             state_values = final_state.values if final_state else {}
             ticker_analyses = state_values.get("ticker_analyses", {})
+
+            if _timed_out:
+                completed = [t for t in tickers_upper if t in ticker_analyses]
+                incomplete = [t for t in tickers_upper if t not in ticker_analyses]
+                elapsed = time.monotonic() - _run_start
+
+                # Debate/report stages are LLM-bound and transient (rate limits,
+                # slow free-tier inference) — safe to retry soon. Data-fetch stage
+                # timeouts more often indicate an upstream provider outage, so
+                # give it more breathing room before the client retries.
+                retry_after = 15 if _timeout_stage in ("debate", "generate_report") else 45
+
+                metrics.inc(
+                    "analysis_timeouts_total",
+                    labels={"stage": _timeout_stage or "unknown", "ticker_count": str(len(tickers_upper))},
+                )
+
+                ev = emitter.analysis_timeout(
+                    completed_tickers=completed,
+                    incomplete_tickers=incomplete,
+                    stage=_timeout_stage,
+                    elapsed_seconds=elapsed,
+                    retry_after_seconds=retry_after,
+                )
+                await queue.put(ev.to_sse())
 
             for ticker, analysis in ticker_analyses.items():
                 # Strip internal debate fields from SSE payload

@@ -239,7 +239,7 @@ class TestClientDisconnectCancelsTask:
 
 
 class TestStreamTimeoutEmitsErrorEvent:
-    """Mock a very slow tool, verify timeout error event."""
+    """Mock a very slow tool, verify timeout emits a structured analysis_timeout event."""
 
     @patch("src.api.routes.analyze_stream.EXECUTION_TIMEOUT_BASE", 1)
     @patch("src.api.routes.analyze_stream.EXECUTION_TIMEOUT_PER_TICKER", 0)
@@ -248,21 +248,57 @@ class TestStreamTimeoutEmitsErrorEvent:
     def test_stream_timeout_emits_error_event(
         self, mock_build_graph, mock_checkpointer, client
     ):
-        """Mock a very slow tool, verify timeout error event and clean termination."""
+        """Mock a very slow tool, verify timeout event and clean termination."""
         # Each event takes 0.3s with 8 events = 2.4s total, but timeout is 1s
         _setup_mocks(mock_build_graph, mock_checkpointer, stream_delay=0.3)
 
         with client.stream("GET", "/api/analyze/stream?tickers=AAPL") as response:
             events = _parse_sse_events(response)
 
-        # Should contain an error event about timeout
+        # Should contain a structured analysis_timeout event (not a generic
+        # error) so the client can distinguish partial-progress timeouts
+        # from hard failures and knows which tickers still need a retry.
+        # The shared mock's checkpointed state already has AAPL's analysis
+        # in `ticker_analyses` by the time we read state post-timeout, which
+        # exercises the "completed before the timeout fired" path.
+        timeout_events = [e for e in events if e["type"] == "analysis_timeout"]
+        assert len(timeout_events) >= 1
+        timeout_payload = timeout_events[0]["payload"]
+        assert "timed out" in timeout_payload["message"].lower()
+        assert timeout_payload["completed_tickers"] == ["AAPL"]
+        assert timeout_payload["incomplete_tickers"] == []
+        assert timeout_payload["retry_after_seconds"] > 0
+
+        # No generic unrecoverable error event should be emitted for this case
         error_events = [e for e in events if e["type"] == "error"]
-        assert len(error_events) >= 1
-        error_payload = error_events[0]["payload"]
-        assert "timed out" in error_payload["message"].lower() or "timeout" in error_payload.get(
-            "context", ""
-        )
-        assert error_payload["recoverable"] is False
+        assert len(error_events) == 0
 
         # Stream should still end with run_completed (graceful shutdown)
         assert events[-1]["type"] == "run_completed"
+
+
+class TestStreamTimeoutReportsIncompleteTickers:
+    """Multi-ticker timeout: only some tickers finish before the deadline."""
+
+    @patch("src.api.routes.analyze_stream.EXECUTION_TIMEOUT_BASE", 1)
+    @patch("src.api.routes.analyze_stream.EXECUTION_TIMEOUT_PER_TICKER", 0)
+    @patch("src.api.routes.analyze_stream.get_checkpointer")
+    @patch("src.api.routes.analyze_stream.build_graph")
+    def test_incomplete_tickers_reported_for_retry(
+        self, mock_build_graph, mock_checkpointer, client
+    ):
+        """MSFT was requested but never made it into ticker_analyses before
+        the timeout fired; AAPL did. The timeout event must separate the two
+        so the client can retry only MSFT instead of re-running both."""
+        _setup_mocks(mock_build_graph, mock_checkpointer, stream_delay=0.3)
+
+        with client.stream(
+            "GET", "/api/analyze/stream?tickers=AAPL,MSFT"
+        ) as response:
+            events = _parse_sse_events(response)
+
+        timeout_events = [e for e in events if e["type"] == "analysis_timeout"]
+        assert len(timeout_events) == 1
+        payload = timeout_events[0]["payload"]
+        assert payload["completed_tickers"] == ["AAPL"]
+        assert payload["incomplete_tickers"] == ["MSFT"]

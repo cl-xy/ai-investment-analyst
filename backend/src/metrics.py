@@ -134,6 +134,7 @@ class MetricsRegistry:
 
         # Counters
         self.analyses_total = Counter()
+        self.analysis_timeouts_total = Counter()
         self.tool_calls_total = Counter()
         self.llm_calls_total = Counter()
         self.circuit_breaker_trips = Counter()
@@ -163,6 +164,7 @@ class MetricsRegistry:
         return {
             "counters": {
                 "analyses_total": self.analyses_total.snapshot(),
+                "analysis_timeouts_total": self.analysis_timeouts_total.snapshot(),
                 "tool_calls_total": self.tool_calls_total.snapshot(),
                 "llm_calls_total": self.llm_calls_total.snapshot(),
                 "circuit_breaker_trips": self.circuit_breaker_trips.snapshot(),

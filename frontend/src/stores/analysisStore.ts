@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type {
   AnalysisOutput,
+  AnalysisTimeoutPayload,
   DebateTurnPayload,
   DebateVerdictPayload,
   PeerComparisonPayload,
@@ -38,6 +39,11 @@ interface AnalysisStore {
   isStreaming: boolean
   error: string | null
 
+  // Timeout state: distinct from `error` because a timeout can be *partial* —
+  // some tickers may have already completed successfully and should stay
+  // visible, unlike a hard error which clears the whole run.
+  timeout: AnalysisTimeoutPayload | null
+
   // Analysis results (progressive rendering)
   analyses: Record<string, AnalysisOutput>
   runMeta: {
@@ -61,6 +67,7 @@ interface AnalysisStore {
   setAnalysis: (ticker: string, analysis: AnalysisOutput) => void
   setComplete: (meta: RunCompletedPayload) => void
   setError: (error: string) => void
+  setTimeout: (payload: AnalysisTimeoutPayload) => void
   addDebateTurn: (ticker: string, turn: DebateTurnPayload) => void
   setDebateVerdict: (ticker: string, verdict: DebateVerdictPayload) => void
   setPeerComparison: (peerComparison: PeerComparisonPayload) => void
@@ -74,6 +81,7 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
   currentNode: null,
   isStreaming: false,
   error: null,
+  timeout: null,
   analyses: {},
   runMeta: null,
   debates: {},
@@ -90,6 +98,7 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
         currentNode: null,
         isStreaming: true,
         error: null,
+        timeout: null,
         analyses: {},
         runMeta: { run_id: runId, startedAt: new Date().toISOString(), correlationId },
         debates: {},
@@ -155,6 +164,21 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
       return { error, isStreaming: false, currentNode: null, debates }
     }),
 
+  setTimeout: (payload: AnalysisTimeoutPayload) =>
+    set((state) => {
+      // Only mark debates for INCOMPLETE tickers as inactive. Completed
+      // tickers keep their finished verdict/turns intact and visible —
+      // a timeout is a partial outcome, not a wipe of everything so far.
+      const incompleteSet = new Set(payload.incomplete_tickers)
+      const debates = { ...state.debates }
+      for (const ticker of Object.keys(debates)) {
+        if (debates[ticker].isActive && incompleteSet.has(ticker)) {
+          debates[ticker] = { ...debates[ticker], isActive: false }
+        }
+      }
+      return { timeout: payload, isStreaming: false, currentNode: null, debates }
+    }),
+
   addDebateTurn: (ticker: string, turn: DebateTurnPayload) =>
     set((state) => {
       const existing = state.debates[ticker] || emptyDebate(ticker)
@@ -199,6 +223,7 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
       currentNode: null,
       isStreaming: false,
       error: null,
+      timeout: null,
       analyses: {},
       runMeta: null,
       debates: {},

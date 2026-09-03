@@ -16,6 +16,7 @@ export type EventType =
   | 'warning'
   | 'error'
   | 'analysis_complete'
+  | 'analysis_timeout'
   | 'run_completed'
   | 'heartbeat'
   // Adversarial debate events
@@ -48,6 +49,15 @@ export interface ToolResultPayload {
 export interface AnalysisCompletePayload {
   ticker: string
   analysis: AnalysisOutput
+}
+
+export interface AnalysisTimeoutPayload {
+  completed_tickers: string[]
+  incomplete_tickers: string[]
+  stage: string | null
+  elapsed_seconds: number
+  retry_after_seconds: number
+  message: string
 }
 
 export interface RunCompletedPayload {

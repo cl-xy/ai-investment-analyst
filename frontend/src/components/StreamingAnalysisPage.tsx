@@ -13,7 +13,7 @@ import { ReportExportButton } from './ReportExport'
 import { DissentPrompt } from './DissentPrompt'
 import { ConfidenceBadge, DataQualityIndicator, SignalStrengthMeter } from './ConfidenceBadge'
 import { ArrowLeft, AlertCircle, Play, Clock, Layers, ChevronDown, Beaker } from 'lucide-react'
-import type { AnalysisOutput, Citation, PeerComparisonPayload, StreamEvent } from '../types/stream'
+import type { AnalysisOutput, AnalysisTimeoutPayload, Citation, PeerComparisonPayload, StreamEvent } from '../types/stream'
 import { isValidTicker } from '../utils/tickerValidation'
 
 /**
@@ -24,7 +24,7 @@ export default function StreamingAnalysisPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { connect, disconnect } = useAnalysisStream()
-  const { analyses, isStreaming, error, events, debates, peerComparison } = useAnalysisStore()
+  const { analyses, isStreaming, error, timeout, events, debates, peerComparison } = useAnalysisStore()
   const runMeta = useAnalysisStore((s) => s.runMeta)
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null)
   const [confirmed, setConfirmed] = useState(false)
@@ -85,17 +85,19 @@ export default function StreamingAnalysisPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTickerKey, confirmed])
 
-  // Update title when analysis completes (or errors)
+  // Update title when analysis completes (or errors/times out)
   useEffect(() => {
     if (!hasConnectedRef.current) return
     if (!isStreaming && tickers.length > 0) {
       if (error) {
         document.title = `Error | AI Investment Analyst`
+      } else if (timeout && Object.keys(analyses).length === 0) {
+        document.title = `Timed Out | AI Investment Analyst`
       } else if (Object.keys(analyses).length > 0) {
         document.title = `Analysis: ${tickers.join(', ')} | AI Investment Analyst`
       }
     }
-  }, [isStreaming, error, tickers, analyses])
+  }, [isStreaming, error, timeout, tickers, analyses])
 
   if (invalidTickers.length > 0) {
     return (
@@ -240,6 +242,23 @@ export default function StreamingAnalysisPage() {
             .map((ticker) => (
               <SkeletonCard key={ticker} ticker={ticker} />
             ))}
+
+          {/* Timeout state: partial outcome. Completed tickers stay rendered
+              above via the normal analyses[t] map; this only calls out what
+              didn't finish and offers a scoped retry. */}
+          {timeout && (
+            <TimeoutBanner
+              timeout={timeout}
+              onRetryIncomplete={() => {
+                // Navigate to a fresh analysis scoped to just the incomplete
+                // tickers. Going through the URL (rather than calling connect()
+                // directly) keeps this consistent with how every other entry
+                // point starts a run, and lets the confirmation/back-button
+                // flow behave normally for the new run.
+                navigate(`/analyze?tickers=${timeout.incomplete_tickers.join(',')}`)
+              }}
+            />
+          )}
 
           {/* Error state */}
           {error && (
@@ -396,6 +415,58 @@ function ProgressBar({ events }: { events: StreamEvent[] }) {
           }
         }
       `}</style>
+    </div>
+  )
+}
+
+function TimeoutBanner({
+  timeout,
+  onRetryIncomplete,
+}: {
+  timeout: AnalysisTimeoutPayload
+  onRetryIncomplete: () => void
+}) {
+  const [secondsLeft, setSecondsLeft] = useState(timeout.retry_after_seconds)
+
+  useEffect(() => {
+    setSecondsLeft(timeout.retry_after_seconds)
+    if (timeout.retry_after_seconds <= 0) return
+    const interval = setInterval(() => {
+      setSecondsLeft((s) => Math.max(0, s - 1))
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [timeout])
+
+  const canRetryNow = secondsLeft <= 0
+  const hasCompleted = timeout.completed_tickers.length > 0
+
+  return (
+    <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-5">
+      <div className="flex items-start gap-3">
+        <Clock className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
+        <div className="flex-1">
+          <p className="text-sm font-medium text-amber-500">
+            {hasCompleted ? 'Analysis partially timed out' : 'Analysis timed out'}
+          </p>
+          <p className="text-sm text-[var(--text-secondary)] mt-1">{timeout.message}</p>
+          {timeout.incomplete_tickers.length > 0 && (
+            <p className="text-xs text-[var(--text-muted)] mt-2">
+              Still pending: <span className="font-mono">{timeout.incomplete_tickers.join(', ')}</span>
+            </p>
+          )}
+          {timeout.incomplete_tickers.length > 0 && (
+            <button
+              onClick={onRetryIncomplete}
+              disabled={!canRetryNow}
+              className="mt-3 text-sm text-[var(--accent)] hover:underline focus-ring rounded disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed"
+            >
+              {canRetryNow
+                ? `Retry ${timeout.incomplete_tickers.length > 1 ? 'remaining tickers' : timeout.incomplete_tickers[0]}`
+                : `Retry available in ${secondsLeft}s`}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

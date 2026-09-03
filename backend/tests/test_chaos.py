@@ -155,7 +155,9 @@ class TestLLMTimeoutReturnsErrorEvent:
     def test_llm_timeout_returns_error_event(
         self, mock_build_graph, mock_checkpointer, client
     ):
-        """LLM timeout produces an error event and the stream terminates cleanly."""
+        """LLM timeout produces a structured analysis_timeout event and the
+        stream terminates cleanly (not a generic unrecoverable error, since
+        this signals a retryable partial outcome)."""
         _setup_standard_mocks(
             mock_build_graph,
             mock_checkpointer,
@@ -168,10 +170,14 @@ class TestLLMTimeoutReturnsErrorEvent:
         # Should have run_started
         assert events[0]["type"] == "run_started"
 
-        # Should have an error event about timeout
+        # Should have an analysis_timeout event, not a generic error
+        timeout_events = [e for e in events if e["type"] == "analysis_timeout"]
+        assert len(timeout_events) >= 1, "Expected analysis_timeout event for timeout"
+        assert "timed out" in timeout_events[0]["payload"]["message"].lower()
+        assert timeout_events[0]["payload"]["retry_after_seconds"] > 0
+
         error_events = [e for e in events if e["type"] == "error"]
-        assert len(error_events) >= 1, "Expected error event for timeout"
-        assert "timed out" in error_events[0]["payload"]["message"].lower()
+        assert len(error_events) == 0
 
         # Should still end with run_completed (graceful shutdown)
         assert events[-1]["type"] == "run_completed"

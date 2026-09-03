@@ -32,6 +32,7 @@ class EventType(str, Enum):
     WARNING = "warning"
     ERROR = "error"
     ANALYSIS_COMPLETE = "analysis_complete"
+    ANALYSIS_TIMEOUT = "analysis_timeout"
     RUN_COMPLETED = "run_completed"
     HEARTBEAT = "heartbeat"
     # Adversarial debate events
@@ -188,6 +189,44 @@ class EventEmitter:
         return self._emit(
             EventType.ANALYSIS_COMPLETE,
             payload={"ticker": ticker, "analysis": analysis},
+        )
+
+    def analysis_timeout(
+        self,
+        *,
+        completed_tickers: list[str],
+        incomplete_tickers: list[str],
+        stage: str | None,
+        elapsed_seconds: float,
+        retry_after_seconds: int,
+    ) -> StreamEvent:
+        """Emit a structured timeout event distinct from generic errors.
+
+        Unlike `error(recoverable=False)`, this signals a *partial* outcome:
+        some tickers may have already completed and are safe to keep, while
+        `incomplete_tickers` is what a retry should target (avoids re-spending
+        rate-limit budget on tickers that already finished).
+        """
+        return self._emit(
+            EventType.ANALYSIS_TIMEOUT,
+            node=stage,
+            payload={
+                "completed_tickers": completed_tickers,
+                "incomplete_tickers": incomplete_tickers,
+                "stage": stage,
+                "elapsed_seconds": round(elapsed_seconds, 1),
+                "retry_after_seconds": retry_after_seconds,
+                "message": (
+                    f"Analysis timed out after {elapsed_seconds:.0f}s"
+                    + (f" while in {stage}" if stage else "")
+                    + (
+                        f". {len(completed_tickers)} of "
+                        f"{len(completed_tickers) + len(incomplete_tickers)} tickers completed."
+                        if (completed_tickers or incomplete_tickers)
+                        else "."
+                    )
+                ),
+            },
         )
 
     def run_completed(

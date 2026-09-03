@@ -4,6 +4,7 @@ import { useSaveStatusStore } from '../stores/saveStatusStore'
 import { API_BASE, authParam } from '../api/config'
 import type {
   AnalysisCompletePayload,
+  AnalysisTimeoutPayload,
   DebateTurnPayload,
   DebateVerdictPayload,
   PeerComparisonPayload,
@@ -33,6 +34,7 @@ export function useAnalysisStream() {
     setAnalysis,
     setComplete,
     setError,
+    setTimeout: setAnalysisTimeout,
     addDebateTurn,
     setDebateVerdict,
     setPeerComparison,
@@ -149,6 +151,20 @@ export function useAnalysisStream() {
             disconnect()
           }
 
+          // Timeout: partial outcome. Keep any completed ticker results
+          // visible; surface which tickers still need a retry instead of
+          // wiping the whole run like a hard error would.
+          if (event.type === 'analysis_timeout') {
+            const payload = event.payload as unknown as AnalysisTimeoutPayload
+            setAnalysisTimeout(payload)
+            if (payload.completed_tickers.length > 0) {
+              setSaved()
+            } else {
+              setFailed(payload.message)
+            }
+            disconnect()
+          }
+
           // Error handling
           if (event.type === 'error') {
             const msg = (event.payload as { message?: string }).message || 'Unknown error'
@@ -176,6 +192,7 @@ export function useAnalysisStream() {
         'warning',
         'error',
         'analysis_complete',
+        'analysis_timeout',
         'run_completed',
         'heartbeat',
         'debate_started',
@@ -220,6 +237,7 @@ export function useAnalysisStream() {
       setAnalysis,
       setComplete,
       setError,
+      setAnalysisTimeout,
       addDebateTurn,
       setDebateVerdict,
       setPeerComparison,
