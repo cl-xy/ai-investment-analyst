@@ -2,10 +2,13 @@ name: Daily Digest
 
 on:
   schedule:
-    # 13:00 UTC = 9:00 AM ET (8:00 AM during EDT... note: fixed UTC cron does
-    # not shift with US daylight saving; acceptable drift of ~1h for a demo-
-    # scale digest, not worth the complexity of a DST-aware check here).
-    - cron: "0 13 * * *"
+    # Runs hourly on the half-hour; the schedule_check step below gates the
+    # actual trigger to only fire at 4:30 PM ET (30 min after market close),
+    # DST-aware via `TZ=America/New_York`. 16:30 ET = 20:30 UTC during EDT,
+    # 21:30 UTC during EST — a fixed UTC cron can't express that shift, so
+    # we check local time on every hourly tick instead (same pattern as
+    # scheduled-portfolio-refresh.yml).
+    - cron: "30 * * * *"
   workflow_dispatch:
 
 permissions: {}
@@ -17,8 +20,26 @@ concurrency:
 jobs:
   send-digest:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
+      - name: Check ET schedule window
+        id: schedule_check
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "run_now=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          current_et=$(TZ=America/New_York date '+%H:%M')
+          if [[ "$current_et" == "16:30" ]]; then
+            echo "run_now=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_now=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Trigger backend daily digest
+        if: steps.schedule_check.outputs.run_now == 'true'
         env:
           DAILY_DIGEST_URL: ${{ secrets.DAILY_DIGEST_URL }}
           SCHEDULER_SECRET_TOKEN: ${{ secrets.SCHEDULER_SECRET_TOKEN }}
