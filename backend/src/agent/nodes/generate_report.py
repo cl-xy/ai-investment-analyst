@@ -45,7 +45,7 @@ async def generate_report_node(state: InvestmentAnalystState) -> dict:
                 HumanMessage(content=prompt),
             ],
             temperature=0,
-            max_tokens=8192,
+            max_tokens=4096,
             request_timeout=120,
             json_mode=False,
         )

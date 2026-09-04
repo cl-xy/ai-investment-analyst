@@ -130,7 +130,7 @@ async def _invoke_with_retry(messages: list) -> object:
     Uses higher temperature for diverse debate perspectives.
     """
     return await invoke_with_fallback(
-        messages, temperature=0.5, max_tokens=8192, request_timeout=120
+        messages, temperature=0.5, max_tokens=4096, request_timeout=120
     )
 
 
