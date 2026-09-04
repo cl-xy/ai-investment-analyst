@@ -7,6 +7,7 @@ Results are cached for 24h to avoid repeated resolution overhead.
 """
 
 import logging
+import queue
 import threading
 
 import yfinance as yf
@@ -16,6 +17,35 @@ from .cache import _symbol_cache
 log = logging.getLogger(__name__)
 
 _cache_lock = threading.Lock()
+
+# yf.Search() has no session/timeout parameter (unlike yf.Lookup), so it can't
+# inherit the timeout-enforcing session used elsewhere in this package. Run it
+# in a dedicated daemon thread with a hard wall-clock timeout: if Search hangs,
+# this call gives up promptly and the abandoned thread can't block interpreter
+# shutdown or occupy the shared market_server _EXECUTOR pool.
+_SEARCH_TIMEOUT = 10.0  # seconds
+
+
+def _search_quotes(key: str, max_results: int, result_q: "queue.Queue") -> None:
+    try:
+        search = yf.Search(key, max_results=max_results)
+        result_q.put(("ok", search.quotes if search.quotes else []))
+    except Exception as e:
+        result_q.put(("error", e))
+
+
+def _search_with_timeout(key: str, max_results: int = 5, timeout: float = _SEARCH_TIMEOUT) -> list:
+    """Run yf.Search with a hard timeout. Raises TimeoutError or the search's own exception."""
+    result_q: "queue.Queue" = queue.Queue(maxsize=1)
+    thread = threading.Thread(target=_search_quotes, args=(key, max_results, result_q), daemon=True)
+    thread.start()
+    try:
+        status, payload = result_q.get(timeout=timeout)
+    except queue.Empty:
+        raise TimeoutError(f"yf.Search({key!r}) exceeded {timeout}s timeout") from None
+    if status == "error":
+        raise payload
+    return payload
 
 
 def resolve_symbol(bare_ticker: str) -> str | None:
@@ -39,8 +69,7 @@ def resolve_symbol(bare_ticker: str) -> str | None:
         return None
 
     try:
-        search = yf.Search(key, max_results=5)
-        quotes = search.quotes if search.quotes else []
+        quotes = _search_with_timeout(key, max_results=5)
     except Exception as e:
         log.warning("symbol_search_failed bare=%s error=%s", key, e)
         return None
