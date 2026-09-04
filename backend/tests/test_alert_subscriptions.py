@@ -5,6 +5,7 @@ Tests for watchlist-based alert subscriptions (backend/src/alerts/subscriptions.
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
 from src.alerts.subscriptions import (
     DEFAULT_TRIGGER_TYPES,
     get_active_subscription_tickers,

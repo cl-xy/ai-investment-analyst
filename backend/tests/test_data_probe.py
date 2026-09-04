@@ -6,6 +6,7 @@ import asyncio
 from unittest.mock import patch
 
 import pytest
+
 from src.alerts.data_probe import (
     _bullish_ratio_to_sentiment,
     _probe_cache,

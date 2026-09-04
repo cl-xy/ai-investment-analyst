@@ -3,7 +3,7 @@ Tests for Task 2: full-fidelity payload capture for promoted evaluation cases.
 
 Two layers tested:
 1. src/evidence/registry.py's RunEvidence.register full_payload capture
-   (pure, no DB) — size ceiling and canonical-hash equivalence.
+   (pure, no DB) - size ceiling and canonical-hash equivalence.
 2. src/eval_flywheel/capture.py's DB-touching link/status logic (mocked DB,
    following the AsyncMock/patch convention used in test_cache.py).
 """
@@ -11,6 +11,7 @@ Two layers tested:
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
 from src.eval_flywheel.capture import capture_case_artifacts, load_case_tool_payloads
 from src.evidence.registry import MAX_FULL_PAYLOAD_BYTES, RunEvidence, compute_content_hash
 
@@ -55,7 +56,7 @@ class TestFullPayloadCaptureAtWriteTime:
         are yfinance/news/SEC/sentiment tool responses only. This asserts
         the registry itself performs no filtering that would need to exist
         if secrets were ever passed through (it doesn't strip fields), so
-        the guarantee must come from call sites — verify none of the known
+        the guarantee must come from call sites - verify none of the known
         call sites pass request/auth/env data by checking the fixed set of
         providers accepted."""
         from src.agent.debate_schemas import VALID_PROVIDERS

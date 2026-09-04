@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage
+
 from src.alerts.drift_judge import DriftJudgment, judge_drift
 from src.alerts.last_analysis import LastAnalysisSnapshot
 from src.alerts.triggers.events import TriggerEvent

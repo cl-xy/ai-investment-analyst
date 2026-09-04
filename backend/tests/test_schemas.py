@@ -5,6 +5,7 @@ Validates that model outputs conform to the expected structure.
 
 import pytest
 from pydantic import ValidationError
+
 from src.agent.structured_output import AnalysisOutput, Citation, RouterOutput
 
 

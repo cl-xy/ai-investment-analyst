@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+
 from src.api.routes.scheduled import _ticker_due_for_earnings_refresh
 from src.config import settings
 

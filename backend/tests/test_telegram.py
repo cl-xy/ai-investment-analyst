@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
 from src.alerts.composer import Alert
 from src.alerts.telegram import (
     _dispatch_allowed,

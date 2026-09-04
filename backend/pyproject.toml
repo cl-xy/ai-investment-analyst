@@ -73,6 +73,14 @@ line-length = 100
 select = ["E", "F", "I", "W"]
 ignore = ["E402", "E501"]
 
+[tool.ruff.lint.isort]
+# Explicit, so `src.*` is grouped as first-party regardless of the cwd ruff
+# is invoked from (pre-commit always runs from the repo root; CI runs from
+# backend/ via working-directory - without this, the two disagree on
+# whether `src.*` is first- or third-party and fight over the same blank
+# line on every run).
+known-first-party = ["src"]
+
 [tool.mypy]
 python_version = "3.12"
 ignore_missing_imports = true

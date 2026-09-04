@@ -4,6 +4,7 @@ import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
 from src.agent.nodes.peer_compare import peer_compare_node
 
 

@@ -8,6 +8,7 @@ malformed responses) since there's no auth failure mode to test instead.
 from unittest.mock import MagicMock, patch
 
 import httpx
+
 from src.mcp_servers.sentiment_server.sources import stocktwits
 
 

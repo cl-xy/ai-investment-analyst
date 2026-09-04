@@ -13,6 +13,7 @@ Two layers:
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
 from src.eval_flywheel.promotion import (
     promote_resolved_prediction,
     promote_resolved_predictions_batch,

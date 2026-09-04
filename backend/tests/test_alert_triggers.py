@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
 from src.alerts.data_probe import ProbeResult
 from src.alerts.last_analysis import LastAnalysisSnapshot
 from src.alerts.triggers.peer_trigger import check_peer_signal_trigger

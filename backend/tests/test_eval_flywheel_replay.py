@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage
+
 from src.eval_flywheel.replay import (
     _reconstruct_state,
     replay_case,
