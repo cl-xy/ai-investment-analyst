@@ -41,7 +41,13 @@ HEARTBEAT_INTERVAL = 15  # seconds
 EXECUTION_TIMEOUT_PER_TICKER = (
     180  # seconds per ticker for debate (free tier LLMs: 30-73s x3 calls + report)
 )
-EXECUTION_TIMEOUT_BASE = 30  # base overhead (graph setup, data fetch)
+EXECUTION_TIMEOUT_BASE = 75  # base overhead (graph setup, data fetch, cold-start margin)
+# Raised from 30s: Fly.io machines scale to zero (min_machines_running=0) when idle.
+# Observed cold start (proxy retry loop + Firecracker boot + app startup: DB pool,
+# MCP tools_ready) takes ~20-30s before the request even reaches the LangGraph.
+# That ate directly into the old 30s base budget, leaving ~0s margin before the
+# debate node's own 180s/ticker budget started, causing spurious timeouts on the
+# first request after an idle period.
 
 # Module-level event store for reconnection (last 5 minutes)
 _recent_runs: dict[str, tuple[float, list[str]]] = {}  # run_id -> (timestamp, [sse_strings])
