@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-
 from src.alerts.pipeline import PipelineRunSummary
 from src.config import settings
 
@@ -126,7 +125,6 @@ class TestRefreshPortfolioAlertHook:
     alert evaluation on success, without blocking its own response."""
 
     def test_successful_refresh_schedules_background_evaluation(self, client):
-        import asyncio
         from datetime import datetime, timezone
 
         from src.api.schemas import AnalyzeResponse
@@ -148,9 +146,7 @@ class TestRefreshPortfolioAlertHook:
                     "src.api.routes.scheduled.analyze_tickers",
                     new=AsyncMock(return_value=mock_response),
                 ):
-                    with patch(
-                        "src.api.routes.scheduled.asyncio.create_task"
-                    ) as mock_create_task:
+                    with patch("src.api.routes.scheduled.asyncio.create_task") as mock_create_task:
                         response = client.post(
                             "/api/scheduled/refresh-portfolio",
                             headers={"x-scheduler-token": "correct-token"},

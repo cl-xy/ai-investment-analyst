@@ -107,7 +107,7 @@ async def test_fetch_data_populates_all_fields(mock_use, mock_check, mock_cache,
 async def test_fetch_data_missing_earnings_tool_is_not_a_data_gap(
     mock_use, mock_check, mock_cache, base_state
 ):
-    """Most tickers have no confirmed upcoming earnings date — that's not
+    """Most tickers have no confirmed upcoming earnings date - that's not
     a failure worth surfacing to the user as a data gap."""
     mock_cache.get_or_fetch = AsyncMock(side_effect=_mock_cache_passthrough())
 
@@ -135,7 +135,7 @@ async def test_fetch_data_sentiment_budget_exhausted_is_a_data_gap(
     mock_check, mock_cache, base_state
 ):
     """Unlike earnings, a missing sentiment result (including from budget
-    exhaustion) IS surfaced as a data gap — the plan calls this out
+    exhaustion) IS surfaced as a data gap - the plan calls this out
     explicitly since it's meant to degrade the same way other providers do."""
 
     async def _passthrough_except_stocktwits(provider, tool, ticker, fetch_fn):
@@ -172,7 +172,9 @@ async def test_fetch_data_sentiment_budget_exhausted_is_a_data_gap(
 @patch("src.agent.nodes.fetch_data.cache_manager")
 @patch("src.cache.budget.check_budget", new_callable=AsyncMock, return_value=True)
 @patch("src.cache.budget.use_budget", new_callable=AsyncMock, return_value=True)
-async def test_fetch_data_handles_tool_errors_gracefully(mock_use, mock_check, mock_cache, base_state):
+async def test_fetch_data_handles_tool_errors_gracefully(
+    mock_use, mock_check, mock_cache, base_state
+):
     # Make cache passthrough that will hit the failing tools
     async def _failing_passthrough(provider, tool, ticker, fetch_fn):
         try:
@@ -197,7 +199,7 @@ async def test_fetch_data_handles_tool_errors_gracefully(mock_use, mock_check, m
 
     result = await fetch_data_node(base_state, mcp_tools=mcp_tools)
 
-    # Should not raise — errors are captured
+    # Should not raise - errors are captured
     assert result["raw_news"]["NVDA"] == []
     assert isinstance(result["raw_prices"]["NVDA"]["quote"], dict)
     assert result["raw_filings"]["NVDA"] == ""
@@ -217,7 +219,9 @@ async def test_fetch_data_returns_empty_for_no_tickers(base_state):
 @patch("src.agent.nodes.fetch_data.cache_manager")
 @patch("src.cache.budget.check_budget", new_callable=AsyncMock, return_value=True)
 @patch("src.cache.budget.use_budget", new_callable=AsyncMock, return_value=True)
-async def test_fetch_data_fetches_multiple_tickers_in_parallel(mock_use, mock_check, mock_cache, base_state):
+async def test_fetch_data_fetches_multiple_tickers_in_parallel(
+    mock_use, mock_check, mock_cache, base_state
+):
     mock_cache.get_or_fetch = AsyncMock(side_effect=_mock_cache_passthrough())
 
     from src.agent.nodes.fetch_data import fetch_data_node

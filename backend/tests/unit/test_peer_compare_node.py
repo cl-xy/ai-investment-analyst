@@ -4,7 +4,6 @@ import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from src.agent.nodes.peer_compare import peer_compare_node
 
 
@@ -39,7 +38,9 @@ async def test_skips_when_sector_unknown():
 
 @pytest.mark.asyncio
 async def test_skips_when_sector_has_no_mapped_peers():
-    state = _state(["ZZZZ"], {"ZZZZ": {"ticker": "ZZZZ", "fundamentals": {"sector": "Not A Real Sector"}}})
+    state = _state(
+        ["ZZZZ"], {"ZZZZ": {"ticker": "ZZZZ", "fundamentals": {"sector": "Not A Real Sector"}}}
+    )
     result = await peer_compare_node(state)
     assert result == {}
 
@@ -59,9 +60,7 @@ async def test_uses_recent_cached_analysis_when_available():
     async def _fetchrow_side_effect(query, ticker, *rest):
         return cached_row if ticker == "MSFT" else None
 
-    with patch(
-        "src.agent.nodes.peer_compare.fetchrow", new_callable=AsyncMock
-    ) as mock_fetchrow:
+    with patch("src.agent.nodes.peer_compare.fetchrow", new_callable=AsyncMock) as mock_fetchrow:
         mock_fetchrow.side_effect = _fetchrow_side_effect
         result = await peer_compare_node(state)
 
@@ -86,9 +85,7 @@ async def test_falls_back_to_fundamentals_only_when_no_cache(monkeypatch):
         def _fake_get_fundamentals(ticker):
             return {"revenue_growth_yoy": 0.1, "profit_margin": 0.2, "sector": "Technology"}
 
-        monkeypatch.setattr(
-            "src.agent.nodes.peer_compare.yf_client.get_quote", _fake_get_quote
-        )
+        monkeypatch.setattr("src.agent.nodes.peer_compare.yf_client.get_quote", _fake_get_quote)
         monkeypatch.setattr(
             "src.agent.nodes.peer_compare.yf_client.get_fundamentals", _fake_get_fundamentals
         )
@@ -130,9 +127,10 @@ async def test_never_calls_alpha_vantage_module():
 
     with patch("src.agent.nodes.peer_compare.fetchrow", new_callable=AsyncMock) as mock_fetchrow:
         mock_fetchrow.return_value = None
-        with patch.object(av, "get_quote") as mock_av_quote, patch.object(
-            av, "get_fundamentals"
-        ) as mock_av_fundamentals:
+        with (
+            patch.object(av, "get_quote") as mock_av_quote,
+            patch.object(av, "get_fundamentals") as mock_av_fundamentals,
+        ):
             await peer_compare_node(state)
 
     mock_av_quote.assert_not_called()

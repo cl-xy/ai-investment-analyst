@@ -4,7 +4,6 @@ Tests for the heuristic drift scorer (Tier 1 of the alert pipeline).
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
-
 from src.alerts.drift_scorer import (
     DEFAULT_DRIFT_THRESHOLD,
     WEIGHTS,

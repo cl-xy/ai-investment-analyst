@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-
 from src.api.routes.scheduled import _ticker_due_for_earnings_refresh
 from src.config import settings
 
@@ -24,35 +23,27 @@ def client():
 class TestTickerDueForEarningsRefresh:
     @pytest.mark.asyncio
     async def test_not_due_when_no_analysis_exists(self):
-        with patch(
-            "src.api.routes.scheduled.fetchrow", new_callable=AsyncMock
-        ) as mock_fetchrow:
+        with patch("src.api.routes.scheduled.fetchrow", new_callable=AsyncMock) as mock_fetchrow:
             mock_fetchrow.return_value = None
             assert await _ticker_due_for_earnings_refresh("NVDA") is False
 
     @pytest.mark.asyncio
     async def test_not_due_when_no_earnings_date_recorded(self):
-        with patch(
-            "src.api.routes.scheduled.fetchrow", new_callable=AsyncMock
-        ) as mock_fetchrow:
+        with patch("src.api.routes.scheduled.fetchrow", new_callable=AsyncMock) as mock_fetchrow:
             mock_fetchrow.return_value = {"earnings": {}}
             assert await _ticker_due_for_earnings_refresh("NVDA") is False
 
     @pytest.mark.asyncio
     async def test_not_due_when_earnings_date_is_in_the_future(self):
         future = date.today() + timedelta(days=10)
-        with patch(
-            "src.api.routes.scheduled.fetchrow", new_callable=AsyncMock
-        ) as mock_fetchrow:
+        with patch("src.api.routes.scheduled.fetchrow", new_callable=AsyncMock) as mock_fetchrow:
             mock_fetchrow.return_value = {"earnings": {"next_earnings_date": str(future)}}
             assert await _ticker_due_for_earnings_refresh("NVDA") is False
 
     @pytest.mark.asyncio
     async def test_due_when_earnings_date_has_passed(self):
         past = date.today() - timedelta(days=2)
-        with patch(
-            "src.api.routes.scheduled.fetchrow", new_callable=AsyncMock
-        ) as mock_fetchrow:
+        with patch("src.api.routes.scheduled.fetchrow", new_callable=AsyncMock) as mock_fetchrow:
             mock_fetchrow.return_value = {"earnings": {"next_earnings_date": str(past)}}
             assert await _ticker_due_for_earnings_refresh("NVDA") is True
 
@@ -60,19 +51,13 @@ class TestTickerDueForEarningsRefresh:
     async def test_handles_json_string_earnings_column(self):
         """asyncpg may return JSONB as a raw string depending on codec config."""
         past = date.today() - timedelta(days=2)
-        with patch(
-            "src.api.routes.scheduled.fetchrow", new_callable=AsyncMock
-        ) as mock_fetchrow:
-            mock_fetchrow.return_value = {
-                "earnings": f'{{"next_earnings_date": "{past}"}}'
-            }
+        with patch("src.api.routes.scheduled.fetchrow", new_callable=AsyncMock) as mock_fetchrow:
+            mock_fetchrow.return_value = {"earnings": f'{{"next_earnings_date": "{past}"}}'}
             assert await _ticker_due_for_earnings_refresh("NVDA") is True
 
     @pytest.mark.asyncio
     async def test_not_due_on_malformed_date_string(self):
-        with patch(
-            "src.api.routes.scheduled.fetchrow", new_callable=AsyncMock
-        ) as mock_fetchrow:
+        with patch("src.api.routes.scheduled.fetchrow", new_callable=AsyncMock) as mock_fetchrow:
             mock_fetchrow.return_value = {"earnings": {"next_earnings_date": "not-a-date"}}
             assert await _ticker_due_for_earnings_refresh("NVDA") is False
 

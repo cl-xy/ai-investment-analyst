@@ -29,7 +29,7 @@ repos:
   # Layer 3: Python (backend)
   # ============================================================
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.5.0
+    rev: v0.16.6  # keep in sync with `pip install ruff` (unpinned) in .github/workflows/ci.yml
     hooks:
       - id: ruff
         args: ["--fix", "--config", "backend/pyproject.toml"]

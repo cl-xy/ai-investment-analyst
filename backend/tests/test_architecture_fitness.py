@@ -112,9 +112,8 @@ class TestNoDirectLLMInRoutes:
                         if module_root in self.BANNED_IMPORTS:
                             violations.append(f"{path.name}: from {node.module} import ...")
 
-        assert not violations, (
-            "Routes should not import LLM libraries directly:\n"
-            + "\n".join(f"  - {v}" for v in violations)
+        assert not violations, "Routes should not import LLM libraries directly:\n" + "\n".join(
+            f"  - {v}" for v in violations
         )
 
 
@@ -148,13 +147,11 @@ class TestNoBlockingCallsInAsync:
                     call_name = self._get_call_name(child)
                     if call_name in self.BLOCKING_CALLS:
                         violations.append(
-                            f"{path.relative_to(BACKEND_SRC)}:{node.name} "
-                            f"calls {call_name}"
+                            f"{path.relative_to(BACKEND_SRC)}:{node.name} calls {call_name}"
                         )
 
-        assert not violations, (
-            "Blocking calls found in async functions:\n"
-            + "\n".join(f"  - {v}" for v in violations)
+        assert not violations, "Blocking calls found in async functions:\n" + "\n".join(
+            f"  - {v}" for v in violations
         )
 
     @staticmethod
@@ -196,9 +193,8 @@ class TestAllRoutesHaveDocstrings:
                         if not docstring:
                             violations.append(f"{path.name}:{node.name}")
 
-        assert not violations, (
-            "Route handlers missing docstrings:\n"
-            + "\n".join(f"  - {v}" for v in violations)
+        assert not violations, "Route handlers missing docstrings:\n" + "\n".join(
+            f"  - {v}" for v in violations
         )
 
 
@@ -245,10 +241,7 @@ class TestNoBareExceptions:
 
                     if isinstance(child, ast.Call):
                         call_name = self._get_full_call_name(child)
-                        if any(
-                            prefix in call_name
-                            for prefix in ("log.", "logger.", "logging.")
-                        ):
+                        if any(prefix in call_name for prefix in ("log.", "logger.", "logging.")):
                             has_handling = True
                             break
 
@@ -263,13 +256,11 @@ class TestNoBareExceptions:
 
                 if not has_handling:
                     violations.append(
-                        f"{rel}:{node.lineno} "
-                        f"bare except without logging or re-raise"
+                        f"{rel}:{node.lineno} bare except without logging or re-raise"
                     )
 
-        assert not violations, (
-            "Bare exception handlers without logging/re-raise:\n"
-            + "\n".join(f"  - {v}" for v in violations)
+        assert not violations, "Bare exception handlers without logging/re-raise:\n" + "\n".join(
+            f"  - {v}" for v in violations
         )
 
     @staticmethod
@@ -279,9 +270,7 @@ class TestNoBareExceptions:
         if isinstance(func, ast.Attribute):
             if isinstance(func.value, ast.Name):
                 return f"{func.value.id}.{func.attr}"
-            elif isinstance(func.value, ast.Attribute) and isinstance(
-                func.value.value, ast.Name
-            ):
+            elif isinstance(func.value, ast.Attribute) and isinstance(func.value.value, ast.Name):
                 return f"{func.value.value.id}.{func.value.attr}.{func.attr}"
         elif isinstance(func, ast.Name):
             return func.id
@@ -310,8 +299,7 @@ class TestPydanticModelsHaveExamples:
 
             # Check if it's a Pydantic model (inherits from BaseModel)
             is_model = any(
-                (isinstance(base, ast.Name) and base.id == "BaseModel")
-                for base in node.bases
+                (isinstance(base, ast.Name) and base.id == "BaseModel") for base in node.bases
             )
             if not is_model:
                 continue
@@ -337,9 +325,8 @@ class TestPydanticModelsHaveExamples:
             if field_count >= self.MIN_FIELDS_FOR_ENFORCEMENT and not has_field_metadata:
                 violations.append(f"{node.name}: no Field(description=...) on any field")
 
-        assert not violations, (
-            "Pydantic models missing field descriptions:\n"
-            + "\n".join(f"  - {v}" for v in violations)
+        assert not violations, "Pydantic models missing field descriptions:\n" + "\n".join(
+            f"  - {v}" for v in violations
         )
 
 
@@ -373,9 +360,8 @@ class TestNoHardcodedApiKeys:
                             )
                             break
 
-        assert not violations, (
-            "Potential hardcoded API keys found:\n"
-            + "\n".join(f"  - {v}" for v in violations)
+        assert not violations, "Potential hardcoded API keys found:\n" + "\n".join(
+            f"  - {v}" for v in violations
         )
 
 
@@ -419,6 +405,4 @@ class TestEventTypesAreExhaustive:
 
         # Every defined EventType should be emitted somewhere
         missing = event_types - emitted_types
-        assert not missing, (
-            f"EventType members not emitted by EventEmitter: {sorted(missing)}"
-        )
+        assert not missing, f"EventType members not emitted by EventEmitter: {sorted(missing)}"

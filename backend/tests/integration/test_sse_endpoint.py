@@ -222,9 +222,7 @@ class TestClientDisconnectCancelsTask:
 
     @patch("src.api.routes.analyze_stream.get_checkpointer")
     @patch("src.api.routes.analyze_stream.build_graph")
-    def test_client_disconnect_cancels_task(
-        self, mock_build_graph, mock_checkpointer, client
-    ):
+    def test_client_disconnect_cancels_task(self, mock_build_graph, mock_checkpointer, client):
         """Simulate client disconnect, verify the agent task gets cancelled."""
         # Use a slow stream so we can disconnect mid-stream
         _setup_mocks(mock_build_graph, mock_checkpointer, stream_delay=0.3)
@@ -245,9 +243,7 @@ class TestStreamTimeoutEmitsErrorEvent:
     @patch("src.api.routes.analyze_stream.EXECUTION_TIMEOUT_PER_TICKER", 0)
     @patch("src.api.routes.analyze_stream.get_checkpointer")
     @patch("src.api.routes.analyze_stream.build_graph")
-    def test_stream_timeout_emits_error_event(
-        self, mock_build_graph, mock_checkpointer, client
-    ):
+    def test_stream_timeout_emits_error_event(self, mock_build_graph, mock_checkpointer, client):
         """Mock a very slow tool, verify timeout event and clean termination."""
         # Each event takes 0.3s with 8 events = 2.4s total, but timeout is 1s
         _setup_mocks(mock_build_graph, mock_checkpointer, stream_delay=0.3)
@@ -292,9 +288,7 @@ class TestStreamTimeoutReportsIncompleteTickers:
         so the client can retry only MSFT instead of re-running both."""
         _setup_mocks(mock_build_graph, mock_checkpointer, stream_delay=0.3)
 
-        with client.stream(
-            "GET", "/api/analyze/stream?tickers=AAPL,MSFT"
-        ) as response:
+        with client.stream("GET", "/api/analyze/stream?tickers=AAPL,MSFT") as response:
             events = _parse_sse_events(response)
 
         timeout_events = [e for e in events if e["type"] == "analysis_timeout"]

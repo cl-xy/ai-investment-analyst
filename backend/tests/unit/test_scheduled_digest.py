@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-
 from src.config import settings
 
 
@@ -42,12 +41,8 @@ class TestSendDigestAuth:
 class TestSendDigestSuccess:
     def test_returns_skipped_when_no_monitored_tickers(self, client):
         with patch.object(settings, "scheduler_secret_token", "correct-token"):
-            with patch(
-                "src.alerts.pipeline.get_monitored_tickers", new=AsyncMock(return_value=[])
-            ):
-                with patch(
-                    "src.alerts.composer.get_recent_alerts", new=AsyncMock(return_value=[])
-                ):
+            with patch("src.alerts.pipeline.get_monitored_tickers", new=AsyncMock(return_value=[])):
+                with patch("src.alerts.composer.get_recent_alerts", new=AsyncMock(return_value=[])):
                     response = client.post(
                         "/api/scheduled/send-digest",
                         headers={"x-scheduler-token": "correct-token"},
@@ -59,8 +54,9 @@ class TestSendDigestSuccess:
         assert data["tickers_included"] == 0
 
     def test_returns_success_and_dispatches_to_active_chats(self, client):
-        from src.alerts.last_analysis import LastAnalysisSnapshot
         from datetime import datetime, timezone
+
+        from src.alerts.last_analysis import LastAnalysisSnapshot
 
         snapshot = LastAnalysisSnapshot(
             ticker="NVDA",
@@ -84,9 +80,7 @@ class TestSendDigestSuccess:
                     "src.alerts.last_analysis.get_last_analysis",
                     new=AsyncMock(return_value=snapshot),
                 ),
-                patch(
-                    "src.alerts.composer.get_recent_alerts", new=AsyncMock(return_value=[])
-                ),
+                patch("src.alerts.composer.get_recent_alerts", new=AsyncMock(return_value=[])),
                 patch(
                     "src.alerts.telegram.get_active_chat_ids",
                     new=AsyncMock(return_value=[111, 222]),

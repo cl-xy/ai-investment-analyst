@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from src.alerts.composer import compose_alert, get_alert, mark_alert_dispatched, persist_alert
 from src.alerts.drift_judge import DriftJudgment
 from src.alerts.drift_scorer import score_drift

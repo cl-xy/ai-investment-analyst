@@ -8,7 +8,6 @@ malformed responses) since there's no auth failure mode to test instead.
 from unittest.mock import MagicMock, patch
 
 import httpx
-
 from src.mcp_servers.sentiment_server.sources import stocktwits
 
 
@@ -30,7 +29,9 @@ def _message(sentiment=None, body="Looking strong"):
 
 def test_bullish_heavy_stream():
     messages = [_message("Bullish") for _ in range(8)] + [_message("Bearish") for _ in range(2)]
-    with patch.object(stocktwits._client, "get", return_value=_mock_response({"messages": messages})):
+    with patch.object(
+        stocktwits._client, "get", return_value=_mock_response({"messages": messages})
+    ):
         result = stocktwits.get_ticker_sentiment("NVDA")
 
     assert result["message_count"] == 10
@@ -42,7 +43,9 @@ def test_bullish_heavy_stream():
 
 def test_bearish_heavy_stream():
     messages = [_message("Bearish") for _ in range(7)] + [_message("Bullish") for _ in range(1)]
-    with patch.object(stocktwits._client, "get", return_value=_mock_response({"messages": messages})):
+    with patch.object(
+        stocktwits._client, "get", return_value=_mock_response({"messages": messages})
+    ):
         result = stocktwits.get_ticker_sentiment("GME")
 
     assert result["bearish_count"] == 7
@@ -85,7 +88,9 @@ def test_network_error_returns_empty_dict():
 
 def test_unlabeled_messages_counted_separately():
     messages = [_message(None) for _ in range(3)] + [_message("Bullish")]
-    with patch.object(stocktwits._client, "get", return_value=_mock_response({"messages": messages})):
+    with patch.object(
+        stocktwits._client, "get", return_value=_mock_response({"messages": messages})
+    ):
         result = stocktwits.get_ticker_sentiment("AAPL")
 
     assert result["unlabeled_count"] == 3
@@ -94,7 +99,9 @@ def test_unlabeled_messages_counted_separately():
 
 def test_all_unlabeled_gives_none_bullish_ratio():
     messages = [_message(None) for _ in range(5)]
-    with patch.object(stocktwits._client, "get", return_value=_mock_response({"messages": messages})):
+    with patch.object(
+        stocktwits._client, "get", return_value=_mock_response({"messages": messages})
+    ):
         result = stocktwits.get_ticker_sentiment("AAPL")
 
     assert result["bullish_ratio"] is None

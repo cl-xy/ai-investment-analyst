@@ -528,9 +528,7 @@ async def main():
 
     try:
         # Idempotent: clear previous seed data
-        deleted = await conn.execute(
-            "DELETE FROM predictions WHERE created_at < '2026-07-01'"
-        )
+        deleted = await conn.execute("DELETE FROM predictions WHERE created_at < '2026-07-01'")
         print(f"Cleared previous seed data: {deleted}")
 
         # Insert predictions
@@ -589,7 +587,7 @@ async def main():
 
         total = sum(row["cnt"] for row in rows)
         correct = next((row["cnt"] for row in rows if row["outcome"] == "correct"), 0)
-        print(f"\nOverall accuracy: {correct}/{total} = {correct/total:.1%}")
+        print(f"\nOverall accuracy: {correct}/{total} = {correct / total:.1%}")
 
     finally:
         await conn.close()

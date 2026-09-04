@@ -6,7 +6,6 @@ import asyncio
 from unittest.mock import patch
 
 import pytest
-
 from src.alerts.data_probe import (
     _bullish_ratio_to_sentiment,
     _probe_cache,
@@ -178,8 +177,9 @@ class TestProbeTickers:
         async def _bounded_probe(ticker, *, force_refresh=False):
             if ticker == "BAD":
                 raise RuntimeError("simulated failure")
-            from src.alerts.data_probe import ProbeResult
             import time
+
+            from src.alerts.data_probe import ProbeResult
 
             return ProbeResult(
                 ticker=ticker,

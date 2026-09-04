@@ -127,7 +127,11 @@ class TestSubscriptions:
     def test_list_subscriptions(self, client):
         from src.alerts.subscriptions import AlertSubscription
 
-        subs = [AlertSubscription(ticker="AAPL", source="watchlist", trigger_types=["price"], active=True)]
+        subs = [
+            AlertSubscription(
+                ticker="AAPL", source="watchlist", trigger_types=["price"], active=True
+            )
+        ]
         with patch("src.api.routes.alerts.list_subscriptions", new=AsyncMock(return_value=subs)):
             response = client.get("/api/alerts/subscriptions")
         assert response.status_code == 200

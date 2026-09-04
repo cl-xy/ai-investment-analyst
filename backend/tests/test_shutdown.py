@@ -3,7 +3,6 @@
 import asyncio
 
 import pytest
-
 from src.api.shutdown import ShutdownCoordinator
 
 

@@ -14,7 +14,9 @@ def _state(raw_earnings=None, raw_prices=None, raw_sentiment=None):
 
 
 def test_build_data_context_includes_earnings_when_present():
-    state = _state(raw_earnings={"NVDA": {"next_earnings_date": "2026-08-15", "days_until_earnings": 17}})
+    state = _state(
+        raw_earnings={"NVDA": {"next_earnings_date": "2026-08-15", "days_until_earnings": 17}}
+    )
     ctx = _build_data_context("NVDA", state)
 
     assert "2026-08-15" in ctx["earnings"]
@@ -47,7 +49,9 @@ def test_build_data_context_earnings_excluded_from_prompt_format_kwargs():
 
 
 def test_build_data_context_includes_sentiment_when_present():
-    state = _state(raw_sentiment={"NVDA": {"message_count": 10, "bullish_count": 8, "bearish_count": 2}})
+    state = _state(
+        raw_sentiment={"NVDA": {"message_count": 10, "bullish_count": 8, "bearish_count": 2}}
+    )
     ctx = _build_data_context("NVDA", state)
 
     assert "Messages analyzed: 10" in ctx["sentiment_text"]

@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from src.alerts.data_probe import ProbeResult
 from src.alerts.drift_judge import DriftJudgment, JudgeResult
 from src.alerts.last_analysis import LastAnalysisSnapshot
@@ -236,8 +235,8 @@ class TestEvaluateAllMonitored:
 
     @pytest.mark.asyncio
     async def test_aggregates_outcomes_across_tickers(self):
-        from src.alerts.pipeline import EvaluationOutcome
         from src.alerts.composer import Alert
+        from src.alerts.pipeline import EvaluationOutcome
 
         fired_alert = Alert(
             id="a",
@@ -256,7 +255,11 @@ class TestEvaluateAllMonitored:
         async def _fake_evaluate(ticker, *, correlation_id=None):
             if ticker == "NVDA":
                 return EvaluationOutcome(
-                    ticker=ticker, evaluated=True, drift_score=0.6, llm_invoked=True, alert=fired_alert
+                    ticker=ticker,
+                    evaluated=True,
+                    drift_score=0.6,
+                    llm_invoked=True,
+                    alert=fired_alert,
                 )
             return EvaluationOutcome(ticker=ticker, evaluated=True, drift_score=0.1)
 

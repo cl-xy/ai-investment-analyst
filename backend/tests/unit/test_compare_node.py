@@ -4,7 +4,6 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from src.agent.nodes.compare import compare_node
 
 

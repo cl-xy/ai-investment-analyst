@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from src.cache.manager import CacheManager, _get_ttl
 
 

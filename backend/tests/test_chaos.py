@@ -152,9 +152,7 @@ class TestLLMTimeoutReturnsErrorEvent:
     @patch("src.api.routes.analyze_stream.EXECUTION_TIMEOUT_PER_TICKER", 1)
     @patch("src.api.routes.analyze_stream.get_checkpointer")
     @patch("src.api.routes.analyze_stream.build_graph")
-    def test_llm_timeout_returns_error_event(
-        self, mock_build_graph, mock_checkpointer, client
-    ):
+    def test_llm_timeout_returns_error_event(self, mock_build_graph, mock_checkpointer, client):
         """LLM timeout produces a structured analysis_timeout event and the
         stream terminates cleanly (not a generic unrecoverable error, since
         this signals a retryable partial outcome)."""
@@ -188,9 +186,7 @@ class TestMCPServerCrashPopulatesDataGaps:
 
     @patch("src.api.routes.analyze_stream.get_checkpointer")
     @patch("src.api.routes.analyze_stream.build_graph")
-    def test_mcp_server_crash_emits_error_event(
-        self, mock_build_graph, mock_checkpointer, client
-    ):
+    def test_mcp_server_crash_emits_error_event(self, mock_build_graph, mock_checkpointer, client):
         """When the agent stream raises an exception, an error event is emitted."""
         _setup_standard_mocks(
             mock_build_graph,
@@ -239,9 +235,7 @@ class TestPostgresUnavailableStreamStillWorks:
         # Should not contain an error event about PostgreSQL
         # (persistence is non-critical, handled silently)
         error_events = [e for e in events if e["type"] == "error"]
-        pg_errors = [
-            e for e in error_events if "PostgreSQL" in e["payload"].get("message", "")
-        ]
+        pg_errors = [e for e in error_events if "PostgreSQL" in e["payload"].get("message", "")]
         assert len(pg_errors) == 0, "PostgreSQL failure should not produce user-facing errors"
 
 
@@ -250,18 +244,14 @@ class TestConcurrentAnalysesComplete:
 
     @patch("src.api.routes.analyze_stream.get_checkpointer")
     @patch("src.api.routes.analyze_stream.build_graph")
-    def test_concurrent_analyses_all_complete(
-        self, mock_build_graph, mock_checkpointer, client
-    ):
+    def test_concurrent_analyses_all_complete(self, mock_build_graph, mock_checkpointer, client):
         """Multiple requests should all complete without crashing."""
         results = []
         for ticker in ["AAPL", "NVDA", "TSLA"]:
             # Re-setup mocks since astream_events is consumed per call
             _setup_standard_mocks(mock_build_graph, mock_checkpointer)
 
-            with client.stream(
-                "GET", f"/api/analyze/stream?tickers={ticker}"
-            ) as response:
+            with client.stream("GET", f"/api/analyze/stream?tickers={ticker}") as response:
                 events = _parse_sse_events(response)
                 results.append(events)
 
@@ -281,9 +271,7 @@ class TestConcurrentAnalysesComplete:
         for ticker in ["AAPL", "MSFT"]:
             _setup_standard_mocks(mock_build_graph, mock_checkpointer)
 
-            with client.stream(
-                "GET", f"/api/analyze/stream?tickers={ticker}"
-            ) as response:
+            with client.stream("GET", f"/api/analyze/stream?tickers={ticker}") as response:
                 events = _parse_sse_events(response)
                 if events:
                     run_ids.append(events[0]["run_id"])

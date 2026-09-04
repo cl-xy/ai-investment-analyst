@@ -5,7 +5,6 @@ Tests for watchlist-based alert subscriptions (backend/src/alerts/subscriptions.
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from src.alerts.subscriptions import (
     DEFAULT_TRIGGER_TYPES,
     get_active_subscription_tickers,
@@ -49,7 +48,12 @@ class TestSubscribeTicker:
     @pytest.mark.asyncio
     async def test_subscribe_custom_trigger_types(self):
         async def _fake_fetchrow(query, *args):
-            return {"ticker": "TSLA", "source": "watchlist", "trigger_types": args[2], "active": True}
+            return {
+                "ticker": "TSLA",
+                "source": "watchlist",
+                "trigger_types": args[2],
+                "active": True,
+            }
 
         with patch("src.alerts.subscriptions.fetchrow", side_effect=_fake_fetchrow):
             sub = await subscribe_ticker("TSLA", trigger_types=["price"])

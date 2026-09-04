@@ -4,7 +4,6 @@ import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from src.agent.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerOpen,

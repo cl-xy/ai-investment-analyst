@@ -14,11 +14,7 @@ def test_frontend_event_types_match_backend():
     """Frontend hardcoded event type strings must be a superset of backend EventType values."""
     # Read the frontend hook that registers EventSource listeners
     frontend_hook = (
-        Path(__file__).parent.parent.parent
-        / "frontend"
-        / "src"
-        / "hooks"
-        / "useAnalysisStream.ts"
+        Path(__file__).parent.parent.parent / "frontend" / "src" / "hooks" / "useAnalysisStream.ts"
     )
     assert frontend_hook.exists(), f"Frontend hook not found at {frontend_hook}"
 

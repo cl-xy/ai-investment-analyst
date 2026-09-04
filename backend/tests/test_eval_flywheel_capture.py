@@ -11,7 +11,6 @@ Two layers tested:
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from src.eval_flywheel.capture import capture_case_artifacts, load_case_tool_payloads
 from src.evidence.registry import MAX_FULL_PAYLOAD_BYTES, RunEvidence, compute_content_hash
 

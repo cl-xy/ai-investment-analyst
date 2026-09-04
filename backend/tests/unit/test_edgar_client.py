@@ -1,7 +1,6 @@
 """Unit tests for the SEC EDGAR ticker map loader's retry/cooldown behavior."""
 
 import pytest
-
 from src.mcp_servers.sec_server import edgar_client
 
 

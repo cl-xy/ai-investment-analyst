@@ -15,7 +15,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage
-
 from src.eval_flywheel.replay import (
     _reconstruct_state,
     replay_case,
@@ -78,7 +77,7 @@ class TestReconstructStateNoLeakage:
             _reconstruct_state("NVDA", payloads)
 
     def test_correlation_id_is_none_not_original_run(self):
-        """Replay state must not carry the original run's correlation_id —
+        """Replay state must not carry the original run's correlation_id -
         it's a fresh, isolated replay context."""
         state = _reconstruct_state("NVDA", _grouped_payloads())
         assert state["correlation_id"] is None

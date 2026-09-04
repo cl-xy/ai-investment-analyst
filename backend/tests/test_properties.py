@@ -11,7 +11,6 @@ import re
 
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
-
 from src.agent.events import EventEmitter
 from src.agent.json_utils import extract_json
 from src.agent.structured_output import AnalysisOutput, Citation
@@ -24,13 +23,9 @@ SOURCE_ID_PATTERN = re.compile(r"^[a-z_]+:[A-Z0-9.]+:\d+$")
 
 # --- Strategies ---
 
-valid_ticker_chars = st.sampled_from(
-    list("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.")
-)
+valid_ticker_chars = st.sampled_from(list("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789."))
 
-valid_ticker_st = st.text(
-    alphabet=valid_ticker_chars, min_size=1, max_size=10
-)
+valid_ticker_st = st.text(alphabet=valid_ticker_chars, min_size=1, max_size=10)
 
 signal_st = st.sampled_from(["buy", "hold", "sell", "insufficient_data"])
 confidence_st = st.sampled_from(["high", "medium", "low"])
@@ -228,7 +223,7 @@ class TestEventSequenceMonotonic:
 
         seqs = [e.seq for e in emitter.events]
         for i in range(1, len(seqs)):
-            assert seqs[i] > seqs[i - 1], f"seq[{i}]={seqs[i]} not > seq[{i-1}]={seqs[i-1]}"
+            assert seqs[i] > seqs[i - 1], f"seq[{i}]={seqs[i]} not > seq[{i - 1}]={seqs[i - 1]}"
 
     @given(
         node_names=st.lists(
@@ -385,9 +380,7 @@ class TestSignalConfidenceCorrelation:
         # This combination is internally contradictory: positive sentiment + sell + high confidence
         # A quality gate should flag this. Here we verify the invariant we want to enforce:
         is_contradictory = (
-            output.sentiment_score > 0.5
-            and output.signal == "sell"
-            and output.confidence == "high"
+            output.sentiment_score > 0.5 and output.signal == "sell" and output.confidence == "high"
         )
         assert is_contradictory, "Test setup ensures this combination exists for detection"
 

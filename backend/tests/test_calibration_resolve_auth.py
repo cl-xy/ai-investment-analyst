@@ -30,13 +30,13 @@ class TestCalibrationResolveSchedulerAuth:
 
     def test_missing_header_returns_401(self, client):
         with patch("src.api.routes.calibration.settings") as mock_settings:
-            mock_settings.scheduler_secret_token = "correct-token"
+            mock_settings.scheduler_secret_token = "correct-token"  # pragma: allowlist secret
             response = client.post("/api/calibration/resolve")
         assert response.status_code == 401
 
     def test_wrong_token_returns_401(self, client):
         with patch("src.api.routes.calibration.settings") as mock_settings:
-            mock_settings.scheduler_secret_token = "correct-token"
+            mock_settings.scheduler_secret_token = "correct-token"  # pragma: allowlist secret
             response = client.post(
                 "/api/calibration/resolve",
                 headers={"x-scheduler-token": "wrong-token"},
@@ -48,7 +48,7 @@ class TestCalibrationResolveSchedulerAuth:
             patch("src.api.routes.calibration.settings") as mock_settings,
             patch("src.db.get_pool", new_callable=AsyncMock) as mock_get_pool,
         ):
-            mock_settings.scheduler_secret_token = "correct-token"
+            mock_settings.scheduler_secret_token = "correct-token"  # pragma: allowlist secret
 
             mock_conn = AsyncMock()
             mock_conn.fetch = AsyncMock(return_value=[])

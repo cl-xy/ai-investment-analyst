@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from src.alerts.composer import Alert
 from src.alerts.telegram import (
     _dispatch_allowed,
@@ -61,7 +60,9 @@ class TestMessageFormatting:
         assert "https://example.com/analyze?tickers=NVDA" in message
 
     def test_falls_back_to_triggered_events_without_llm_judgment(self):
-        alert = _alert(reasoning_diff={"triggered_events": [{"type": "price", "summary": "moved 8%"}]})
+        alert = _alert(
+            reasoning_diff={"triggered_events": [{"type": "price", "summary": "moved 8%"}]}
+        )
         message = _format_alert_message(alert, "https://example.com")
         assert "moved 8%" in message
 
@@ -215,9 +216,7 @@ class TestWatchCommands:
     @pytest.mark.asyncio
     async def test_unwatch_reports_when_not_subscribed(self):
         with (
-            patch(
-                "src.alerts.subscriptions.unsubscribe_ticker", new=AsyncMock(return_value=False)
-            ),
+            patch("src.alerts.subscriptions.unsubscribe_ticker", new=AsyncMock(return_value=False)),
             patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
         ):
             await handle_update({"message": {"chat": {"id": 1}, "text": "/unwatch NVDA"}})
@@ -280,9 +279,7 @@ class TestWatchTriggersBaselineAnalysis:
             ticker="NVDA", source="telegram", trigger_types=["sec"], active=True
         )
         with (
-            patch(
-                "src.alerts.subscriptions.subscribe_ticker", new=AsyncMock(return_value=result)
-            ),
+            patch("src.alerts.subscriptions.subscribe_ticker", new=AsyncMock(return_value=result)),
             patch(
                 "src.alerts.last_analysis.get_last_analysis",
                 new=AsyncMock(return_value=object()),
@@ -304,12 +301,8 @@ class TestWatchTriggersBaselineAnalysis:
             ticker="TSM", source="telegram", trigger_types=["sec"], active=True
         )
         with (
-            patch(
-                "src.alerts.subscriptions.subscribe_ticker", new=AsyncMock(return_value=result)
-            ),
-            patch(
-                "src.alerts.last_analysis.get_last_analysis", new=AsyncMock(return_value=None)
-            ),
+            patch("src.alerts.subscriptions.subscribe_ticker", new=AsyncMock(return_value=result)),
+            patch("src.alerts.last_analysis.get_last_analysis", new=AsyncMock(return_value=None)),
             patch(
                 "src.alerts.telegram.asyncio.create_task", side_effect=lambda coro: coro.close()
             ) as mock_create_task,
@@ -324,7 +317,7 @@ class TestWatchTriggersBaselineAnalysis:
     @pytest.mark.asyncio
     async def test_watch_still_subscribes_when_baseline_check_fails(self):
         """A broken baseline lookup must not block the subscription itself
-        — it should still schedule a background attempt rather than fail
+        - it should still schedule a background attempt rather than fail
         the whole /watch command."""
         from src.alerts.subscriptions import AlertSubscription
 
@@ -359,9 +352,7 @@ class TestRunBaselineAnalysisAndNotify:
         from src.alerts.telegram import _run_baseline_analysis_and_notify
 
         with (
-            patch(
-                "src.agent.concurrency.acquire_analysis_slot", new=AsyncMock(return_value=False)
-            ),
+            patch("src.agent.concurrency.acquire_analysis_slot", new=AsyncMock(return_value=False)),
             patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
         ):
             await _run_baseline_analysis_and_notify(1, "TSM")
@@ -375,9 +366,7 @@ class TestRunBaselineAnalysisAndNotify:
         from src.alerts.telegram import _run_baseline_analysis_and_notify
 
         with (
-            patch(
-                "src.agent.concurrency.acquire_analysis_slot", new=AsyncMock(return_value=True)
-            ),
+            patch("src.agent.concurrency.acquire_analysis_slot", new=AsyncMock(return_value=True)),
             patch("src.agent.concurrency.release_analysis_slot") as mock_release,
             patch("src.agent.direct_tools.load_direct_tools", return_value={}),
             patch(
@@ -396,9 +385,7 @@ class TestRunBaselineAnalysisAndNotify:
         from src.alerts.telegram import _run_baseline_analysis_and_notify
 
         with (
-            patch(
-                "src.agent.concurrency.acquire_analysis_slot", new=AsyncMock(return_value=True)
-            ),
+            patch("src.agent.concurrency.acquire_analysis_slot", new=AsyncMock(return_value=True)),
             patch("src.agent.concurrency.release_analysis_slot") as mock_release,
             patch("src.agent.direct_tools.load_direct_tools", return_value={}),
             patch(
@@ -429,9 +416,7 @@ class TestRunBaselineAnalysisAndNotify:
             created_at=datetime.now(timezone.utc),
         )
         with (
-            patch(
-                "src.agent.concurrency.acquire_analysis_slot", new=AsyncMock(return_value=True)
-            ),
+            patch("src.agent.concurrency.acquire_analysis_slot", new=AsyncMock(return_value=True)),
             patch("src.agent.concurrency.release_analysis_slot"),
             patch("src.agent.direct_tools.load_direct_tools", return_value={}),
             patch("src.api.routes.analyze.analyze_tickers", new=AsyncMock(return_value=None)),
@@ -452,15 +437,11 @@ class TestRunBaselineAnalysisAndNotify:
         from src.alerts.telegram import _run_baseline_analysis_and_notify
 
         with (
-            patch(
-                "src.agent.concurrency.acquire_analysis_slot", new=AsyncMock(return_value=True)
-            ),
+            patch("src.agent.concurrency.acquire_analysis_slot", new=AsyncMock(return_value=True)),
             patch("src.agent.concurrency.release_analysis_slot"),
             patch("src.agent.direct_tools.load_direct_tools", return_value={}),
             patch("src.api.routes.analyze.analyze_tickers", new=AsyncMock(return_value=None)),
-            patch(
-                "src.alerts.last_analysis.get_last_analysis", new=AsyncMock(return_value=None)
-            ),
+            patch("src.alerts.last_analysis.get_last_analysis", new=AsyncMock(return_value=None)),
             patch("src.alerts.telegram.send_test_message", new=AsyncMock()) as mock_send,
         ):
             await _run_baseline_analysis_and_notify(1, "TSM")
@@ -518,9 +499,7 @@ class TestDispatchAlert:
     async def test_dispatch_skipped_when_cooldown_active(self):
         with (
             patch("src.alerts.telegram._dispatch_allowed", new=AsyncMock(return_value=False)),
-            patch(
-                "src.alerts.telegram.get_active_chat_ids", new=AsyncMock()
-            ) as mock_get_chats,
+            patch("src.alerts.telegram.get_active_chat_ids", new=AsyncMock()) as mock_get_chats,
         ):
             sent = await dispatch_alert(_alert())
 
@@ -616,7 +595,9 @@ class TestAnalysisCommand:
                 "src.alerts.last_analysis.get_last_analysis",
                 new=AsyncMock(return_value=_snapshot()),
             ),
-            patch("src.alerts.telegram._call_telegram", new=AsyncMock(return_value={"ok": True})) as mock_call,
+            patch(
+                "src.alerts.telegram._call_telegram", new=AsyncMock(return_value={"ok": True})
+            ) as mock_call,
         ):
             await handle_update({"message": {"chat": {"id": 1}, "text": "/analysis nvda"}})
 
@@ -799,7 +780,12 @@ class TestBuildDigestMessage:
                 ticker="TSLA",
                 signal="sell",
                 confidence="medium",
-                risk_flags=("High valuation", "Regulatory scrutiny", "Margin pressure", "Extra flag"),
+                risk_flags=(
+                    "High valuation",
+                    "Regulatory scrutiny",
+                    "Margin pressure",
+                    "Extra flag",
+                ),
             ),
         ]
         message = build_digest_message(tickers, [], "https://example.com")

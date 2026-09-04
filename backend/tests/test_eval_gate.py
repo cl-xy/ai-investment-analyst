@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import pytest
 
@@ -265,9 +265,8 @@ class TestEvalGateReplay:
                 pytest.warns(UserWarning, match="")  # logged, not blocking
 
         # Fail on blockers
-        assert result.passed, (
-            f"EVAL GATE BLOCKED: {scenario_name}\n"
-            + "\n".join(f"  - {b}" for b in result.blockers)
+        assert result.passed, f"EVAL GATE BLOCKED: {scenario_name}\n" + "\n".join(
+            f"  - {b}" for b in result.blockers
         )
 
     def test_schema_compatibility(self):
@@ -302,7 +301,7 @@ class TestEvalGateReplay:
             except Exception as e:
                 failures.append(f"{path.stem}: {e}")
 
-        assert not failures, f"Schema compatibility failures:\n" + "\n".join(failures)
+        assert not failures, "Schema compatibility failures:\n" + "\n".join(failures)
 
     def test_no_signal_flips_across_suite(self):
         """Meta-test: verify the full eval suite has no blockers."""

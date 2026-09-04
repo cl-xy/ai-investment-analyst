@@ -2,10 +2,10 @@
 Tests for Task 3: wiring promotion into the prediction-resolution flow.
 
 Two layers:
-1. src/eval_flywheel/promotion.py in isolation (mocked DB) — first-time
+1. src/eval_flywheel/promotion.py in isolation (mocked DB) - first-time
    promotion, idempotent repeat, exclusion recording, race-lost handling,
    and failure isolation within a batch.
-2. calibration.py's resolve_predictions() — verifies a promotion-batch
+2. calibration.py's resolve_predictions() - verifies a promotion-batch
    failure never affects the resolved_count / prediction resolution
    contract that existed before this feature.
 """
@@ -13,7 +13,6 @@ Two layers:
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from src.eval_flywheel.promotion import (
     promote_resolved_prediction,
     promote_resolved_predictions_batch,
@@ -181,7 +180,7 @@ class TestPromoteResolvedPredictionCaptureFailureIsolation:
                 data_gaps_count=0,
             )
             outcome = await promote_resolved_prediction(_row())
-        # Still reports "promoted" — the case exists even though replay
+        # Still reports "promoted" - the case exists even though replay
         # capture failed; capture_status reflects the failure separately.
         assert outcome == "promoted"
 
@@ -257,7 +256,7 @@ class TestResolvePredictionsToleratesPromotionFailure:
             ),
             patch("src.api.routes.calibration.settings") as mock_settings,
         ):
-            mock_settings.scheduler_secret_token = "test-token"
+            mock_settings.scheduler_secret_token = "test-token"  # pragma: allowlist secret
             result = await resolve_predictions(x_scheduler_token="test-token")
 
         assert result["resolved_count"] == 1

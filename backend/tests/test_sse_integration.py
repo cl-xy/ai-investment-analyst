@@ -89,10 +89,16 @@ def client():
 class TestSSEEventContract:
     """Verify the SSE wire format and event ordering."""
 
-    @patch("src.api.routes.analyze_stream.acquire_analysis_slot", new_callable=AsyncMock, return_value=True)
+    @patch(
+        "src.api.routes.analyze_stream.acquire_analysis_slot",
+        new_callable=AsyncMock,
+        return_value=True,
+    )
     @patch("src.api.routes.analyze_stream.get_checkpointer")
     @patch("src.api.routes.analyze_stream.build_graph")
-    def test_stream_emits_events_in_order(self, mock_build_graph, mock_checkpointer, mock_slot, client):
+    def test_stream_emits_events_in_order(
+        self, mock_build_graph, mock_checkpointer, mock_slot, client
+    ):
         """The stream should emit run_started first and run_completed last."""
         # Setup mocks
         mock_compiled = _mock_compiled_graph()
