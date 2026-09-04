@@ -13,6 +13,7 @@ from datetime import date
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from openai import LengthFinishReasonError
 from pydantic import ValidationError
 
 from src.logging_config import get_logger
@@ -124,14 +125,28 @@ def _safe_extract_json(text: str) -> dict | None:
     return None
 
 
-async def _invoke_with_retry(messages: list) -> object:
+async def _invoke_with_retry(messages: list, *, is_retry: bool = False) -> object:
     """Invoke LLM with retry + model fallback for debate steps.
 
-    Uses higher temperature for diverse debate perspectives.
+    Uses higher temperature for diverse debate perspectives on the first attempt.
+    On the corrective retry (is_retry=True, triggered after a JSON validation
+    failure), drops temperature to reduce the free-tier model's tendency to
+    ramble/loop, which is the leading cause of hitting the token ceiling
+    before the JSON object closes (LengthFinishReasonError / finish_reason="length").
     """
-    return await invoke_with_fallback(
-        messages, temperature=0.5, max_tokens=4096, request_timeout=120
+    temperature = 0.2 if is_retry else 0.5
+    response = await invoke_with_fallback(
+        messages, temperature=temperature, max_tokens=4096, request_timeout=120
     )
+    finish_reason = (getattr(response, "response_metadata", None) or {}).get("finish_reason")
+    if finish_reason == "length":
+        log.warning(
+            "llm_response_truncated",
+            is_retry=is_retry,
+            temperature=temperature,
+            detail="finish_reason=length: response hit max_tokens before JSON closed",
+        )
+    return response
 
 
 def _format_sentiment(sentiment: dict) -> str:
@@ -236,23 +251,33 @@ async def _run_bull_agent(ctx: dict[str, Any]) -> BullCaseOutput:
     )
     messages = [SystemMessage(content=BULL_SYSTEM), HumanMessage(content=prompt)]
 
-    response = await _invoke_with_retry(messages)
-    content = _normalize_content(response.content)
-
     try:
+        response = await _invoke_with_retry(messages)
+        content = _normalize_content(response.content)
         return BullCaseOutput.model_validate_json(content)
-    except (ValidationError, ValueError, TypeError):
-        # Retry with error feedback
-        retry_msg = HumanMessage(
-            content="Your JSON was invalid. Return valid JSON matching the schema exactly."
-        )
-        retry_response = await _invoke_with_retry(messages + [retry_msg])
-        retry_content = _normalize_content(retry_response.content)
+    except (ValidationError, ValueError, TypeError, LengthFinishReasonError) as exc:
+        # Retry with error feedback. LengthFinishReasonError means the response
+        # was truncated at max_tokens before the JSON closed; the lower
+        # temperature on retry (is_retry=True) reduces rambling/looping that
+        # causes this on free-tier models.
+        if isinstance(exc, LengthFinishReasonError):
+            log.warning("bull_truncated_retrying")
+            retry_msg = HumanMessage(
+                content="Your previous response was too long and got cut off. "
+                "Return valid JSON matching the schema exactly, well within the length limits."
+            )
+        else:
+            retry_msg = HumanMessage(
+                content="Your JSON was invalid. Return valid JSON matching the schema exactly."
+            )
+        retry_content = ""
         try:
+            retry_response = await _invoke_with_retry(messages + [retry_msg], is_retry=True)
+            retry_content = _normalize_content(retry_response.content)
             return BullCaseOutput.model_validate_json(retry_content)
-        except (ValidationError, ValueError, TypeError):
+        except (ValidationError, ValueError, TypeError, LengthFinishReasonError):
             # Fallback: try retry response first, then original
-            parsed = _safe_extract_json(retry_content) or _safe_extract_json(content)
+            parsed = _safe_extract_json(retry_content)
             if parsed:
                 return BullCaseOutput(
                     ticker=ctx["ticker"],
@@ -280,21 +305,28 @@ async def _run_bear_agent(ctx: dict[str, Any], bull: BullCaseOutput) -> BearCase
     )
     messages = [SystemMessage(content=BEAR_SYSTEM), HumanMessage(content=prompt)]
 
-    response = await _invoke_with_retry(messages)
-    content = _normalize_content(response.content)
-
     try:
+        response = await _invoke_with_retry(messages)
+        content = _normalize_content(response.content)
         return BearCaseOutput.model_validate_json(content)
-    except (ValidationError, ValueError, TypeError):
-        retry_msg = HumanMessage(
-            content="Your JSON was invalid. Return valid JSON matching the schema exactly."
-        )
-        retry_response = await _invoke_with_retry(messages + [retry_msg])
-        retry_content = _normalize_content(retry_response.content)
+    except (ValidationError, ValueError, TypeError, LengthFinishReasonError) as exc:
+        if isinstance(exc, LengthFinishReasonError):
+            log.warning("bear_truncated_retrying")
+            retry_msg = HumanMessage(
+                content="Your previous response was too long and got cut off. "
+                "Return valid JSON matching the schema exactly, well within the length limits."
+            )
+        else:
+            retry_msg = HumanMessage(
+                content="Your JSON was invalid. Return valid JSON matching the schema exactly."
+            )
+        retry_content = ""
         try:
+            retry_response = await _invoke_with_retry(messages + [retry_msg], is_retry=True)
+            retry_content = _normalize_content(retry_response.content)
             return BearCaseOutput.model_validate_json(retry_content)
-        except (ValidationError, ValueError, TypeError):
-            parsed = _safe_extract_json(retry_content) or _safe_extract_json(content)
+        except (ValidationError, ValueError, TypeError, LengthFinishReasonError):
+            parsed = _safe_extract_json(retry_content)
             if parsed:
                 return BearCaseOutput(
                     ticker=ctx["ticker"],
@@ -335,21 +367,28 @@ async def _run_moderator(
     )
     messages = [SystemMessage(content=MODERATOR_SYSTEM), HumanMessage(content=prompt)]
 
-    response = await _invoke_with_retry(messages)
-    content = _normalize_content(response.content)
-
     try:
+        response = await _invoke_with_retry(messages)
+        content = _normalize_content(response.content)
         return ModeratorOutput.model_validate_json(content)
-    except (ValidationError, ValueError, TypeError):
-        retry_msg = HumanMessage(
-            content="Your JSON was invalid. Return valid JSON matching the schema exactly."
-        )
-        retry_response = await _invoke_with_retry(messages + [retry_msg])
-        retry_content = _normalize_content(retry_response.content)
+    except (ValidationError, ValueError, TypeError, LengthFinishReasonError) as exc:
+        if isinstance(exc, LengthFinishReasonError):
+            log.warning("moderator_truncated_retrying")
+            retry_msg = HumanMessage(
+                content="Your previous response was too long and got cut off. "
+                "Return valid JSON matching the schema exactly, well within the length limits."
+            )
+        else:
+            retry_msg = HumanMessage(
+                content="Your JSON was invalid. Return valid JSON matching the schema exactly."
+            )
+        retry_content = ""
         try:
+            retry_response = await _invoke_with_retry(messages + [retry_msg], is_retry=True)
+            retry_content = _normalize_content(retry_response.content)
             return ModeratorOutput.model_validate_json(retry_content)
-        except (ValidationError, ValueError, TypeError):
-            parsed = _safe_extract_json(retry_content) or _safe_extract_json(content)
+        except (ValidationError, ValueError, TypeError, LengthFinishReasonError):
+            parsed = _safe_extract_json(retry_content)
             if parsed:
                 return ModeratorOutput(
                     ticker=ctx["ticker"],

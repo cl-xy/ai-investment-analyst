@@ -29,8 +29,9 @@ Rules:
 6. If an earnings date is imminent (within ~2 weeks), treat it as a near-term catalyst worth naming explicitly.
 7. Retail sentiment is a minor, noisy signal, not a primary driver. Extreme bullish retail chatter with weak fundamentals can actually be a bearish contrarian signal -- weigh it accordingly rather than treating it as confirmation.
 8. NEVER repeat the same sentence, phrase, or point twice. Each argument and sentence must be unique. If you find yourself restating something, move to the next point.
+9. STRICT LENGTH LIMITS (the response is cut off if you exceed the token budget, producing invalid JSON): thesis <= 3 sentences (~60 words). Each key_argument <= 25 words. Each catalyst <= 20 words. Each acknowledged_risk <= 20 words. Total response under 500 words. Be concise -- terse, evidence-dense sentences beat long ones.
 
-Return ONLY valid JSON."""
+Return ONLY valid JSON. Stop as soon as the JSON object is complete -- do not add commentary before or after it."""
 
 BULL_HUMAN = """Construct the bull case for {ticker} (current date: {current_date}):
 
@@ -79,8 +80,9 @@ Rules:
 7. If an earnings date is imminent, treat the uncertainty as event risk worth flagging.
 8. Retail sentiment is a minor, noisy signal. Extreme bullish retail chatter combined with weak fundamentals is itself a bearish signal worth flagging as a risk (crowded/hype-driven trade); don't just dismiss it.
 9. NEVER repeat the same sentence, phrase, or point twice. Each argument and sentence must be unique. If you find yourself restating something, move to the next point.
+10. STRICT LENGTH LIMITS (the response is cut off if you exceed the token budget, producing invalid JSON): thesis <= 3 sentences (~60 words). Each key_argument <= 25 words. Each rebuttal counter <= 25 words. Each risk_flag <= 20 words. Total response under 500 words. Be concise -- terse, evidence-dense sentences beat long ones.
 
-Return ONLY valid JSON."""
+Return ONLY valid JSON. Stop as soon as the JSON object is complete -- do not add commentary before or after it."""
 
 BEAR_HUMAN = """Construct the bear case for {ticker} (current date: {current_date}), rebutting this bull thesis:
 
@@ -147,6 +149,7 @@ Rules:
 9. Retail sentiment (StockTwits) is supplementary context, not a primary driver -- weigh fundamentals and evidence-backed arguments far more heavily than message-board chatter.
 10. sentiment_score must be a float between -1.0 (strongly bearish) and 1.0 (strongly bullish), consistent with your signal and confidence.
 11. NEVER repeat the same sentence, phrase, or point twice. Each argument and sentence must be unique. If you find yourself restating something, move to the next point.
+12. STRICT LENGTH LIMITS (the response is cut off if you exceed the token budget, producing invalid JSON): thesis <= 3 sentences (~60 words). verdict_rationale <= 3 sentences (~60 words). news_summary <= 3 sentences. sec_notes <= 2 sentences. Each list item (bull_case, bear_case, key_disagreements, risk_flags, data_gaps) <= 25 words. Total response under 600 words. Be concise -- terse, evidence-dense sentences beat long ones.
 
 Signal guidelines:
 - buy: bull case is materially stronger, catalysts are near-term, risks are manageable
@@ -154,7 +157,7 @@ Signal guidelines:
 - sell: bear case is materially stronger, risks are elevated, downside is asymmetric
 - insufficient_data: cannot form a judgment with available evidence
 
-Return ONLY valid JSON."""
+Return ONLY valid JSON. Stop as soon as the JSON object is complete -- do not add commentary before or after it."""
 
 MODERATOR_HUMAN = """Issue your verdict on {ticker}:
 
