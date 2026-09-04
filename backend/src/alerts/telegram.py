@@ -491,7 +491,9 @@ def _format_analysis_message(snapshot, frontend_url: str) -> str:
 
     lines = [f"{signal_icon} *{snapshot.ticker}* — {(snapshot.signal or 'unknown').upper()}"]
     lines.append(f"Confidence: {snapshot.confidence}")
-    lines.append(f"Sentiment: {_sentiment_label(snapshot.sentiment_score)} ({snapshot.sentiment_score:+.2f})")
+    lines.append(
+        f"Sentiment: {_sentiment_label(snapshot.sentiment_score)} ({snapshot.sentiment_score:+.2f})"
+    )
 
     if getattr(snapshot, "thesis", ""):
         lines.append(f"\n{snapshot.thesis}")
@@ -611,7 +613,9 @@ def _format_digest_ticker_entry(entry: DigestTickerEntry) -> str:
     no extra LLM calls or API cost to the digest."""
     header = f"\u2022 *{entry.ticker}* ({entry.confidence} confidence)"
 
-    detail_bits: list[str] = [f"sentiment {_sentiment_label(entry.sentiment_score)} ({entry.sentiment_score:+.2f})"]
+    detail_bits: list[str] = [
+        f"sentiment {_sentiment_label(entry.sentiment_score)} ({entry.sentiment_score:+.2f})"
+    ]
     if entry.thesis:
         detail_bits.append(_truncate(entry.thesis))
 
