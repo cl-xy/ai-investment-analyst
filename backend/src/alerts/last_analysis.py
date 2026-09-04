@@ -30,6 +30,7 @@ class LastAnalysisSnapshot:
     fundamentals: dict
     analysis_id: str
     created_at: datetime
+    thesis: str = ""
 
 
 async def get_last_analysis(ticker: str) -> LastAnalysisSnapshot | None:
@@ -37,7 +38,7 @@ async def get_last_analysis(ticker: str) -> LastAnalysisSnapshot | None:
     or None if the ticker has never been successfully analyzed."""
     row = await fetchrow(
         """
-        SELECT ta.ticker, ta.signal, ta.confidence, ta.sentiment_score,
+        SELECT ta.ticker, ta.signal, ta.confidence, ta.sentiment_score, ta.thesis,
                ta.risk_flags, ta.price_data, ta.fundamentals, ta.analysis_id, a.created_at
         FROM ticker_analyses ta
         JOIN analyses a ON ta.analysis_id = a.id
@@ -55,6 +56,7 @@ async def get_last_analysis(ticker: str) -> LastAnalysisSnapshot | None:
         signal=row["signal"],
         confidence=row["confidence"],
         sentiment_score=row["sentiment_score"] or 0.0,
+        thesis=row["thesis"] or "",
         risk_flags=as_list(row["risk_flags"]),
         price_data=as_dict(row["price_data"]),
         fundamentals=as_dict(row["fundamentals"]),

@@ -491,7 +491,10 @@ def _format_analysis_message(snapshot, frontend_url: str) -> str:
 
     lines = [f"{signal_icon} *{snapshot.ticker}* — {(snapshot.signal or 'unknown').upper()}"]
     lines.append(f"Confidence: {snapshot.confidence}")
-    lines.append(f"Sentiment: {snapshot.sentiment_score:.2f}")
+    lines.append(f"Sentiment: {_sentiment_label(snapshot.sentiment_score)} ({snapshot.sentiment_score:+.2f})")
+
+    if getattr(snapshot, "thesis", ""):
+        lines.append(f"\n{snapshot.thesis}")
 
     if snapshot.risk_flags:
         lines.append("\nRisk flags:")
@@ -550,12 +553,20 @@ async def _handle_analysis_command(chat_id: int, text: str) -> None:
 
 @dataclass(frozen=True, slots=True)
 class DigestTickerEntry:
-    """Minimal per-ticker projection the digest builder needs — decoupled
-    from LastAnalysisSnapshot so this stays a pure, DB-free function."""
+    """Per-ticker projection the digest builder needs — decoupled from
+    LastAnalysisSnapshot so this stays a pure, DB-free function.
+
+    sentiment_score/thesis/risk_flags are optional (default to "empty") so
+    existing call sites and tests that only pass ticker/signal/confidence
+    keep working; the digest formatter simply omits sections it has no
+    data for."""
 
     ticker: str
     signal: str
     confidence: str
+    sentiment_score: float = 0.0
+    thesis: str = ""
+    risk_flags: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -566,6 +577,51 @@ class DigestAlertEntry:
     severity: str
     alert_type: str
     created_at: datetime
+
+
+_DETAIL_SEPARATOR = " \u2014 "  # em dash, kept out of f-strings for py<3.12 compat
+
+
+def _sentiment_label(score: float) -> str:
+    """Map a [-1, 1] sentiment score to a short human-readable label so the
+    digest doesn't force readers to interpret a raw float."""
+    if score >= 0.5:
+        return "very positive"
+    if score >= 0.15:
+        return "positive"
+    if score <= -0.5:
+        return "very negative"
+    if score <= -0.15:
+        return "negative"
+    return "neutral"
+
+
+def _truncate(text: str, max_len: int = 140) -> str:
+    text = text.strip()
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1].rstrip() + "\u2026"
+
+
+def _format_digest_ticker_entry(entry: DigestTickerEntry) -> str:
+    """Render one ticker's digest line(s): headline + confidence, then an
+    indented sub-line with sentiment, a one-line thesis snippet, and top
+    risk flags — whichever of those the entry actually has data for.
+    All of this comes from already-cached ticker_analyses rows, so it adds
+    no extra LLM calls or API cost to the digest."""
+    header = f"\u2022 *{entry.ticker}* ({entry.confidence} confidence)"
+
+    detail_bits: list[str] = [f"sentiment {_sentiment_label(entry.sentiment_score)} ({entry.sentiment_score:+.2f})"]
+    if entry.thesis:
+        detail_bits.append(_truncate(entry.thesis))
+
+    lines = [header, f"   {_DETAIL_SEPARATOR.join(detail_bits)}"]
+
+    if entry.risk_flags:
+        flags = ", ".join(entry.risk_flags[:3])
+        lines.append(f"   \u26a0\ufe0f {flags}")
+
+    return "\n".join(lines)
 
 
 def build_digest_message(
@@ -595,7 +651,7 @@ def build_digest_message(
         label = signal_key.upper() if signal_key != "other" else "NO DATA"
         lines.append(f"\n{icon} *{label}*")
         for entry in sorted(entries, key=lambda e: e.ticker):
-            lines.append(f"\u2022 {entry.ticker} ({entry.confidence} confidence)")
+            lines.append(_format_digest_ticker_entry(entry))
 
     if recent_alerts:
         lines.append("\n\u26a1 *Overnight activity*")

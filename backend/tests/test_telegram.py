@@ -748,3 +748,78 @@ class TestBuildDigestMessage:
 
         assert message is not None
         assert "https://example.com" in message
+
+    def test_includes_sentiment_label_and_score(self):
+        from src.alerts.telegram import DigestTickerEntry, build_digest_message
+
+        tickers = [
+            DigestTickerEntry(ticker="NVDA", signal="buy", confidence="high", sentiment_score=0.62),
+        ]
+        message = build_digest_message(tickers, [], "https://example.com")
+
+        assert message is not None
+        assert "very positive" in message
+        assert "+0.62" in message
+
+    def test_includes_thesis_snippet(self):
+        from src.alerts.telegram import DigestTickerEntry, build_digest_message
+
+        tickers = [
+            DigestTickerEntry(
+                ticker="HPE",
+                signal="buy",
+                confidence="medium",
+                sentiment_score=0.3,
+                thesis="Strong enterprise AI server demand and margin expansion outweigh near-term supply risk.",
+            ),
+        ]
+        message = build_digest_message(tickers, [], "https://example.com")
+
+        assert message is not None
+        assert "Strong enterprise AI server demand" in message
+
+    def test_truncates_long_thesis(self):
+        from src.alerts.telegram import DigestTickerEntry, build_digest_message
+
+        long_thesis = "A" * 300
+        tickers = [
+            DigestTickerEntry(ticker="NVDA", signal="buy", confidence="high", thesis=long_thesis),
+        ]
+        message = build_digest_message(tickers, [], "https://example.com")
+
+        assert message is not None
+        assert "A" * 300 not in message
+        assert "\u2026" in message
+
+    def test_includes_risk_flags_per_ticker(self):
+        from src.alerts.telegram import DigestTickerEntry, build_digest_message
+
+        tickers = [
+            DigestTickerEntry(
+                ticker="TSLA",
+                signal="sell",
+                confidence="medium",
+                risk_flags=("High valuation", "Regulatory scrutiny", "Margin pressure", "Extra flag"),
+            ),
+        ]
+        message = build_digest_message(tickers, [], "https://example.com")
+
+        assert message is not None
+        assert "High valuation" in message
+        assert "Regulatory scrutiny" in message
+        assert "Margin pressure" in message
+        # Only top 3 risk flags shown to keep the digest scannable.
+        assert "Extra flag" not in message
+
+    def test_backward_compatible_without_enriched_fields(self):
+        """Entries built with only ticker/signal/confidence (old call sites,
+        or tickers with no cached sentiment/thesis/risk data) should still
+        render cleanly without raising and without a risk-flag line."""
+        from src.alerts.telegram import DigestTickerEntry, build_digest_message
+
+        tickers = [DigestTickerEntry(ticker="NVDA", signal="buy", confidence="high")]
+        message = build_digest_message(tickers, [], "https://example.com")
+
+        assert message is not None
+        assert "neutral" in message
+        assert "+0.00" in message

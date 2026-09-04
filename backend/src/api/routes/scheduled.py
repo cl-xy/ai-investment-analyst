@@ -514,6 +514,9 @@ async def send_digest(
                             ticker=snapshot.ticker,
                             signal=snapshot.signal,
                             confidence=snapshot.confidence,
+                            sentiment_score=snapshot.sentiment_score,
+                            thesis=snapshot.thesis,
+                            risk_flags=tuple(snapshot.risk_flags),
                         )
                     )
 
