@@ -42,12 +42,20 @@ class TestSendDigestAuth:
 class TestSendDigestSuccess:
     def test_returns_skipped_when_no_monitored_tickers(self, client):
         with patch.object(settings, "scheduler_secret_token", "correct-token"):
-            with patch("src.alerts.pipeline.get_monitored_tickers", new=AsyncMock(return_value=[])):
-                with patch("src.alerts.composer.get_recent_alerts", new=AsyncMock(return_value=[])):
-                    response = client.post(
-                        "/api/scheduled/send-digest",
-                        headers={"x-scheduler-token": "correct-token"},
-                    )
+            with patch(
+                "src.api.routes.scheduled._digest_already_sent_today",
+                new=AsyncMock(return_value=None),
+            ):
+                with patch(
+                    "src.alerts.pipeline.get_monitored_tickers", new=AsyncMock(return_value=[])
+                ):
+                    with patch(
+                        "src.alerts.composer.get_recent_alerts", new=AsyncMock(return_value=[])
+                    ):
+                        response = client.post(
+                            "/api/scheduled/send-digest",
+                            headers={"x-scheduler-token": "correct-token"},
+                        )
 
         assert response.status_code == 200
         data = response.json()
@@ -73,6 +81,13 @@ class TestSendDigestSuccess:
 
         with patch.object(settings, "scheduler_secret_token", "correct-token"):
             with (
+                patch(
+                    "src.api.routes.scheduled._digest_already_sent_today",
+                    new=AsyncMock(return_value=None),
+                ),
+                patch(
+                    "src.api.routes.scheduled._record_digest_sent", new=AsyncMock(return_value=None)
+                ),
                 patch(
                     "src.alerts.pipeline.get_monitored_tickers",
                     new=AsyncMock(return_value=["NVDA"]),
@@ -107,9 +122,15 @@ class TestSendDigestSuccess:
         import asyncio
 
         with patch.object(settings, "scheduler_secret_token", "correct-token"):
-            with patch(
-                "src.alerts.pipeline.get_monitored_tickers",
-                new=AsyncMock(side_effect=asyncio.TimeoutError()),
+            with (
+                patch(
+                    "src.api.routes.scheduled._digest_already_sent_today",
+                    new=AsyncMock(return_value=None),
+                ),
+                patch(
+                    "src.alerts.pipeline.get_monitored_tickers",
+                    new=AsyncMock(side_effect=asyncio.TimeoutError()),
+                ),
             ):
                 response = client.post(
                     "/api/scheduled/send-digest",
@@ -121,9 +142,15 @@ class TestSendDigestSuccess:
 
     def test_unexpected_exception_reports_failed(self, client):
         with patch.object(settings, "scheduler_secret_token", "correct-token"):
-            with patch(
-                "src.alerts.pipeline.get_monitored_tickers",
-                new=AsyncMock(side_effect=RuntimeError("boom")),
+            with (
+                patch(
+                    "src.api.routes.scheduled._digest_already_sent_today",
+                    new=AsyncMock(return_value=None),
+                ),
+                patch(
+                    "src.alerts.pipeline.get_monitored_tickers",
+                    new=AsyncMock(side_effect=RuntimeError("boom")),
+                ),
             ):
                 response = client.post(
                     "/api/scheduled/send-digest",
@@ -138,7 +165,13 @@ class TestSendDigestSuccess:
         from src.api.routes import scheduled as scheduled_module
 
         with patch.object(settings, "scheduler_secret_token", "correct-token"):
-            with patch.object(scheduled_module._DIGEST_LOCK, "locked", return_value=True):
+            with (
+                patch(
+                    "src.api.routes.scheduled._digest_already_sent_today",
+                    new=AsyncMock(return_value=None),
+                ),
+                patch.object(scheduled_module._DIGEST_LOCK, "locked", return_value=True),
+            ):
                 response = client.post(
                     "/api/scheduled/send-digest",
                     headers={"x-scheduler-token": "correct-token"},
@@ -146,3 +179,24 @@ class TestSendDigestSuccess:
 
         assert response.status_code == 200
         assert response.json()["status"] == "skipped"
+
+    def test_returns_skipped_when_already_sent_today(self, client):
+        """Idempotency guard: a duplicate/late cron tick within the same ET
+        day must not re-send - this is what makes the tolerant scheduling
+        window in daily-digest.yml safe."""
+        from datetime import date
+
+        with patch.object(settings, "scheduler_secret_token", "correct-token"):
+            with patch(
+                "src.api.routes.scheduled._digest_already_sent_today",
+                new=AsyncMock(return_value=date(2026, 9, 4)),
+            ):
+                response = client.post(
+                    "/api/scheduled/send-digest",
+                    headers={"x-scheduler-token": "correct-token"},
+                )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "skipped"
+        assert "already sent today" in data["message"]

@@ -4,13 +4,14 @@ import logging
 from datetime import date, datetime, timezone
 from secrets import compare_digest
 from time import perf_counter
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
 from src.agent.concurrency import acquire_analysis_slot, release_analysis_slot
 from src.alerts.pipeline import evaluate_all_monitored
 from src.config import settings
-from src.db import fetchrow
+from src.db import execute, fetchrow
 from src.mcp_servers.portfolio_server import fetch_all_positions
 
 from ..schemas import AlertEvaluationResponse, DigestResponse, ScheduledRefreshResponse
@@ -27,6 +28,45 @@ _EARNINGS_RUN_LOCK = asyncio.Lock()
 _ALERT_EVAL_LOCK = asyncio.Lock()
 
 _DIGEST_LOCK = asyncio.Lock()
+
+# Eastern Time is the reference clock for "one digest per day" because the
+# digest is anchored to market close (16:30 ET), not midnight UTC — using
+# UTC dates would let a run just after UTC midnight but before ET midnight
+# collide with, or miss, the intended trading day.
+_ET_ZONE = ZoneInfo("America/New_York")
+
+
+def _current_et_date() -> date:
+    return datetime.now(_ET_ZONE).date()
+
+
+async def _digest_already_sent_today() -> date | None:
+    """Return today's ET date if a successful digest was already recorded
+    for it, else None. Extracted from the route handler to keep it under
+    the route-body line limit enforced by TestRoutesAreThin."""
+    send_date = _current_et_date()
+    row = await fetchrow(
+        "SELECT id FROM digest_sends WHERE send_date = $1 AND status = 'success'",
+        send_date,
+    )
+    return send_date if row is not None else None
+
+
+async def _record_digest_sent(send_date: date, sent_to: int, tickers_included: int) -> None:
+    """Persist today's send under its ET date so a later duplicate/jittered
+    cron tick is caught by _digest_already_sent_today(). ON CONFLICT DO
+    NOTHING guards the narrow race where two ticks both pass that check
+    before either reaches this insert — the UNIQUE(send_date) constraint on
+    the table is the real guard, this just avoids an unhandled exception on
+    the loser of that race."""
+    await execute(
+        """INSERT INTO digest_sends (send_date, status, sent_to, tickers_included)
+           VALUES ($1, 'success', $2, $3)
+           ON CONFLICT (send_date) DO NOTHING""",
+        send_date,
+        sent_to,
+        tickers_included,
+    )
 
 
 def _get_unique_portfolio_tickers(positions: list[dict]) -> list[str]:
@@ -449,6 +489,102 @@ async def evaluate_alerts(
         )
 
 
+async def _build_and_send_digest(started: float) -> DigestResponse:
+    """Build the digest message from cached data and dispatch it to every
+    active Telegram chat. Extracted to module level (out of send_digest's
+    body) to keep the route handler within TestRoutesAreThin's line limit —
+    this function does the actual work; the route just wires auth,
+    idempotency, locking, and the timeout around it."""
+    from src.alerts.composer import get_recent_alerts
+    from src.alerts.last_analysis import get_last_analysis
+    from src.alerts.pipeline import get_monitored_tickers
+    from src.alerts.telegram import (
+        DigestAlertEntry,
+        DigestTickerEntry,
+        _call_telegram,
+        build_digest_message,
+        get_active_chat_ids,
+    )
+
+    tickers = await get_monitored_tickers()
+
+    ticker_entries: list[DigestTickerEntry] = []
+    for ticker in tickers:
+        try:
+            snapshot = await get_last_analysis(ticker)
+        except Exception:
+            logger.warning("digest_ticker_lookup_failed ticker=%s", ticker, exc_info=True)
+            continue
+        if snapshot is not None:
+            ticker_entries.append(
+                DigestTickerEntry(
+                    ticker=snapshot.ticker,
+                    signal=snapshot.signal,
+                    confidence=snapshot.confidence,
+                    sentiment_score=snapshot.sentiment_score,
+                    thesis=snapshot.thesis,
+                    risk_flags=tuple(snapshot.risk_flags),
+                )
+            )
+
+    try:
+        recent_alert_rows = await get_recent_alerts(since_hours=24)
+    except Exception:
+        logger.warning("digest_recent_alerts_lookup_failed", exc_info=True)
+        recent_alert_rows = []
+
+    alert_entries = [
+        DigestAlertEntry(
+            ticker=row["ticker"],
+            severity=row["severity"],
+            alert_type=row["alert_type"],
+            created_at=row["created_at"],
+        )
+        for row in recent_alert_rows
+    ]
+
+    message = build_digest_message(ticker_entries, alert_entries, settings.frontend_url)
+    if message is None:
+        logger.info("digest_skipped_no_monitored_tickers")
+        return DigestResponse(
+            status="skipped",
+            message="No monitored tickers to include in digest",
+            tickers_included=0,
+            recent_alerts_included=len(alert_entries),
+            created_at=datetime.now(timezone.utc),
+            duration_ms=int((perf_counter() - started) * 1000),
+        )
+
+    chat_ids = await get_active_chat_ids()
+    sent = 0
+    for chat_id in chat_ids:
+        result = await _call_telegram(
+            "sendMessage",
+            {
+                "chat_id": chat_id,
+                "text": message,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True,
+            },
+        )
+        if result is not None and result.get("ok"):
+            sent += 1
+
+    await _record_digest_sent(
+        _current_et_date(), sent_to=sent, tickers_included=len(ticker_entries)
+    )
+
+    return DigestResponse(
+        status="success",
+        message=f"Digest sent to {sent}/{len(chat_ids)} chat(s)",
+        tickers_included=len(ticker_entries),
+        recent_alerts_included=len(alert_entries),
+        sent_to=sent,
+        created_at=datetime.now(timezone.utc),
+        duration_ms=int((perf_counter() - started) * 1000),
+    )
+
+
 @router.post("/scheduled/send-digest", response_model=DigestResponse)
 async def send_digest(
     request: Request,
@@ -463,17 +599,6 @@ async def send_digest(
     — this never triggers a fresh analysis or an LLM call, so it's safe to
     run on a simple once-daily cron regardless of budget state.
     """
-    from src.alerts.composer import get_recent_alerts
-    from src.alerts.last_analysis import get_last_analysis
-    from src.alerts.pipeline import get_monitored_tickers
-    from src.alerts.telegram import (
-        DigestAlertEntry,
-        DigestTickerEntry,
-        _call_telegram,
-        build_digest_message,
-        get_active_chat_ids,
-    )
-
     now = datetime.now(timezone.utc)
     started = perf_counter()
 
@@ -491,6 +616,21 @@ async def send_digest(
             duration_ms=int((perf_counter() - started) * 1000),
         )
 
+    # Idempotency guard: at most one successful digest per ET calendar day.
+    # The scheduling workflow now runs on a tolerant multi-hour window
+    # (instead of a single exact-minute match) so a delayed or jittered cron
+    # tick still fires — this check is what makes repeated/late ticks safe
+    # instead of causing duplicate sends. DB-backed (not in-process) so it
+    # holds across restarts and across multiple Fly.io machines.
+    already_sent_date = await _digest_already_sent_today()
+    if already_sent_date is not None:
+        return DigestResponse(
+            status="skipped",
+            message=f"Digest already sent today ({already_sent_date.isoformat()} ET)",
+            created_at=now,
+            duration_ms=int((perf_counter() - started) * 1000),
+        )
+
     async with _DIGEST_LOCK:
         # Hard timeout: below GitHub Actions' curl --max-time (120s). This
         # endpoint only reads cached rows and sends Telegram messages, so it
@@ -498,84 +638,11 @@ async def send_digest(
         # shouldn't be able to hold the lock indefinitely.
         _DIGEST_TIMEOUT = 60  # seconds
 
-        async def _build_and_send() -> DigestResponse:
-            tickers = await get_monitored_tickers()
-
-            ticker_entries: list[DigestTickerEntry] = []
-            for ticker in tickers:
-                try:
-                    snapshot = await get_last_analysis(ticker)
-                except Exception:
-                    logger.warning("digest_ticker_lookup_failed ticker=%s", ticker, exc_info=True)
-                    continue
-                if snapshot is not None:
-                    ticker_entries.append(
-                        DigestTickerEntry(
-                            ticker=snapshot.ticker,
-                            signal=snapshot.signal,
-                            confidence=snapshot.confidence,
-                            sentiment_score=snapshot.sentiment_score,
-                            thesis=snapshot.thesis,
-                            risk_flags=tuple(snapshot.risk_flags),
-                        )
-                    )
-
-            try:
-                recent_alert_rows = await get_recent_alerts(since_hours=24)
-            except Exception:
-                logger.warning("digest_recent_alerts_lookup_failed", exc_info=True)
-                recent_alert_rows = []
-
-            alert_entries = [
-                DigestAlertEntry(
-                    ticker=row["ticker"],
-                    severity=row["severity"],
-                    alert_type=row["alert_type"],
-                    created_at=row["created_at"],
-                )
-                for row in recent_alert_rows
-            ]
-
-            message = build_digest_message(ticker_entries, alert_entries, settings.frontend_url)
-            if message is None:
-                logger.info("digest_skipped_no_monitored_tickers")
-                return DigestResponse(
-                    status="skipped",
-                    message="No monitored tickers to include in digest",
-                    tickers_included=0,
-                    recent_alerts_included=len(alert_entries),
-                    created_at=datetime.now(timezone.utc),
-                    duration_ms=int((perf_counter() - started) * 1000),
-                )
-
-            chat_ids = await get_active_chat_ids()
-            sent = 0
-            for chat_id in chat_ids:
-                result = await _call_telegram(
-                    "sendMessage",
-                    {
-                        "chat_id": chat_id,
-                        "text": message,
-                        "parse_mode": "Markdown",
-                        "disable_web_page_preview": True,
-                    },
-                )
-                if result is not None and result.get("ok"):
-                    sent += 1
-
-            return DigestResponse(
-                status="success",
-                message=f"Digest sent to {sent}/{len(chat_ids)} chat(s)",
-                tickers_included=len(ticker_entries),
-                recent_alerts_included=len(alert_entries),
-                sent_to=sent,
-                created_at=datetime.now(timezone.utc),
-                duration_ms=int((perf_counter() - started) * 1000),
-            )
-
         try:
             logger.info("digest_send_started")
-            response = await asyncio.wait_for(_build_and_send(), timeout=_DIGEST_TIMEOUT)
+            response = await asyncio.wait_for(
+                _build_and_send_digest(started), timeout=_DIGEST_TIMEOUT
+            )
         except asyncio.TimeoutError:
             logger.error("digest_send_timeout timeout=%ds", _DIGEST_TIMEOUT)
             return DigestResponse(

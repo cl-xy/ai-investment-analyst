@@ -228,6 +228,19 @@ CREATE TABLE IF NOT EXISTS cache (
     expires_at  TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_cache_expires_at ON cache(expires_at) WHERE expires_at IS NOT NULL;
+
+-- Digest sends (idempotency guard: at most one successful send per ET
+-- calendar day, regardless of how many times or how late the scheduling
+-- cron ticks). UNIQUE(send_date) mirrors the budget table's UNIQUE(provider,
+-- date) pattern above.
+CREATE TABLE IF NOT EXISTS digest_sends (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    send_date        DATE UNIQUE NOT NULL,
+    status           TEXT NOT NULL,
+    sent_to          INTEGER NOT NULL DEFAULT 0,
+    tickers_included INTEGER NOT NULL DEFAULT 0,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 """
 
 

@@ -3,10 +3,18 @@ name: Daily Digest
 on:
   schedule:
     # Runs hourly on the half-hour; the schedule_check step below gates the
-    # actual trigger to only fire at 4:30 PM ET (30 min after market close),
-    # DST-aware via `TZ=America/New_York`. 16:30 ET = 20:30 UTC during EDT,
-    # 21:30 UTC during EST — a fixed UTC cron can't express that shift, so
-    # we check local time on every hourly tick instead (same pattern as
+    # actual trigger to a tolerant post-market-close window rather than a
+    # single exact minute. GitHub Actions scheduled runs are best-effort and
+    # can jitter or be delayed by several minutes under load — an exact
+    # `== "16:30"` string match meant a single missed/delayed tick silently
+    # skipped the whole day with no retry. The window below (16:30-17:59 ET)
+    # gives 90 extra minutes of ticks to catch up, and the backend's
+    # DB-backed idempotency guard (digest_sends, keyed on ET date) makes it
+    # safe for multiple ticks in the window to all call the endpoint — only
+    # the first actually sends, the rest come back `status=skipped`.
+    # 16:30-17:59 ET = 20:30-21:59 UTC during EDT, 21:30-22:59 UTC during
+    # EST — a fixed UTC cron can't express that DST shift, so we check local
+    # time on every hourly tick instead (same pattern as
     # scheduled-portfolio-refresh.yml).
     - cron: "30 * * * *"
   workflow_dispatch:
@@ -32,7 +40,11 @@ jobs:
           fi
 
           current_et=$(TZ=America/New_York date '+%H:%M')
-          if [[ "$current_et" == "16:30" ]]; then
+          # Window covers 16:30 through 17:59 ET so a delayed/jittered
+          # hourly tick still triggers the digest at least once. The
+          # backend's idempotency guard prevents duplicate sends if more
+          # than one tick in this window reaches the endpoint.
+          if [[ "$current_et" > "16:29" && "$current_et" < "18:00" ]]; then
             echo "run_now=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_now=false" >> "$GITHUB_OUTPUT"
@@ -46,11 +58,57 @@ jobs:
         run: |
           test -n "$DAILY_DIGEST_URL"
           test -n "$SCHEDULER_SECRET_TOKEN"
-          curl --fail --show-error --silent \
+
+          http_status=$(curl --show-error --silent \
             --retry 3 \
             --retry-all-errors \
             --connect-timeout 10 \
             --max-time 120 \
+            --output response.json \
+            --write-out "%{http_code}" \
             -X POST "$DAILY_DIGEST_URL" \
             -H "x-scheduler-token: $SCHEDULER_SECRET_TOKEN" \
-            -H "content-type: application/json"
+            -H "content-type: application/json")
+
+          echo "HTTP status: $http_status"
+          echo "Response body:"
+          cat response.json
+          echo
+
+          if [[ "$http_status" -lt 200 || "$http_status" -ge 300 ]]; then
+            echo "::error::Digest endpoint returned HTTP $http_status"
+            exit 1
+          fi
+
+          status=$(jq -r '.status // "missing"' response.json)
+          message=$(jq -r '.message // "no message"' response.json)
+
+          # A 200 with a bad/missing JSON body, or an explicit "failed"
+          # status, must fail the step — HTTP-level success alone (the old
+          # `curl --fail` check) doesn't mean the digest actually went out.
+          case "$status" in
+            success)
+              echo "Digest sent successfully: $message"
+              ;;
+            skipped)
+              # Two skip reasons are expected/benign: no monitored tickers
+              # yet, or a digest already sent today (idempotency guard
+              # catching a duplicate tick within the tolerant window above).
+              # Any other skip reason (lock contention, unexpected state)
+              # should fail loudly instead of being silently swallowed.
+              if [[ "$message" == *"already sent today"* || "$message" == *"No monitored tickers"* ]]; then
+                echo "Digest skipped (benign): $message"
+              else
+                echo "::error::Digest skipped for an unexpected reason: $message"
+                exit 1
+              fi
+              ;;
+            failed)
+              echo "::error::Digest send failed: $message"
+              exit 1
+              ;;
+            *)
+              echo "::error::Unexpected or missing status in response body: $status"
+              exit 1
+              ;;
+          esac
