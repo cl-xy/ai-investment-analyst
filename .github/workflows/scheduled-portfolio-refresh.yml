@@ -2,7 +2,21 @@ name: Scheduled Portfolio Refresh
 
 on:
   schedule:
-    - cron: "59 * * * *"
+    # Runs hourly on the hour; the schedule_check step below gates the actual
+    # trigger to a tolerant post-close window (23:00-23:59 ET) rather than a
+    # single exact minute. GitHub Actions scheduled runs are best-effort and
+    # routinely jitter or are delayed by several minutes under load — the old
+    # exact `== "23:59"` string match meant a single missed/delayed tick
+    # silently skipped the whole day's portfolio refresh with no retry, which
+    # in turn froze the read-only daily digest on stale ticker_analyses rows.
+    # An hourly cron + window gives every tick in the 23:xx ET hour a chance
+    # to trigger, and the backend's in-process _RUN_LOCK + 900s lock window
+    # (scheduler_refresh_lock_seconds) makes it safe for more than one tick to
+    # reach the endpoint — only the first runs, the rest return status=skipped.
+    # 23:00-23:59 ET = 03:00-03:59 UTC (EDT) / 04:00-04:59 UTC (EST); a fixed
+    # UTC cron can't express that DST shift, so we check local ET on each tick
+    # instead (same pattern as daily-digest.yml).
+    - cron: "0 * * * *"
   workflow_dispatch:
 
 permissions: {}
@@ -25,7 +39,11 @@ jobs:
           fi
 
           current_et=$(TZ=America/New_York date '+%H:%M')
-          if [[ "$current_et" == "23:59" ]]; then
+          # Window covers the whole 23:00-23:59 ET hour so a delayed/jittered
+          # hourly tick still triggers the refresh at least once. The backend's
+          # _RUN_LOCK + 900s lock window prevents a duplicate refresh if more
+          # than one tick in this window reaches the endpoint.
+          if [[ "$current_et" > "22:59" && "$current_et" < "23:59" || "$current_et" == "23:59" ]]; then
             echo "run_now=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_now=false" >> "$GITHUB_OUTPUT"
