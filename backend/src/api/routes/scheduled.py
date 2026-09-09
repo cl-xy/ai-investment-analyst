@@ -12,6 +12,7 @@ from src.agent.concurrency import acquire_analysis_slot, release_analysis_slot
 from src.alerts.pipeline import evaluate_all_monitored
 from src.config import settings
 from src.db import execute, fetchrow
+from src.market_calendar import is_market_open_today
 from src.mcp_servers.portfolio_server import fetch_all_positions
 
 from ..schemas import AlertEvaluationResponse, DigestResponse, ScheduledRefreshResponse
@@ -627,6 +628,20 @@ async def send_digest(
         return DigestResponse(
             status="skipped",
             message=f"Digest already sent today ({already_sent_date.isoformat()} ET)",
+            created_at=now,
+            duration_ms=int((perf_counter() - started) * 1000),
+        )
+
+    # Market-open guard: only send the digest on US trading days. The digest
+    # summarizes the trading day's signals, so firing it on weekends and NYSE
+    # holidays (when no market moved) is noise. Enforced here in the backend
+    # rather than the cron so it holds regardless of trigger (scheduled tick,
+    # manual workflow_dispatch, or a direct curl). ET is the reference clock,
+    # matching the idempotency key above.
+    if not is_market_open_today(now):
+        return DigestResponse(
+            status="skipped",
+            message=f"Market closed today ({_current_et_date().isoformat()} ET); digest not sent",
             created_at=now,
             duration_ms=int((perf_counter() - started) * 1000),
         )

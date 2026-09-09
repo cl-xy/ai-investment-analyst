@@ -39,12 +39,70 @@ class TestSendDigestAuth:
         assert response.status_code == 401
 
 
+class TestSendDigestMarketCalendar:
+    def test_returns_skipped_when_market_closed(self, client):
+        """On weekends and NYSE holidays the digest must not be sent."""
+        with patch.object(settings, "scheduler_secret_token", "correct-token"):
+            with (
+                patch(
+                    "src.api.routes.scheduled._digest_already_sent_today",
+                    new=AsyncMock(return_value=None),
+                ),
+                patch(
+                    "src.api.routes.scheduled.is_market_open_today",
+                    return_value=False,
+                ),
+                patch(
+                    "src.alerts.pipeline.get_monitored_tickers",
+                    new=AsyncMock(return_value=["NVDA"]),
+                ) as mock_monitored,
+            ):
+                response = client.post(
+                    "/api/scheduled/send-digest",
+                    headers={"x-scheduler-token": "correct-token"},
+                )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "skipped"
+        assert "Market closed today" in data["message"]
+        # Guard must short-circuit before any digest work happens.
+        mock_monitored.assert_not_awaited()
+
+    def test_market_open_guard_runs_after_idempotency_guard(self, client):
+        """If a digest was already sent, that skip reason wins over the
+        market-closed reason (idempotency is checked first)."""
+        from datetime import date
+
+        with patch.object(settings, "scheduler_secret_token", "correct-token"):
+            with (
+                patch(
+                    "src.api.routes.scheduled._digest_already_sent_today",
+                    new=AsyncMock(return_value=date(2026, 9, 4)),
+                ),
+                patch(
+                    "src.api.routes.scheduled.is_market_open_today",
+                    return_value=False,
+                ),
+            ):
+                response = client.post(
+                    "/api/scheduled/send-digest",
+                    headers={"x-scheduler-token": "correct-token"},
+                )
+
+        assert response.status_code == 200
+        assert "already sent today" in response.json()["message"]
+
+
 class TestSendDigestSuccess:
     def test_returns_skipped_when_no_monitored_tickers(self, client):
         with patch.object(settings, "scheduler_secret_token", "correct-token"):
-            with patch(
-                "src.api.routes.scheduled._digest_already_sent_today",
-                new=AsyncMock(return_value=None),
+            with (
+                patch(
+                    "src.api.routes.scheduled._digest_already_sent_today",
+                    new=AsyncMock(return_value=None),
+                ),
+                patch("src.api.routes.scheduled.is_market_open_today", return_value=True),
             ):
                 with patch(
                     "src.alerts.pipeline.get_monitored_tickers", new=AsyncMock(return_value=[])
@@ -88,6 +146,7 @@ class TestSendDigestSuccess:
                 patch(
                     "src.api.routes.scheduled._record_digest_sent", new=AsyncMock(return_value=None)
                 ),
+                patch("src.api.routes.scheduled.is_market_open_today", return_value=True),
                 patch(
                     "src.alerts.pipeline.get_monitored_tickers",
                     new=AsyncMock(return_value=["NVDA"]),
@@ -127,6 +186,7 @@ class TestSendDigestSuccess:
                     "src.api.routes.scheduled._digest_already_sent_today",
                     new=AsyncMock(return_value=None),
                 ),
+                patch("src.api.routes.scheduled.is_market_open_today", return_value=True),
                 patch(
                     "src.alerts.pipeline.get_monitored_tickers",
                     new=AsyncMock(side_effect=asyncio.TimeoutError()),
@@ -147,6 +207,7 @@ class TestSendDigestSuccess:
                     "src.api.routes.scheduled._digest_already_sent_today",
                     new=AsyncMock(return_value=None),
                 ),
+                patch("src.api.routes.scheduled.is_market_open_today", return_value=True),
                 patch(
                     "src.alerts.pipeline.get_monitored_tickers",
                     new=AsyncMock(side_effect=RuntimeError("boom")),

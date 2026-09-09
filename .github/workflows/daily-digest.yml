@@ -40,6 +40,19 @@ jobs:
           fi
 
           current_et=$(TZ=America/New_York date '+%H:%M')
+          # Skip weekends outright: the market is never open Sat/Sun, so
+          # there's no point calling the backend (it would just skip). US
+          # market holidays that fall on weekdays are NOT filtered here on
+          # purpose — the backend's market-calendar guard is the single
+          # source of truth for holidays, and duplicating that logic in bash
+          # would risk the two drifting apart. On a weekday holiday this
+          # workflow still calls the endpoint, which returns a benign
+          # `skipped` ("Market closed today"), handled below.
+          dow_et=$(TZ=America/New_York date '+%u')  # 1=Mon .. 7=Sun
+          if [[ "$dow_et" -ge 6 ]]; then
+            echo "run_now=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # Window covers 16:30 through 17:59 ET so a delayed/jittered
           # hourly tick still triggers the digest at least once. The
           # backend's idempotency guard prevents duplicate sends if more
@@ -96,7 +109,7 @@ jobs:
               # catching a duplicate tick within the tolerant window above).
               # Any other skip reason (lock contention, unexpected state)
               # should fail loudly instead of being silently swallowed.
-              if [[ "$message" == *"already sent today"* || "$message" == *"No monitored tickers"* ]]; then
+              if [[ "$message" == *"already sent today"* || "$message" == *"No monitored tickers"* || "$message" == *"Market closed today"* ]]; then
                 echo "Digest skipped (benign): $message"
               else
                 echo "::error::Digest skipped for an unexpected reason: $message"
