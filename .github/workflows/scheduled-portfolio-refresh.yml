@@ -1,33 +1,46 @@
-name: Scheduled Portfolio Refresh
+name: Scheduled Refresh and Digest
 
 on:
   schedule:
     # Runs hourly on the hour; the schedule_check step below gates the actual
     # trigger to a tolerant post-close window (23:00-23:59 ET) rather than a
     # single exact minute. GitHub Actions scheduled runs are best-effort and
-    # routinely jitter or are delayed by several minutes under load — the old
-    # exact `== "23:59"` string match meant a single missed/delayed tick
-    # silently skipped the whole day's portfolio refresh with no retry, which
-    # in turn froze the read-only daily digest on stale ticker_analyses rows.
-    # An hourly cron + window gives every tick in the 23:xx ET hour a chance
-    # to trigger, and the backend's in-process _RUN_LOCK + 900s lock window
-    # (scheduler_refresh_lock_seconds) makes it safe for more than one tick to
-    # reach the endpoint — only the first runs, the rest return status=skipped.
+    # routinely jitter or are delayed by several minutes under load — an exact
+    # single-minute match meant a single missed/delayed tick silently skipped
+    # the whole day. An hourly cron + window gives every tick in the 23:xx ET
+    # hour a chance to trigger, and the backend's idempotency guards make it
+    # safe for more than one tick to reach the endpoints:
+    #   - refresh: in-process _RUN_LOCK + 900s lock window
+    #     (scheduler_refresh_lock_seconds) — only the first runs, the rest
+    #     return status=skipped.
+    #   - digest: DB-backed once-per-ET-day guard (digest_sends) — only the
+    #     first send goes out, the rest return status=skipped.
     # 23:00-23:59 ET = 03:00-03:59 UTC (EDT) / 04:00-04:59 UTC (EST); a fixed
-    # UTC cron can't express that DST shift, so we check local ET on each tick
-    # instead (same pattern as daily-digest.yml).
+    # UTC cron can't express that DST shift, so we check local ET on each tick.
+    #
+    # Ordering: this single workflow runs the monitored-universe refresh FIRST
+    # and only triggers the daily digest AFTER the refresh call returns. The
+    # digest is strictly read-only against ticker_analyses, so running it after
+    # the refresh guarantees it reflects the freshly-written rows rather than
+    # yesterday's. This is why the standalone daily-digest.yml no longer runs on
+    # a schedule — sequencing both here removes the previous cross-workflow race
+    # where the afternoon digest read rows that the late-night refresh hadn't
+    # produced yet.
     - cron: "0 * * * *"
   workflow_dispatch:
 
 permissions: {}
 
 concurrency:
-  group: scheduled-portfolio-refresh
+  group: scheduled-refresh-and-digest
   cancel-in-progress: false
 
 jobs:
-  refresh:
+  refresh-and-digest:
     runs-on: ubuntu-latest
+    # Generous ceiling: the refresh endpoint can take up to ~300s for a
+    # multi-ticker monitored universe, plus the digest send afterwards.
+    timeout-minutes: 12
     steps:
       - name: Check ET schedule window
         id: schedule_check
@@ -39,17 +52,27 @@ jobs:
           fi
 
           current_et=$(TZ=America/New_York date '+%H:%M')
+          # Skip weekends outright: the market is never open Sat/Sun. US
+          # weekday holidays are NOT filtered here — the backend's
+          # market-calendar guard is the single source of truth for the
+          # digest, and the refresh endpoint safely handles any day.
+          dow_et=$(TZ=America/New_York date '+%u')  # 1=Mon .. 7=Sun
+          if [[ "$dow_et" -ge 6 ]]; then
+            echo "run_now=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # Window covers the whole 23:00-23:59 ET hour so a delayed/jittered
-          # hourly tick still triggers the refresh at least once. The backend's
-          # _RUN_LOCK + 900s lock window prevents a duplicate refresh if more
-          # than one tick in this window reaches the endpoint.
+          # hourly tick still triggers at least once. The backend idempotency
+          # guards prevent duplicate work if more than one tick reaches the
+          # endpoints.
           if [[ "$current_et" > "22:59" && "$current_et" < "23:59" || "$current_et" == "23:59" ]]; then
             echo "run_now=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_now=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Trigger backend scheduled refresh
+      - name: Trigger backend monitored-universe refresh
+        id: refresh
         if: steps.schedule_check.outputs.run_now == 'true'
         env:
           SCHEDULED_REFRESH_URL: ${{ secrets.SCHEDULED_REFRESH_URL }}
@@ -57,11 +80,128 @@ jobs:
         run: |
           test -n "$SCHEDULED_REFRESH_URL"
           test -n "$SCHEDULER_SECRET_TOKEN"
-          curl --fail --show-error --silent \
+          # --max-time must exceed the backend's 300s _PORTFOLIO_TIMEOUT so the
+          # curl waits for the refresh to genuinely complete before the digest
+          # step below runs. A shorter client timeout would let the digest fire
+          # against half-written rows.
+          #
+          # NOTE: --fail only catches non-2xx HTTP responses. The refresh
+          # endpoint returns HTTP 200 with a JSON body of status=skipped for
+          # several legitimate cases (no monitored tickers, analysis slot at
+          # capacity, in-process lock-window collision) — those are NOT
+          # errors at the HTTP level, so --fail alone doesn't stop the digest
+          # step from running against stale rows. We must inspect the body.
+          http_status=$(curl --show-error --silent \
+            --retry 3 \
+            --retry-all-errors \
+            --connect-timeout 10 \
+            --max-time 330 \
+            --output refresh_response.json \
+            --write-out "%{http_code}" \
+            -X POST "$SCHEDULED_REFRESH_URL" \
+            -H "x-scheduler-token: $SCHEDULER_SECRET_TOKEN" \
+            -H "content-type: application/json")
+
+          echo "HTTP status: $http_status"
+          echo "Response body:"
+          cat refresh_response.json
+          echo
+
+          if [[ "$http_status" -lt 200 || "$http_status" -ge 300 ]]; then
+            echo "::error::Refresh endpoint returned HTTP $http_status"
+            echo "status=failed" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          status=$(jq -r '.status // "missing"' refresh_response.json)
+          message=$(jq -r '.message // "no message"' refresh_response.json)
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+          case "$status" in
+            success)
+              echo "Refresh completed successfully: $message"
+              ;;
+            skipped)
+              # These are real no-ops: no ticker_analyses rows were written,
+              # so the digest step below must not run against stale data.
+              # Surfaced as a workflow error (not silently swallowed) so
+              # persistent skipping is visible instead of masquerading as a
+              # normal daily digest.
+              echo "::warning::Refresh skipped, digest will be skipped too: $message"
+              ;;
+            failed)
+              echo "::error::Refresh failed: $message"
+              exit 1
+              ;;
+            *)
+              echo "::error::Unexpected or missing status in response body: $status"
+              exit 1
+              ;;
+          esac
+
+      - name: Trigger backend daily digest
+        # Gated on the refresh step's *actual* JSON status, not just its HTTP
+        # code. curl --fail treats HTTP 200 as success even when the body
+        # says status=skipped (no monitored tickers, capacity limit, lock
+        # collision) — in that case no fresh ticker_analyses rows exist, so
+        # sending the digest here would just resend yesterday's content.
+        # `steps.refresh.outcome == 'success'` still gives us the "step
+        # didn't hard-fail" guarantee; the added output check gives us the
+        # "and it genuinely refreshed something" guarantee.
+        if: steps.schedule_check.outputs.run_now == 'true' && steps.refresh.outputs.status == 'success'
+        env:
+          DAILY_DIGEST_URL: ${{ secrets.DAILY_DIGEST_URL }}
+          SCHEDULER_SECRET_TOKEN: ${{ secrets.SCHEDULER_SECRET_TOKEN }}
+        run: |
+          test -n "$DAILY_DIGEST_URL"
+          test -n "$SCHEDULER_SECRET_TOKEN"
+
+          http_status=$(curl --show-error --silent \
             --retry 3 \
             --retry-all-errors \
             --connect-timeout 10 \
             --max-time 120 \
-            -X POST "$SCHEDULED_REFRESH_URL" \
+            --output response.json \
+            --write-out "%{http_code}" \
+            -X POST "$DAILY_DIGEST_URL" \
             -H "x-scheduler-token: $SCHEDULER_SECRET_TOKEN" \
-            -H "content-type: application/json"
+            -H "content-type: application/json")
+
+          echo "HTTP status: $http_status"
+          echo "Response body:"
+          cat response.json
+          echo
+
+          if [[ "$http_status" -lt 200 || "$http_status" -ge 300 ]]; then
+            echo "::error::Digest endpoint returned HTTP $http_status"
+            exit 1
+          fi
+
+          status=$(jq -r '.status // "missing"' response.json)
+          message=$(jq -r '.message // "no message"' response.json)
+
+          case "$status" in
+            success)
+              echo "Digest sent successfully: $message"
+              ;;
+            skipped)
+              # Benign skips: no monitored tickers, already sent today
+              # (idempotency guard), or market closed (weekday holiday — the
+              # window check above only filters weekends). Anything else
+              # (lock contention, unexpected state) fails loudly.
+              if [[ "$message" == *"already sent today"* || "$message" == *"No monitored tickers"* || "$message" == *"Market closed today"* ]]; then
+                echo "Digest skipped (benign): $message"
+              else
+                echo "::error::Digest skipped for an unexpected reason: $message"
+                exit 1
+              fi
+              ;;
+            failed)
+              echo "::error::Digest send failed: $message"
+              exit 1
+              ;;
+            *)
+              echo "::error::Unexpected or missing status in response body: $status"
+              exit 1
+              ;;
+          esac
