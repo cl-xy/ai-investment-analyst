@@ -140,8 +140,8 @@ class TestRefreshPortfolioAlertHook:
 
         with patch.object(settings, "scheduler_secret_token", "correct-token"):
             with patch(
-                "src.api.routes.scheduled.fetch_all_positions",
-                new=AsyncMock(return_value=[{"ticker": "NVDA"}]),
+                "src.api.routes.scheduled.get_monitored_tickers",
+                new=AsyncMock(return_value=["NVDA"]),
             ):
                 with patch(
                     "src.api.routes.scheduled.analyze_tickers",

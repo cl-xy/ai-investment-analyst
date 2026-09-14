@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Header, HTTPException, Request
 
 from src.agent.concurrency import acquire_analysis_slot, release_analysis_slot
-from src.alerts.pipeline import evaluate_all_monitored
+from src.alerts.pipeline import evaluate_all_monitored, get_monitored_tickers
 from src.config import settings
 from src.db import execute, fetchrow
 from src.market_calendar import is_market_open_today
@@ -131,14 +131,20 @@ async def refresh_portfolio_analyses(
                     duration_ms=int((perf_counter() - started) * 1000),
                 )
 
-        positions = await fetch_all_positions()
-        tickers = _get_unique_portfolio_tickers(positions)
+        # Refresh the full monitored universe (portfolio positions ∪ active
+        # watchlist alert subscriptions), not just portfolio positions. The
+        # daily digest reads get_last_analysis() for every monitored ticker,
+        # so watchlist-only tickers used to never get a scheduled refresh and
+        # their digest lines were frozen on whatever their last manual/alert
+        # analysis produced. Sourcing the same monitored universe here keeps
+        # every ticker the digest can show refreshed on the daily cadence.
+        tickers = await get_monitored_tickers()
 
         if not tickers:
-            logger.info("scheduled_refresh_skipped_empty_portfolio")
+            logger.info("scheduled_refresh_skipped_no_monitored_tickers")
             return ScheduledRefreshResponse(
                 status="skipped",
-                message="Portfolio is empty; no tickers to refresh",
+                message="No monitored tickers to refresh",
                 tickers=[],
                 created_at=datetime.now(timezone.utc),
                 duration_ms=int((perf_counter() - started) * 1000),
@@ -206,18 +212,20 @@ async def refresh_portfolio_analyses(
         )
 
         # Best-effort hook: piggyback a full alert-evaluation pass on a
-        # successful portfolio refresh. Note this deliberately does NOT
-        # re-check the tickers just refreshed above — force_refresh=True
-        # means their new analysis *is* the fresh baseline, so drift against
-        # itself would always be zero. Instead this catches drift on any
-        # other monitored ticker (e.g. watchlist-only subscriptions) using
-        # already-warm probe caches. Fire-and-forget: must not extend this
+        # successful refresh. Since this refresh now covers the *entire*
+        # monitored universe (portfolio ∪ watchlist) with force_refresh=True,
+        # each refreshed ticker's new analysis *is* its own fresh baseline, so
+        # drift-against-itself is ~zero and this pass will rarely fire an
+        # alert. It's retained (rather than removed) because it also reconciles
+        # alert bookkeeping and catches any ticker that failed to refresh above
+        # (persisted as insufficient_data and thus still diffed against its
+        # prior good baseline). Fire-and-forget: must not extend this
         # endpoint's response latency or be bound by its timeout.
         asyncio.create_task(_evaluate_alerts_best_effort())
 
         return ScheduledRefreshResponse(
             status="success",
-            message="Portfolio analysis refreshed",
+            message="Monitored-universe analysis refreshed",
             tickers=tickers,
             analysis_id=analysis.id,
             created_at=analysis.created_at,

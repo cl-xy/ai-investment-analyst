@@ -1,22 +1,18 @@
-name: Daily Digest
+name: Daily Digest (manual)
+
+# NOTE: The scheduled daily digest is NOT triggered here anymore. It runs as
+# the second step of `scheduled-portfolio-refresh.yml` (Scheduled Refresh and
+# Digest), immediately after the monitored-universe refresh completes, so the
+# digest always reflects freshly-refreshed ticker_analyses rows. Keeping a
+# second scheduled trigger here would reintroduce the cross-workflow race
+# (afternoon digest reading pre-refresh rows) this change removed.
+#
+# This workflow is retained for manual/on-demand sends only (workflow_dispatch).
+# The backend's DB-backed once-per-ET-day idempotency guard (digest_sends)
+# means a manual run on a day the chained workflow already sent will safely
+# return status=skipped ("already sent today").
 
 on:
-  schedule:
-    # Runs hourly on the half-hour; the schedule_check step below gates the
-    # actual trigger to a tolerant post-market-close window rather than a
-    # single exact minute. GitHub Actions scheduled runs are best-effort and
-    # can jitter or be delayed by several minutes under load — an exact
-    # `== "16:30"` string match meant a single missed/delayed tick silently
-    # skipped the whole day with no retry. The window below (16:30-17:59 ET)
-    # gives 90 extra minutes of ticks to catch up, and the backend's
-    # DB-backed idempotency guard (digest_sends, keyed on ET date) makes it
-    # safe for multiple ticks in the window to all call the endpoint — only
-    # the first actually sends, the rest come back `status=skipped`.
-    # 16:30-17:59 ET = 20:30-21:59 UTC during EDT, 21:30-22:59 UTC during
-    # EST — a fixed UTC cron can't express that DST shift, so we check local
-    # time on every hourly tick instead (same pattern as
-    # scheduled-portfolio-refresh.yml).
-    - cron: "30 * * * *"
   workflow_dispatch:
 
 permissions: {}
@@ -30,41 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Check ET schedule window
-        id: schedule_check
-        shell: bash
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "run_now=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          current_et=$(TZ=America/New_York date '+%H:%M')
-          # Skip weekends outright: the market is never open Sat/Sun, so
-          # there's no point calling the backend (it would just skip). US
-          # market holidays that fall on weekdays are NOT filtered here on
-          # purpose — the backend's market-calendar guard is the single
-          # source of truth for holidays, and duplicating that logic in bash
-          # would risk the two drifting apart. On a weekday holiday this
-          # workflow still calls the endpoint, which returns a benign
-          # `skipped` ("Market closed today"), handled below.
-          dow_et=$(TZ=America/New_York date '+%u')  # 1=Mon .. 7=Sun
-          if [[ "$dow_et" -ge 6 ]]; then
-            echo "run_now=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # Window covers 16:30 through 17:59 ET so a delayed/jittered
-          # hourly tick still triggers the digest at least once. The
-          # backend's idempotency guard prevents duplicate sends if more
-          # than one tick in this window reaches the endpoint.
-          if [[ "$current_et" > "16:29" && "$current_et" < "18:00" ]]; then
-            echo "run_now=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run_now=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Trigger backend daily digest
-        if: steps.schedule_check.outputs.run_now == 'true'
         env:
           DAILY_DIGEST_URL: ${{ secrets.DAILY_DIGEST_URL }}
           SCHEDULER_SECRET_TOKEN: ${{ secrets.SCHEDULER_SECRET_TOKEN }}
