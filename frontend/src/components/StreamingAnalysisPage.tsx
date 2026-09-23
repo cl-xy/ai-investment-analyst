@@ -250,12 +250,24 @@ export default function StreamingAnalysisPage() {
             <TimeoutBanner
               timeout={timeout}
               onRetryIncomplete={() => {
-                // Navigate to a fresh analysis scoped to just the incomplete
-                // tickers. Going through the URL (rather than calling connect()
-                // directly) keeps this consistent with how every other entry
-                // point starts a run, and lets the confirmation/back-button
-                // flow behave normally for the new run.
-                navigate(`/analyze?tickers=${timeout.incomplete_tickers.join(',')}`)
+                const nextTickers = timeout.incomplete_tickers
+                const nextKey = [...nextTickers].map((t) => t.toUpperCase()).sort().join(',')
+                if (nextKey === currentTickerKey) {
+                  // Same ticker set already in the URL (single-ticker or
+                  // all-pending timeout), so navigating to the same path is
+                  // a no-op and the ticker-key effect that normally resets
+                  // hasConnectedRef never fires. Force the reconnect directly.
+                  hasConnectedRef.current = false
+                  connect(nextTickers)
+                  document.title = `Analyzing ${nextTickers.join(', ')}... | AI Investment Analyst`
+                } else {
+                  // Navigate to a fresh analysis scoped to just the incomplete
+                  // tickers. Going through the URL (rather than calling connect()
+                  // directly) keeps this consistent with how every other entry
+                  // point starts a run, and lets the confirmation/back-button
+                  // flow behave normally for the new run.
+                  navigate(`/analyze?tickers=${nextTickers.join(',')}`)
+                }
               }}
             />
           )}
