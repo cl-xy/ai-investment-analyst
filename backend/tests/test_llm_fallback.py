@@ -45,8 +45,7 @@ class TestClassifyError:
 
     def test_circuit_breaker_open_falls_back(self):
         assert (
-            _classify_error(CircuitBreakerOpen(retry_after=1.0))
-            == ErrorSeverity.FALLBACK_TO_OTHER
+            _classify_error(CircuitBreakerOpen(retry_after=1.0)) == ErrorSeverity.FALLBACK_TO_OTHER
         )
 
     @pytest.mark.parametrize(
@@ -110,7 +109,9 @@ async def _passthrough_call(fn, *args, **kwargs):
 @pytest.fixture(autouse=True)
 def _bypass_breakers():
     with (
-        patch("src.agent.llm_fallback.llm_breaker.call", new=AsyncMock(side_effect=_passthrough_call)),
+        patch(
+            "src.agent.llm_fallback.llm_breaker.call", new=AsyncMock(side_effect=_passthrough_call)
+        ),
         patch(
             "src.agent.llm_fallback._fallback_breaker.call",
             new=AsyncMock(side_effect=_passthrough_call),
