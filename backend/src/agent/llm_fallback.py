@@ -65,13 +65,15 @@ def _classify_error(exc: BaseException) -> ErrorSeverity:
         return ErrorSeverity.FALLBACK_TO_OTHER
     if "timeout" in exc_str:
         return ErrorSeverity.FALLBACK_TO_OTHER
+    if "overloaded" in exc_str:
+        return ErrorSeverity.FALLBACK_TO_OTHER
 
     # Rate limit or transient: retry same model first
     if re.search(r"\b(429|500)\b", exc_str):
         return ErrorSeverity.RETRY_SAME_MODEL
     if "rate limit" in exc_str:
         return ErrorSeverity.RETRY_SAME_MODEL
-    if any(term in exc_str for term in ("connection", "temporary", "unavailable")):
+    if any(term in exc_str for term in ("connection", "temporar", "unavailable")):
         return ErrorSeverity.RETRY_SAME_MODEL
 
     return ErrorSeverity.NOT_RETRYABLE
