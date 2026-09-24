@@ -92,9 +92,7 @@ class TestLoginEndpoint:
         assert "token" in response.json()
 
     def test_login_with_wrong_password_fails(self, client):
-        response = client.post(
-            "/api/auth/login", json={"username": "admin", "password": "wrong"}
-        )
+        response = client.post("/api/auth/login", json={"username": "admin", "password": "wrong"})
         assert response.status_code == 401
 
     def test_login_with_wrong_username_fails(self, client):
@@ -112,9 +110,7 @@ class TestLoginEndpoint:
             )
             token = login_response.json()["token"]
 
-            response = client.get(
-                "/api/dashboard", headers={"Authorization": f"Bearer {token}"}
-            )
+            response = client.get("/api/dashboard", headers={"Authorization": f"Bearer {token}"})
             assert response.status_code != 401
 
     def test_invalid_session_token_rejected_on_protected_route(self, client):
