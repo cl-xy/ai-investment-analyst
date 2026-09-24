@@ -68,10 +68,6 @@ export default function LoginPage() {
         >
           {loading ? 'Signing in…' : 'Sign in'}
         </button>
-
-        <p className="text-xs text-[var(--text-muted)] text-center mt-4">
-          Default credentials: <code>admin</code> / <code>investor2026</code>
-        </p>
       </form>
     </div>
   )
