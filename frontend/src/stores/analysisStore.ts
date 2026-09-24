@@ -139,18 +139,31 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
     })),
 
   setComplete: (meta: RunCompletedPayload) =>
-    set((state) => ({
-      isStreaming: false,
-      currentNode: null,
-      runMeta: state.runMeta
-        ? {
-            ...state.runMeta,
-            totalDurationMs: meta.total_duration_ms,
-            totalTokens: meta.total_tokens,
-            costUsd: meta.cost_usd,
-          }
-        : null,
-    })),
+    set((state) => {
+      // The run is fully done, so no debate should still be "in progress" —
+      // clear any lingering isActive flags in case a debate_verdict event
+      // was missed/delayed, which would otherwise leave the loading text
+      // ("CIO deliberating verdict...") stuck forever.
+      const debates = { ...state.debates }
+      for (const ticker of Object.keys(debates)) {
+        if (debates[ticker].isActive) {
+          debates[ticker] = { ...debates[ticker], isActive: false }
+        }
+      }
+      return {
+        isStreaming: false,
+        currentNode: null,
+        runMeta: state.runMeta
+          ? {
+              ...state.runMeta,
+              totalDurationMs: meta.total_duration_ms,
+              totalTokens: meta.total_tokens,
+              costUsd: meta.cost_usd,
+            }
+          : null,
+        debates,
+      }
+    }),
 
   setError: (error: string) =>
     set((state) => {
