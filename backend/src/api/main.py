@@ -42,6 +42,7 @@ from .routes.alerts import router as alerts_router
 from .routes.analyze import router as analyze_router
 from .routes.analyze_stream import router as analyze_stream_router
 from .routes.audit import router as audit_router
+from .routes.auth import router as auth_router
 from .routes.backtest import router as backtest_router
 from .routes.calibration import router as calibration_router
 from .routes.chat import router as chat_router
@@ -117,6 +118,7 @@ app.include_router(health_router, prefix="/api")
 app.include_router(analyze_router, prefix="/api")
 app.include_router(analyze_stream_router, prefix="/api")
 app.include_router(audit_router)
+app.include_router(auth_router, prefix="/api")
 app.include_router(backtest_router, prefix="/api")
 app.include_router(calibration_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")

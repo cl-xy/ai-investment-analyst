@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { TrendingUp, Menu, X, ChevronDown } from 'lucide-react'
+import { TrendingUp, Menu, X, ChevronDown, LogOut } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { ThemeSwitcher } from './ThemeSwitcher'
 import { SaveStatusChip } from './SaveStatusChip'
 import { AlertsBadge } from './AlertsBadge'
 import { useSaveStatusStore } from '../stores/saveStatusStore'
+import { useAuthStore } from '../stores/authStore'
 
 const PRIMARY_NAV = [
   { to: '/', label: 'Analyze' },
@@ -54,6 +55,8 @@ export default function Header() {
   const handleDropdownClose = useCallback(() => {
     setOpenDropdownId(null)
   }, [])
+
+  const logout = useAuthStore((s) => s.logout)
 
   return (
     <header className="border-b border-[var(--border)] bg-[var(--surface)]">
@@ -113,6 +116,16 @@ export default function Header() {
 
           {/* Signal alerts (unread count badge) */}
           <AlertsBadge />
+
+          {/* Logout */}
+          <button
+            onClick={logout}
+            className="hidden md:flex min-w-[44px] min-h-[44px] items-center justify-center rounded-lg hover:bg-[var(--surface-elevated)] transition-colors focus-ring"
+            aria-label="Sign out"
+            title="Sign out"
+          >
+            <LogOut className="w-4 h-4 text-[var(--text-secondary)]" />
+          </button>
 
           {/* Mobile hamburger */}
           <button

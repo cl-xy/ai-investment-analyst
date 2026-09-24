@@ -81,3 +81,45 @@ class TestDemoAuth:
             # Health should still work
             response = client.get("/api/health")
             assert response.status_code == 200
+
+
+class TestLoginEndpoint:
+    def test_login_with_default_credentials_succeeds(self, client):
+        response = client.post(
+            "/api/auth/login", json={"username": "admin", "password": "investor2026"}
+        )
+        assert response.status_code == 200
+        assert "token" in response.json()
+
+    def test_login_with_wrong_password_fails(self, client):
+        response = client.post(
+            "/api/auth/login", json={"username": "admin", "password": "wrong"}
+        )
+        assert response.status_code == 401
+
+    def test_login_with_wrong_username_fails(self, client):
+        response = client.post(
+            "/api/auth/login", json={"username": "someone-else", "password": "investor2026"}
+        )
+        assert response.status_code == 401
+
+    def test_session_token_accepted_on_protected_route(self, client):
+        # Patch the module-level cache directly: DEMO_PASSWORD is read once
+        # at import time, so patch.dict("os.environ", ...) alone has no effect.
+        with patch("src.middleware.auth._DEMO_PASSWORD", "secret123"):
+            login_response = client.post(
+                "/api/auth/login", json={"username": "admin", "password": "investor2026"}
+            )
+            token = login_response.json()["token"]
+
+            response = client.get(
+                "/api/dashboard", headers={"Authorization": f"Bearer {token}"}
+            )
+            assert response.status_code != 401
+
+    def test_invalid_session_token_rejected_on_protected_route(self, client):
+        with patch("src.middleware.auth._DEMO_PASSWORD", "secret123"):
+            response = client.get(
+                "/api/dashboard", headers={"Authorization": "Bearer not-a-real-token"}
+            )
+            assert response.status_code == 401

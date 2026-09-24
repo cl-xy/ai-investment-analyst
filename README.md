@@ -7,7 +7,7 @@
 
 ![Demo](docs/assets/demo.gif)
 
-**[Live Demo](https://ai-investment-analyst-iota.vercel.app)** · Password: `investor2026` · [Video Walkthrough](#walkthrough)
+**[Live Demo](https://ai-investment-analyst-iota.vercel.app)** · Login: `admin` / `investor2026` · [Video Walkthrough](#walkthrough)
 
 ---
 
@@ -299,7 +299,9 @@ Environment variables needed:
 OPENROUTER_API_KEY    # Required: get free key at openrouter.ai
 DATABASE_URL          # PostgreSQL connection string
 NEWS_API_KEY          # Optional: NewsAPI.org key
-DEMO_PASSWORD         # Optional: gate the demo
+DEMO_PASSWORD         # Optional: gate specific API routes
+ADMIN_USERNAME        # Optional: frontend login username (default: admin)
+ADMIN_PASSWORD        # Optional: frontend login password (default: investor2026)
 ```
 
 ---
@@ -328,7 +330,7 @@ DEMO_PASSWORD         # Optional: gate the demo
 - **No real-time prices**: yfinance data has 15-min delay during market hours.
 - **SEC filings**: Only 10-K summaries. No 8-K, no earnings call transcripts.
 - **Single retry on validation failure**: If the LLM produces invalid JSON twice, falls back to partial extraction with disclosed data_gaps.
-- **Shared demo password**: Production uses a single password gate, not user accounts.
+- **Shared demo login**: Production uses a single admin username/password, not per-user accounts.
 
 ---
 

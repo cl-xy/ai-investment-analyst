@@ -15,6 +15,8 @@ import { useRestorableState } from './hooks/useRestorableState'
 import { useRecentTickers } from './hooks/useRecentTickers'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { toastUndo } from './stores/toastStore'
+import { useAuthStore } from './stores/authStore'
+import LoginPage from './components/LoginPage'
 import { lazyRetry } from './utils/lazyRetry'
 
 // #24: Code-split routes with chunk-hash recovery
@@ -80,6 +82,7 @@ export default function App() {
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const { helpOpen, setHelpOpen } = useKeyboardShortcuts()
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
   // #22: Persist watchlist state across refreshes
   const [rawTickers, setTickers] = useRestorableState<string[]>('watchlist', [])
   const { recordUsage } = useRecentTickers()
@@ -127,6 +130,10 @@ export default function App() {
     if (current.length === 0) return
     const tickerParam = current.join(',')
     navigate(`/analyze?tickers=${encodeURIComponent(tickerParam)}`)
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage />
   }
 
   return (
