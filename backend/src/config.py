@@ -12,9 +12,11 @@ class Settings(BaseSettings):
     # LLM models
     llm_base_url: str = "https://openrouter.ai/api/v1"
     llm_model: str = "nvidia/nemotron-3-super-120b-a12b:free"
-    llm_model_fallback: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+    # Keep fallbacks on a different upstream provider so an Nvidia worker
+    # exhaustion does not also take down the recovery path.
+    llm_model_fallback: str = "google/gemma-4-31b-it:free"
     llm_router_model: str = "nvidia/nemotron-3.5-lightning:free"
-    llm_router_model_fallback: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+    llm_router_model_fallback: str = "google/gemma-4-31b-it:free"
 
     # External APIs
     news_api_key: str = ""
