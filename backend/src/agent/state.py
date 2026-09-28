@@ -71,6 +71,9 @@ class InvestmentAnalystState(TypedDict):
     run_evidence: NotRequired[RunEvidence | None]
 
     report_markdown: NotRequired[str]
+    # Whether the optional narrative report was generated, timed out, or failed.
+    # A ticker analysis remains valid if this post-processing step is unavailable.
+    report_status: NotRequired[Literal["generated", "timed_out", "failed"]]
     comparison: NotRequired[dict | None]  # Populated when 2+ tickers analyzed
     peer_comparison: NotRequired[dict | None]  # Auto sector-peer context (single-ticker runs)
     current_ticker: NotRequired[str | None]

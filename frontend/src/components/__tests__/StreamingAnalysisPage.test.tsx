@@ -86,4 +86,29 @@ describe('StreamingAnalysisPage', () => {
       expect(esSpy).toHaveBeenCalledTimes(2)
     })
   })
+
+  it('keeps a completed analysis successful when only report synthesis times out', async () => {
+    const user = userEvent.setup()
+    renderWithRoute('?tickers=MDB')
+    await user.click(screen.getByRole('button', { name: /start analysis/i }))
+
+    useAnalysisStore.setState({
+      analyses: {
+        MDB: {
+          ticker: 'MDB', signal: 'hold', confidence: 'medium', sentiment_score: 0,
+          risk_flags: [], price_data: {}, fundamentals: {}, sec_notes: '',
+        },
+      },
+      isStreaming: false,
+      events: [{
+        run_id: 'run-1', seq: 1, type: 'warning', timestamp: new Date().toISOString(),
+        node: null, tool: null, correlation_id: null,
+        payload: { context: 'generate_report', message: 'Report synthesis timed out' },
+      }],
+    })
+
+    expect(screen.getByText('Analysis complete')).toBeInTheDocument()
+    expect(screen.getByText(/report synthesis timed out/i)).toBeInTheDocument()
+    expect(screen.queryByText('Analysis partially timed out')).not.toBeInTheDocument()
+  })
 })

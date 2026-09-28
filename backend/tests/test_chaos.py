@@ -150,6 +150,7 @@ class TestLLMTimeoutReturnsErrorEvent:
 
     @patch("src.api.routes.analyze_stream.EXECUTION_TIMEOUT_BASE", 1)
     @patch("src.api.routes.analyze_stream.EXECUTION_TIMEOUT_PER_TICKER", 1)
+    @patch("src.api.routes.analyze_stream.REPORT_GENERATION_TIMEOUT", 0)
     @patch("src.api.routes.analyze_stream.get_checkpointer")
     @patch("src.api.routes.analyze_stream.build_graph")
     def test_llm_timeout_returns_error_event(self, mock_build_graph, mock_checkpointer, client):

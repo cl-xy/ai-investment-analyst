@@ -33,6 +33,13 @@ export default function StreamingAnalysisPage() {
   const dissent = useDissentDetection()
 
   const toolResults = useMemo(() => events.filter((e) => e.type === 'tool_result'), [events])
+  const reportGenerationTimedOut = useMemo(
+    () => events.some((event) => (
+      event.type === 'warning'
+      && (event.payload as { context?: string }).context === 'generate_report'
+    )),
+    [events],
+  )
 
   const tickerParam = searchParams.get('tickers') || ''
   // Dedup and normalize first, then split into valid/invalid so the URL can never
@@ -272,6 +279,20 @@ export default function StreamingAnalysisPage() {
             />
           )}
 
+          {reportGenerationTimedOut && (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-5">
+              <div className="flex items-start gap-3">
+                <Clock className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-amber-500">Analysis complete</p>
+                  <p className="text-sm text-[var(--text-secondary)] mt-1">
+                    Report synthesis timed out, but the completed ticker analysis and evidence remain available below.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Error state */}
           {error && (
             <div className="rounded-xl border border-[var(--error)]/20 bg-[var(--error-bg)] p-5">
@@ -450,7 +471,10 @@ function TimeoutBanner({
   }, [timeout])
 
   const canRetryNow = secondsLeft <= 0
-  const hasCompleted = timeout.completed_tickers.length > 0
+  const hasIncomplete = timeout.incomplete_tickers.length > 0
+  const reportOnlyTimeout = !hasIncomplete
+    && timeout.completed_tickers.length > 0
+    && timeout.stage === 'generate_report'
 
   return (
     <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-5">
@@ -458,7 +482,9 @@ function TimeoutBanner({
         <Clock className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
         <div className="flex-1">
           <p className="text-sm font-medium text-amber-500">
-            {hasCompleted ? 'Analysis partially timed out' : 'Analysis timed out'}
+            {reportOnlyTimeout
+              ? 'Analysis complete'
+              : hasIncomplete ? 'Analysis partially timed out' : 'Analysis timed out'}
           </p>
           <p className="text-sm text-[var(--text-secondary)] mt-1">{timeout.message}</p>
           {timeout.incomplete_tickers.length > 0 && (

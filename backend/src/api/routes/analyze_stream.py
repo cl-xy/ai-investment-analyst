@@ -26,6 +26,7 @@ from src.agent.events import EventEmitter, EventType, StreamEvent
 from src.agent.graph import build_graph
 from src.agent.json_utils import extract_json
 from src.agent.nodes.debate import _dedup_text
+from src.agent.nodes.generate_report import REPORT_GENERATION_TIMEOUT
 from src.api.schemas import VALID_TICKER_RE
 from src.api.shutdown import shutdown_coordinator
 from src.logging_config import request_id_ctx
@@ -39,9 +40,12 @@ router = APIRouter()
 
 HEARTBEAT_INTERVAL = 15  # seconds
 EXECUTION_TIMEOUT_PER_TICKER = (
-    180  # seconds per ticker for debate (free tier LLMs: 30-73s x3 calls + report)
+    180  # seconds per ticker for data collection and debate (free-tier LLMs: 30-73s x3 calls)
 )
 EXECUTION_TIMEOUT_BASE = 75  # base overhead (graph setup, data fetch, cold-start margin)
+# The final narrative report has an independent, bounded timeout in its node.
+# Reserve that interval outside the per-ticker analysis budget so a report call
+# cannot consume the margin intended for fetching and debate.
 # Raised from 30s: Fly.io machines scale to zero (min_machines_running=0) when idle.
 # Observed cold start (proxy retry loop + Firecracker boot + app startup: DB pool,
 # MCP tools_ready) takes ~20-30s before the request even reaches the LangGraph.
@@ -424,9 +428,12 @@ async def _run_agent(
                                 )
                                 await queue.put(ev.to_sse())
 
-            # Scale timeout with ticker count: each ticker's debate takes ~100s
-            execution_timeout = EXECUTION_TIMEOUT_BASE + (
-                len(tickers_upper) * EXECUTION_TIMEOUT_PER_TICKER
+            # Scale timeout with ticker count. Report synthesis receives its own
+            # bounded interval and does not steal from the per-ticker budget.
+            execution_timeout = (
+                EXECUTION_TIMEOUT_BASE
+                + (len(tickers_upper) * EXECUTION_TIMEOUT_PER_TICKER)
+                + REPORT_GENERATION_TIMEOUT
             )
 
             _timeout_stage: str | None = None
@@ -450,6 +457,16 @@ async def _run_agent(
             final_state = await compiled.aget_state(config)
             state_values = final_state.values if final_state else {}
             ticker_analyses = state_values.get("ticker_analyses", {})
+
+            # The individual analyses are complete even if optional narrative
+            # synthesis timed out. Surface this as a warning rather than a run
+            # timeout so clients retain a successful analysis state.
+            if state_values.get("report_status") == "timed_out":
+                ev = emitter.warning(
+                    "Analysis complete; report synthesis timed out. Individual ticker results are available.",
+                    context="generate_report",
+                )
+                await queue.put(ev.to_sse())
 
             if _timed_out:
                 completed = [t for t in tickers_upper if t in ticker_analyses]
