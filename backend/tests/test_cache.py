@@ -31,6 +31,24 @@ class TestTTLConfig:
 
 class TestCacheManager:
     @pytest.mark.asyncio
+    async def test_store_persists_a_pre_fetched_company_profile(self):
+        cache = CacheManager()
+        with patch.object(cache, "_store", new_callable=AsyncMock) as mock_store:
+            await cache.store(
+                "yfinance",
+                "get_company_profile",
+                "CBRS",
+                {"description": "A saved company description"},
+            )
+
+        mock_store.assert_awaited_once()
+        key, data, _source_id, provider, ttl, _now = mock_store.await_args.args
+        assert key == "yfinance:get_company_profile:CBRS"
+        assert data == {"description": "A saved company description"}
+        assert provider == "yfinance"
+        assert ttl == {"fresh": 604800, "stale": 2592000, "expire": 7776000}
+
+    @pytest.mark.asyncio
     @patch("src.cache.manager.fetchrow")
     @patch("src.cache.manager.execute")
     async def test_cache_miss_calls_fetch(self, mock_execute, mock_fetchrow):

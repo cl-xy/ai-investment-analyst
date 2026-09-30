@@ -14,6 +14,7 @@ import yfinance as yf
 from cachetools import TTLCache
 from fastapi import APIRouter, HTTPException, Request
 
+from src.cache.manager import cache_manager
 from src.middleware.auth import limiter
 
 from ..schemas import ExploreResponse, NewsItem, PricePoint, StockDetail, TrendingStock
@@ -34,6 +35,8 @@ _DETAIL_LOCK_MAX = 100
 _CACHE_KEY = "explore"
 _YF_EXECUTOR = ThreadPoolExecutor(max_workers=4)
 _YF_TIMEOUT = 15  # seconds, max wait for a yfinance executor call
+_PROFILE_CACHE_PROVIDER = "yfinance"
+_PROFILE_CACHE_TOOL = "get_company_profile"
 
 # Single-flight locks to prevent cache stampede
 _explore_lock = asyncio.Lock()
@@ -119,7 +122,8 @@ async def _fetch_yf_info(ticker: str) -> dict:
     def _get() -> dict:
         try:
             return yf.Ticker(ticker).info or {}
-        except Exception:
+        except Exception as exc:
+            logger.warning("yfinance info failed for %s: %s", ticker, exc)
             return {}
 
     try:
@@ -127,6 +131,42 @@ async def _fetch_yf_info(ticker: str) -> dict:
     except asyncio.TimeoutError:
         logger.warning("yfinance info timeout for %s", ticker)
         return {}
+
+
+def _profile_description(info: dict) -> str | None:
+    """Return a usable company description, never an empty string."""
+    description = info.get("longBusinessSummary")
+    if not isinstance(description, str):
+        return None
+    return description.strip() or None
+
+
+async def _save_last_known_profile(ticker: str, description: str) -> None:
+    """Best-effort persistence; profile caching must not break Explore."""
+    try:
+        await cache_manager.store(
+            _PROFILE_CACHE_PROVIDER,
+            _PROFILE_CACHE_TOOL,
+            ticker,
+            {"description": description},
+        )
+    except Exception as exc:
+        logger.warning("Could not save company profile cache for %s: %s", ticker, exc)
+
+
+async def _load_last_known_description(ticker: str) -> str | None:
+    """Retrieve a previously successful description after a transient failure."""
+    try:
+        profile, _, found = await cache_manager.get_cached_only(
+            _PROFILE_CACHE_PROVIDER, _PROFILE_CACHE_TOOL, ticker
+        )
+    except Exception as exc:
+        logger.warning("Could not read company profile cache for %s: %s", ticker, exc)
+        return None
+
+    if not found or not isinstance(profile, dict):
+        return None
+    return _profile_description({"longBusinessSummary": profile.get("description")})
 
 
 async def _fetch_yf_news(ticker: str) -> list[NewsItem]:
@@ -217,7 +257,12 @@ async def get_stock_detail(request: Request, ticker: str) -> StockDetail:
         raise HTTPException(status_code=400, detail="Invalid ticker symbol")
     cached = _DETAIL_CACHE.get(ticker)
     if cached is not None:
-        return cached
+        # Do not keep serving a legacy partial detail response after its
+        # profile lookup failed. Re-fetch it so the persisted good profile can
+        # be used immediately.
+        if cached.description:
+            return cached
+        _DETAIL_CACHE.pop(ticker, None)
 
     # Per-ticker lock to prevent stampede on same ticker (bounded pool)
     if ticker not in _DETAIL_LOCKS:
@@ -233,7 +278,9 @@ async def get_stock_detail(request: Request, ticker: str) -> StockDetail:
         # Double-check cache after acquiring lock
         cached = _DETAIL_CACHE.get(ticker)
         if cached is not None:
-            return cached
+            if cached.description:
+                return cached
+            _DETAIL_CACHE.pop(ticker, None)
 
         async with httpx.AsyncClient() as client:
             price_history, info, news_headlines = await asyncio.gather(
@@ -246,12 +293,21 @@ async def get_stock_detail(request: Request, ticker: str) -> StockDetail:
         if not price_history and not info and not news_headlines:
             raise HTTPException(status_code=404, detail="Ticker not found or no data available")
 
+        description = _profile_description(info)
+        if description is not None:
+            await _save_last_known_profile(ticker, description)
+        else:
+            description = await _load_last_known_description(ticker)
+
         detail = StockDetail(
             ticker=ticker,
             industry=info.get("industry") or info.get("sector") or None,
-            description=info.get("longBusinessSummary") or None,
+            description=description,
             price_history=price_history,
             trending_reason=news_headlines,
         )
-        _DETAIL_CACHE[ticker] = detail
+        # A response without a profile description is incomplete. Do not turn
+        # a transient Yahoo failure into a 15-minute blank response.
+        if description is not None:
+            _DETAIL_CACHE[ticker] = detail
         return detail

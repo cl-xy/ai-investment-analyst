@@ -25,6 +25,10 @@ TTL_CONFIG: dict[str, dict[str, int]] = {
     "yfinance:get_technical_indicators": {"fresh": 900, "stale": 3600, "expire": 14400},
     # Earnings dates rarely change day to day, so a long fresh window is fine.
     "yfinance:get_earnings_calendar": {"fresh": 86400, "stale": 259200, "expire": 604800},
+    # Company profiles change infrequently. Retaining the last successful
+    # description lets the Explore page remain useful when Yahoo temporarily
+    # rejects a profile lookup.
+    "yfinance:get_company_profile": {"fresh": 604800, "stale": 2592000, "expire": 7776000},
     "newsapi:get_ticker_news": {"fresh": 21600, "stale": 43200, "expire": 86400},
     "sec_edgar:get_latest_filing_summary": {"fresh": 604800, "stale": 2592000, "expire": 0},
     "alpha_vantage:default": {"fresh": 86400, "stale": 172800, "expire": 604800},
@@ -273,6 +277,33 @@ class CacheManager:
                 return None, "", False
             return data, row["source_id"], True
         return None, "", False
+
+    async def store(
+        self,
+        provider: str,
+        tool: str,
+        ticker: str,
+        data: Any,
+    ) -> None:
+        """Persist a successful value for callers that already fetched it.
+
+        This is intentionally separate from ``get_or_fetch``: the Explore
+        endpoint fetches price, profile, and news concurrently, then saves a
+        profile snapshot only after confirming it contains a description.
+        """
+        data = _normalize(data)
+        if data in ({}, [], "", None):
+            raise ValueError("Cannot cache an empty value")
+        key = f"{provider}:{tool}:{ticker}"
+        source_id = f"{provider}:{tool}:{ticker}:{int(time.time())}"
+        await self._store(
+            key,
+            data,
+            source_id,
+            provider,
+            _get_ttl(provider, tool),
+            datetime.now(timezone.utc),
+        )
 
 
 # Singleton
