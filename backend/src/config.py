@@ -45,7 +45,11 @@ class Settings(BaseSettings):
     # free-tier stream (a token or keepalive every <120s) never trips it and
     # the call hangs until the outer run budget is exhausted. This bounds each
     # attempt in real time so a stall fails fast and the fallback chain runs.
-    llm_attempt_timeout_seconds: float = 60.0
+    # Set below a healthy free-tier completion (observed ~44s for a debate turn)
+    # so a genuinely working model still finishes, but a stalled primary is
+    # abandoned quickly: with a 3-turn debate and a multi-model chain, every
+    # second spent waiting on a dead primary is multiplied across turns.
+    llm_attempt_timeout_seconds: float = 45.0
 
     # External APIs
     news_api_key: str = ""
