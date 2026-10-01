@@ -6,6 +6,7 @@ retries with the primary model first, then falls back to a secondary model.
 Integrates with the existing circuit breaker and rate limiter.
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -218,5 +219,30 @@ async def _invoke_with_retry(
     *,
     breaker: "CircuitBreaker" = llm_breaker,
 ) -> BaseMessage:
-    """Invoke a specific LLM instance with retry, through the given circuit breaker."""
-    return await breaker.call(llm.ainvoke, messages)  # type: ignore[return-value]
+    """Invoke a specific LLM instance with retry, through the given circuit breaker.
+
+    Wrapped in a hard wall-clock timeout: ChatOpenAI's request_timeout is only an
+    httpx inter-chunk read timeout, so a slow free-tier stream that emits an
+    occasional token or keepalive never trips it and the call hangs for minutes.
+    asyncio.wait_for enforces a real deadline per attempt. On timeout we raise a
+    TimeoutError, which _classify_error routes to FALLBACK_TO_OTHER so the
+    fallback model is tried instead of the whole run budget being consumed.
+    """
+    from ..config import settings
+
+    try:
+        return await asyncio.wait_for(
+            breaker.call(llm.ainvoke, messages),  # type: ignore[return-value]
+            timeout=settings.llm_attempt_timeout_seconds,
+        )
+    except (asyncio.TimeoutError, TimeoutError) as exc:
+        model = getattr(llm, "model_name", None) or getattr(llm, "model", "unknown")
+        log.warning(
+            "llm_attempt_timeout model=%s after=%.0fs",
+            model,
+            settings.llm_attempt_timeout_seconds,
+        )
+        raise TimeoutError(
+            f"LLM attempt exceeded {settings.llm_attempt_timeout_seconds:.0f}s "
+            f"wall-clock timeout (model={model})"
+        ) from exc

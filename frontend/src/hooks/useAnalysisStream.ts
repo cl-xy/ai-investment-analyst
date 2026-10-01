@@ -168,12 +168,15 @@ export function useAnalysisStream() {
           // Error handling
           if (event.type === 'error') {
             const msg = (event.payload as { message?: string }).message || 'Unknown error'
-            const recoverable = (event.payload as { recoverable?: boolean }).recoverable
-            if (!recoverable) {
-              setError(msg)
-              setFailed(msg)
-              disconnect()
-            }
+            // Both recoverable and non-recoverable errors surface a retriable
+            // failure and stop the stream. A recoverable error (e.g. a reconnect
+            // landed on a machine without this run's in-memory state and no
+            // durable trace exists yet) means "this attempt can't continue here,
+            // retry" rather than a permanent failure, but the UX is the same:
+            // show the message and let the user retry instead of hanging.
+            setError(msg)
+            setFailed(msg)
+            disconnect()
           }
         } catch {
           // Ignore malformed events (e.g. heartbeats with no parseable data)

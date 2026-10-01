@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     llm_router_model: str = "nvidia/nemotron-3.5-lightning:free"
     llm_router_model_fallback: str = "google/gemma-4-31b-it:free"
 
+    # Hard wall-clock ceiling on a single LLM attempt. request_timeout on
+    # ChatOpenAI is only an httpx inter-chunk read timeout, so a trickling
+    # free-tier stream (a token or keepalive every <120s) never trips it and
+    # the call hangs until the outer run budget is exhausted. This bounds each
+    # attempt in real time so a stall fails fast and the fallback chain runs.
+    llm_attempt_timeout_seconds: float = 60.0
+
     # External APIs
     news_api_key: str = ""
     alpha_vantage_api_key: str = ""

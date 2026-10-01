@@ -7,7 +7,6 @@ Handles timeouts and real tool latency measurement.
 
 import asyncio
 import json
-import os
 import time
 from collections import defaultdict
 
@@ -665,18 +664,49 @@ async def _stream_generator(
     if last_event_id is not None and resume_run_id:
         replayed = _replay_events(resume_run_id, last_event_id)
         if not replayed and resume_run_id not in _recent_runs:
-            # Run state not found on this instance (likely routed to different machine).
-            # Emit a terminal error so the client stops reconnecting blindly.
+            # Run state is not in this process's in-memory store. This happens
+            # when the reconnect is routed to a different machine, or the owning
+            # process was restarted by a rolling deploy. The in-memory store is
+            # process-local, so fall back to the durable trace in Postgres: a
+            # completed run can be replayed from there regardless of which
+            # machine (or process generation) finished it.
             from datetime import datetime, timezone
 
+            db_events: list[str] = []
+            run_completed_in_db = False
+            try:
+                from src.ops.trace_recorder import get_trace_by_run_id
+
+                trace = await get_trace_by_run_id(resume_run_id)
+                if trace:
+                    for ev in trace.get("events", []):
+                        seq = ev.get("seq")
+                        if isinstance(seq, int) and seq > last_event_id:
+                            db_events.append(StreamEvent(**ev).to_sse())
+                        if ev.get("type") == "run_completed":
+                            run_completed_in_db = True
+            except Exception:
+                # DB fallback is best-effort; fall through to recoverable error.
+                db_events = []
+
+            if db_events or run_completed_in_db:
+                for ev in db_events:
+                    yield ev
+                slot_released = True
+                return
+
+            # No durable trace yet: the run is either still live on an
+            # unreachable process, or never got far enough to persist. Tell the
+            # client this attempt can't be resumed here, but keep it recoverable
+            # so the UI offers a clean retry instead of a dead end.
             error_event = StreamEvent(
                 run_id=resume_run_id,
                 seq=last_event_id + 1 if last_event_id else 1,
                 type=EventType.ERROR,
                 timestamp=datetime.now(timezone.utc).isoformat(),
                 payload={
-                    "message": "Run state unavailable on this instance. Please start a new analysis.",
-                    "recoverable": False,
+                    "message": "This analysis can't be resumed here. Please retry.",
+                    "recoverable": True,
                 },
             )
             yield error_event.to_sse()
@@ -850,9 +880,6 @@ async def analyze_stream(
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         }
-        fly_alloc_id = os.environ.get("FLY_ALLOC_ID")
-        if fly_alloc_id:
-            headers["fly-replay-src"] = fly_alloc_id
 
         return StreamingResponse(
             _stream_generator(
@@ -897,11 +924,6 @@ async def analyze_stream(
         "Connection": "keep-alive",
         "X-Accel-Buffering": "no",
     }
-
-    # Fly.io: pin SSE reconnections to this machine (holds in-memory event store)
-    fly_alloc_id = os.environ.get("FLY_ALLOC_ID")
-    if fly_alloc_id:
-        headers["fly-replay-src"] = fly_alloc_id
 
     return StreamingResponse(
         _stream_generator(
