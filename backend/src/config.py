@@ -15,8 +15,30 @@ class Settings(BaseSettings):
     # Keep fallbacks on a different upstream provider so an Nvidia worker
     # exhaustion does not also take down the recovery path.
     llm_model_fallback: str = "google/gemma-4-31b-it:free"
+    # Ordered recovery chain tried after the primary, across distinct upstream
+    # providers. The free-tier 429s are limit_source=upstream_provider_shared_pool,
+    # so a single same-provider fallback is not enough: when one provider's pool
+    # is saturated, we need to route to a genuinely different provider. All models
+    # here support response_format=json_object (required for the debate's JSON mode).
+    # Comma-separated; override via LLM_FALLBACK_MODELS env var.
+    llm_fallback_models: str = (
+        "google/gemma-4-31b-it:free,"
+        "qwen/qwen3.8-27b:free,"
+        "dots-studio/dots-3-note-preview:free,"
+        "google/gemma-4-26b-a4b-it:free"
+    )
     llm_router_model: str = "nvidia/nemotron-3.5-lightning:free"
     llm_router_model_fallback: str = "google/gemma-4-31b-it:free"
+
+    @property
+    def llm_fallback_chain(self) -> list[str]:
+        """Ordered, de-duplicated list of fallback model IDs to try after primary."""
+        seen: dict[str, None] = {}
+        for mid in self.llm_fallback_models.split(","):
+            mid = mid.strip()
+            if mid:
+                seen.setdefault(mid, None)
+        return list(seen)
 
     # Hard wall-clock ceiling on a single LLM attempt. request_timeout on
     # ChatOpenAI is only an httpx inter-chunk read timeout, so a trickling

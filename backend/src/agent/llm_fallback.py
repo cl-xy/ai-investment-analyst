@@ -36,6 +36,25 @@ _fallback_breaker = CircuitBreaker(
     recovery_seconds=30.0,
 )
 
+# One breaker per fallback model id. A single shared fallback breaker would let
+# one saturated provider's 429s trip the breaker for a different, healthy
+# fallback model. Independent breakers keep each model's health isolated.
+_fallback_breakers: dict[str, CircuitBreaker] = {}
+
+
+def _breaker_for(model: str) -> CircuitBreaker:
+    """Return a per-model circuit breaker, creating one on first use."""
+    breaker = _fallback_breakers.get(model)
+    if breaker is None:
+        breaker = CircuitBreaker(
+            name=f"llm_fallback:{model}",
+            failure_threshold=5,
+            window_seconds=60.0,
+            recovery_seconds=30.0,
+        )
+        _fallback_breakers[model] = breaker
+    return breaker
+
 
 class ErrorSeverity(Enum):
     """Classification of LLM call errors for retry/fallback decisions."""
@@ -67,6 +86,15 @@ def _classify_error(exc: BaseException) -> ErrorSeverity:
     if "timeout" in exc_str:
         return ErrorSeverity.FALLBACK_TO_OTHER
     if "overloaded" in exc_str:
+        return ErrorSeverity.FALLBACK_TO_OTHER
+    # A 429 caused by the provider's shared free-tier pool being saturated
+    # (limit_source=upstream_provider_shared_pool) will not clear in a 2-10s
+    # retry window: retrying the same congested model just burns the budget.
+    # Route to a different provider immediately instead.
+    if re.search(r"\b429\b", exc_str) and any(
+        term in exc_str
+        for term in ("shared_pool", "shared pool", "upstream_provider", "temporarily rate-limited")
+    ):
         return ErrorSeverity.FALLBACK_TO_OTHER
 
     # Rate limit or transient: retry same model first
@@ -142,69 +170,78 @@ async def invoke_with_fallback(
     tools: list | None = None,
 ) -> BaseMessage:
     """
-    Invoke LLM with retry + fallback chain.
+    Invoke LLM with a multi-model retry + fallback chain.
 
-    1. Try primary model with exponential backoff (2 attempts)
-    2. If primary fails with a fallback-worthy error, try fallback model (2 attempts)
-    3. If both fail, raise the last exception
+    1. Try the primary model with exponential backoff (2 attempts).
+    2. On a fallback-worthy error, walk the ordered fallback chain, trying each
+       model (2 attempts each) until one succeeds. The chain spans distinct
+       upstream providers so a single provider's shared-pool 429 does not take
+       down every option.
+    3. If the whole chain fails, raise the last exception so the caller can
+       degrade gracefully.
 
     Args:
         messages: Chat messages to send
         primary_model: Primary model ID (defaults to settings.llm_model)
-        fallback_model: Fallback model ID (defaults to settings.llm_model_fallback)
+        fallback_model: If given, used as the sole fallback (back-compat).
+            Otherwise the full settings.llm_fallback_chain is used.
         temperature: LLM temperature
         max_tokens: Max output tokens
         request_timeout: Request timeout in seconds
         json_mode: Whether to request JSON output format
         tools: Optional tools to bind to the model (for tool-calling loops).
-            Applied to both the primary and fallback model on every call, since
-            bound runnables aren't cacheable the same way as the bare client.
+            Applied to every model on every call, since bound runnables aren't
+            cacheable the same way as the bare client.
     """
     from ..config import settings
 
     primary = primary_model or settings.llm_model
-    fallback = fallback_model or settings.llm_model_fallback
+    if fallback_model is not None:
+        fallbacks = [fallback_model]
+    else:
+        fallbacks = settings.llm_fallback_chain
+    # The primary leads the chain; de-dupe so it isn't retried as a fallback.
+    chain: list[str] = [primary] + [m for m in fallbacks if m != primary]
 
     # Disable json_mode when tools are provided: OpenAI rejects requests
     # combining response_format=json_object with tool definitions.
     effective_json_mode = json_mode and not tools
 
-    # Try primary model
-    primary_llm = _build_llm(primary, temperature, max_tokens, request_timeout, effective_json_mode)
-    primary_runnable: ChatOpenAI | Runnable = (
-        primary_llm.bind_tools(tools) if tools else primary_llm
-    )
-    try:
-        return await _invoke_with_retry(primary_runnable, messages, breaker=llm_breaker)
-    except Exception as primary_exc:
-        if not _is_fallback_worthy(primary_exc):
-            raise
+    last_exc: BaseException | None = None
+    for index, model in enumerate(chain):
+        is_primary = index == 0
+        breaker = llm_breaker if is_primary else _breaker_for(model)
+        llm = _build_llm(model, temperature, max_tokens, request_timeout, effective_json_mode)
+        runnable: ChatOpenAI | Runnable = llm.bind_tools(tools) if tools else llm
+        try:
+            result = await _invoke_with_retry(runnable, messages, breaker=breaker)
+            if not is_primary:
+                log.info("fallback_model_succeeded model=%s position=%d", model, index)
+            return result
+        except Exception as exc:
+            last_exc = exc
+            # Auth/bad-request style errors won't be fixed by another model.
+            if not _is_fallback_worthy(exc):
+                raise
+            next_model = chain[index + 1] if index + 1 < len(chain) else None
+            if next_model is not None:
+                log.warning(
+                    "llm_model_failed model=%s error=%s, trying next=%s",
+                    model,
+                    str(exc)[:100],
+                    next_model,
+                )
+            else:
+                log.error(
+                    "llm_chain_exhausted last_model=%s error=%s",
+                    model,
+                    str(exc)[:100],
+                )
 
-        log.warning(
-            "primary_model_failed model=%s error=%s, trying fallback=%s",
-            primary,
-            str(primary_exc)[:100],
-            fallback,
-        )
-
-    # Try fallback model (uses separate breaker so primary failures don't block it)
-    fallback_llm = _build_llm(
-        fallback, temperature, max_tokens, request_timeout, effective_json_mode
-    )
-    fallback_runnable: ChatOpenAI | Runnable = (
-        fallback_llm.bind_tools(tools) if tools else fallback_llm
-    )
-    try:
-        result = await _invoke_with_retry(fallback_runnable, messages, breaker=_fallback_breaker)
-        log.info("fallback_model_succeeded model=%s", fallback)
-        return result
-    except Exception as fallback_exc:
-        log.error(
-            "fallback_model_failed model=%s error=%s",
-            fallback,
-            str(fallback_exc)[:100],
-        )
-        raise
+    # Whole chain failed.
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("invoke_with_fallback: empty model chain")
 
 
 @retry(
