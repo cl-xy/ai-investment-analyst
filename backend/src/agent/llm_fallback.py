@@ -28,6 +28,15 @@ from .circuit_breaker import CircuitBreaker, CircuitBreakerOpen, llm_breaker
 
 log = logging.getLogger(__name__)
 
+# Smallest remaining wall-clock budget worth starting a model attempt with.
+# A healthy free-tier reasoning call completes in ~35-45s, so this is NOT a
+# "healthy call fits" threshold; it is the point below which even a fast-failing
+# or cached response cannot land. Used in two places that must agree: the chain
+# loop reserves this much for the NEXT model so a slow primary cannot consume
+# the whole turn budget, and _invoke_with_retry fails fast below it so a tenacity
+# re-entry cannot start a doomed attempt.
+_MIN_USEFUL_ATTEMPT_SECONDS = 8.0
+
 # Separate breaker for fallback model so primary failures don't block fallback.
 # Uses the same shared rate limiter (llm_limiter) inside CircuitBreaker.call().
 _fallback_breaker = CircuitBreaker(
@@ -217,27 +226,55 @@ async def invoke_with_fallback(
     # combining response_format=json_object with tool definitions.
     effective_json_mode = json_mode and not tools
 
-    # Smallest remaining budget worth starting another model with. A free-tier
-    # attempt that completes healthy takes ~35-45s; below this floor the next
-    # model cannot finish before the deadline, so skip it rather than start a
-    # doomed call that the caller's outer timeout would cancel.
-    min_useful = min(settings.llm_attempt_timeout_seconds, 10.0)
-
     last_exc: BaseException | None = None
+    n_models = len(chain)
     for index, model in enumerate(chain):
+        # Per-model deadline. The key move: when a deadline is set and models
+        # remain after this one, cap THIS model so it cannot consume the whole
+        # remaining budget and starve every fallback. We reserve a small slice
+        # for the next model (see below), guaranteeing it actually gets a real
+        # attempt instead of being skipped by the "too little time left" gate.
+        # Without a deadline, every model gets the full configured timeout
+        # (unchanged for callers like chat.py).
+        model_deadline: float | None
         if deadline is not None:
             remaining = deadline - time.monotonic()
-            if remaining < min_useful:
+            if remaining < _MIN_USEFUL_ATTEMPT_SECONDS:
                 log.warning(
                     "llm_chain_deadline model=%s remaining=%.1fs floor=%.1fs",
                     model,
                     remaining,
-                    min_useful,
+                    _MIN_USEFUL_ATTEMPT_SECONDS,
                 )
                 break
-            attempt_timeout: float | None = min(settings.llm_attempt_timeout_seconds, remaining)
+            models_left_after = n_models - index - 1
+            # Reserve slightly MORE than one floor for the next model (not one
+            # per remaining model): the goal is that at least one fallback gets a
+            # real attempt if this model fails fast, WITHOUT starving a healthy
+            # 35-45s primary. The 1.5x margin absorbs the handling jitter between
+            # the primary failing and the next model's start gate, so the
+            # reserved time doesn't dip below the floor and skip the fallback.
+            # Capped at half the budget so we never reserve more than we keep.
+            # Two full healthy calls genuinely cannot both fit in a ~50s turn;
+            # this guarantees a fallback on fast-fail, which is the common
+            # free-tier case (429 / circuit-open / connection reset).
+            reserve = (
+                min(_MIN_USEFUL_ATTEMPT_SECONDS * 1.5, remaining / 2.0)
+                if models_left_after
+                else 0.0
+            )
+            this_budget = max(remaining - reserve, _MIN_USEFUL_ATTEMPT_SECONDS)
+            model_deadline = time.monotonic() + this_budget
+            log.info(
+                "llm_chain_slice model=%s position=%d remaining=%.1fs this_budget=%.1fs reserved=%.1fs",
+                model,
+                index,
+                remaining,
+                this_budget,
+                reserve,
+            )
         else:
-            attempt_timeout = None
+            model_deadline = None
 
         is_primary = index == 0
         breaker = llm_breaker if is_primary else _breaker_for(model)
@@ -245,7 +282,7 @@ async def invoke_with_fallback(
         runnable: ChatOpenAI | Runnable = llm.bind_tools(tools) if tools else llm
         try:
             result = await _invoke_with_retry(
-                runnable, messages, breaker=breaker, attempt_timeout=attempt_timeout
+                runnable, messages, breaker=breaker, deadline=model_deadline
             )
             if not is_primary:
                 log.info("fallback_model_succeeded model=%s position=%d", model, index)
@@ -287,7 +324,7 @@ async def _invoke_with_retry(
     messages: list,
     *,
     breaker: "CircuitBreaker" = llm_breaker,
-    attempt_timeout: float | None = None,
+    deadline: float | None = None,
 ) -> BaseMessage:
     """Invoke a specific LLM instance with retry, through the given circuit breaker.
 
@@ -298,15 +335,30 @@ async def _invoke_with_retry(
     TimeoutError, which _classify_error routes to FALLBACK_TO_OTHER so the
     fallback model is tried instead of the whole run budget being consumed.
 
-    attempt_timeout, when given, caps this attempt below the configured default
-    so the enclosing chain can respect an overall deadline (e.g. the last model
-    only has 20s of the run budget left). Defaults to the configured ceiling.
+    deadline, when given, is a monotonic wall-clock instant the WHOLE call
+    (including any tenacity same-model retry) must finish by. It is re-read on
+    every entry, so a second tenacity attempt cannot reuse a stale per-attempt
+    budget and run another full timeout + backoff past the caller's deadline:
+    each attempt is capped at min(configured_timeout, deadline - now), and if
+    too little remains we fail fast so the enclosing chain can try a different
+    model or degrade. Without a deadline, the configured ceiling applies and
+    behaviour is unchanged for other callers (e.g. chat.py).
     """
     from ..config import settings
 
-    effective_timeout = (
-        attempt_timeout if attempt_timeout is not None else settings.llm_attempt_timeout_seconds
-    )
+    cap = settings.llm_attempt_timeout_seconds
+    if deadline is not None:
+        remaining = deadline - time.monotonic()
+        # Floor below which an attempt (or retry) cannot usefully complete.
+        floor = min(cap, _MIN_USEFUL_ATTEMPT_SECONDS)
+        if remaining < floor:
+            raise TimeoutError(
+                f"LLM attempt budget exhausted: {remaining:.1f}s remaining < {floor:.1f}s floor"
+            )
+        effective_timeout = min(cap, remaining)
+    else:
+        effective_timeout = cap
+
     try:
         return await asyncio.wait_for(
             breaker.call(llm.ainvoke, messages),  # type: ignore[return-value]

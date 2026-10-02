@@ -44,7 +44,7 @@ async def test_chain_walks_all_fallbacks_until_success():
     """With an explicit multi-model chain, each dead model is skipped in order."""
     attempted: list[str] = []
 
-    async def _retry(llm, messages, *, breaker=None, attempt_timeout=None):
+    async def _retry(llm, messages, *, breaker=None, deadline=None):
         model = getattr(llm, "_model_id", "unknown")
         attempted.append(model)
         if model in ("m-primary", "m-a", "m-b"):
@@ -76,7 +76,7 @@ async def test_not_retryable_error_aborts_chain_immediately():
     """An auth error must not walk the chain; it fails fast."""
     attempted: list[str] = []
 
-    async def _retry(llm, messages, *, breaker=None, attempt_timeout=None):
+    async def _retry(llm, messages, *, breaker=None, deadline=None):
         attempted.append(getattr(llm, "_model_id", "unknown"))
         raise Exception("Error code: 401 - unauthorized")
 
@@ -107,10 +107,9 @@ async def test_deadline_stops_chain_before_exhausting_all_models(monkeypatch):
     Exception (not CancelledError) so the caller can build a degraded partial."""
     import time as _time
 
-    monkeypatch.setattr(settings, "llm_attempt_timeout_seconds", 45.0)
     attempted: list[str] = []
 
-    async def _retry(llm, messages, *, breaker=None, attempt_timeout=None):
+    async def _retry(llm, messages, *, breaker=None, deadline=None):
         attempted.append(getattr(llm, "_model_id", "unknown"))
         # Consume most of the budget on each attempt so the deadline is reached
         # after the first model or two, not all five.
@@ -124,10 +123,10 @@ async def test_deadline_stops_chain_before_exhausting_all_models(monkeypatch):
         m._model_id = model
         return m
 
-    # ~0.5s of budget with a sub-second floor: the primary runs, then the loop
-    # sees too little remaining and stops instead of walking all models.
+    # Shrink the floor so the sub-second test budget behaves like production.
+    monkeypatch.setattr(llm_fallback, "_MIN_USEFUL_ATTEMPT_SECONDS", 0.2)
     monkeypatch.setattr(settings, "llm_attempt_timeout_seconds", 0.4)
-    deadline = _time.monotonic() + 0.5
+    deadline = _time.monotonic() + 0.6
 
     with (
         patch.object(llm_fallback, "_build_llm", side_effect=_fake_build),
@@ -148,15 +147,67 @@ async def test_deadline_stops_chain_before_exhausting_all_models(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_deadline_passes_shrinking_attempt_timeout(monkeypatch):
-    """Each model's attempt_timeout is capped by the remaining budget."""
+async def test_deadline_reserves_budget_so_a_fallback_still_starts(monkeypatch):
+    """A slow-failing primary must NOT consume the whole turn budget: the chain
+    reserves a floor so at least one fallback model gets a real attempt. This is
+    the core fix - previously the primary ate the budget and no fallback ran."""
+    import asyncio as _asyncio
     import time as _time
 
-    monkeypatch.setattr(settings, "llm_attempt_timeout_seconds", 45.0)
-    seen_timeouts: list[float | None] = []
+    attempted: list[str] = []
 
-    async def _retry(llm, messages, *, breaker=None, attempt_timeout=None):
-        seen_timeouts.append(attempt_timeout)
+    async def _retry(llm, messages, *, breaker=None, deadline=None):
+        model = getattr(llm, "_model_id", "unknown")
+        attempted.append(model)
+        if model == "m-primary":
+            # Primary burns its whole slice then fails (slow-but-erroring).
+            now = _time.monotonic()
+            if deadline is not None:
+                await _asyncio.sleep(max(deadline - now, 0.0))
+            raise TimeoutError("LLM attempt exceeded wall-clock timeout (model=m-primary)")
+        return "ok-from-fallback"  # first fallback succeeds
+
+    def _fake_build(model, *_a, **_k):
+        m = AsyncMock()
+        m._model_id = model
+        return m
+
+    # Floor 0.2s, total budget 2s. The primary is capped at budget - reserve, so
+    # ~0.2s is held back for the fallback, which is >= floor and thus runs.
+    monkeypatch.setattr(llm_fallback, "_MIN_USEFUL_ATTEMPT_SECONDS", 0.2)
+    monkeypatch.setattr(settings, "llm_attempt_timeout_seconds", 5.0)
+    deadline = _time.monotonic() + 2.0
+
+    with (
+        patch.object(llm_fallback, "_build_llm", side_effect=_fake_build),
+        patch.object(llm_fallback, "_invoke_with_retry", side_effect=_retry),
+        patch.object(
+            type(settings),
+            "llm_fallback_chain",
+            property(lambda self: ["m-fallback-1", "m-fallback-2"]),
+        ),
+    ):
+        result = await llm_fallback.invoke_with_fallback(
+            [], primary_model="m-primary", deadline=deadline
+        )
+
+    # The primary did not starve the chain: a fallback actually ran and won.
+    assert result == "ok-from-fallback"
+    assert attempted[0] == "m-primary"
+    assert "m-fallback-1" in attempted
+
+
+@pytest.mark.asyncio
+async def test_deadline_threaded_as_monotonic_instant(monkeypatch):
+    """invoke_with_fallback passes _invoke_with_retry a monotonic deadline
+    instant (not a scalar timeout), capped below the overall deadline so a
+    tenacity re-entry can re-read the clock."""
+    import time as _time
+
+    seen_deadlines: list[float | None] = []
+
+    async def _retry(llm, messages, *, breaker=None, deadline=None):
+        seen_deadlines.append(deadline)
         return "ok"  # primary succeeds immediately
 
     def _fake_build(model, *_a, **_k):
@@ -164,29 +215,31 @@ async def test_deadline_passes_shrinking_attempt_timeout(monkeypatch):
         m._model_id = model
         return m
 
-    # 20s of budget: attempt_timeout should be min(45, ~20) = ~20, not 45.
-    deadline = _time.monotonic() + 20.0
+    monkeypatch.setattr(settings, "llm_attempt_timeout_seconds", 45.0)
+    overall_deadline = _time.monotonic() + 20.0
 
     with (
         patch.object(llm_fallback, "_build_llm", side_effect=_fake_build),
         patch.object(llm_fallback, "_invoke_with_retry", side_effect=_retry),
     ):
         result = await llm_fallback.invoke_with_fallback(
-            [], primary_model="m-primary", deadline=deadline
+            [], primary_model="m-primary", deadline=overall_deadline
         )
 
     assert result == "ok"
-    assert seen_timeouts and seen_timeouts[0] is not None
-    assert seen_timeouts[0] <= 20.5  # capped by remaining budget, not the 45s default
+    assert seen_deadlines and seen_deadlines[0] is not None
+    # The per-model deadline must not exceed the overall deadline.
+    assert seen_deadlines[0] <= overall_deadline + 0.01
 
 
 @pytest.mark.asyncio
-async def test_no_deadline_passes_none_attempt_timeout():
-    """Without a deadline, attempt_timeout is None (use the configured default)."""
+async def test_no_deadline_passes_none():
+    """Without a deadline, _invoke_with_retry receives deadline=None (configured
+    default timeout applies). Preserves behaviour for callers like chat.py."""
     seen: list[float | None] = []
 
-    async def _retry(llm, messages, *, breaker=None, attempt_timeout=None):
-        seen.append(attempt_timeout)
+    async def _retry(llm, messages, *, breaker=None, deadline=None):
+        seen.append(deadline)
         return "ok"
 
     def _fake_build(model, *_a, **_k):
@@ -202,3 +255,63 @@ async def test_no_deadline_passes_none_attempt_timeout():
 
     assert result == "ok"
     assert seen == [None]
+
+
+@pytest.mark.asyncio
+async def test_invoke_with_retry_fails_fast_below_floor(monkeypatch):
+    """_invoke_with_retry raises immediately (does NOT start a doomed attempt)
+    when the remaining budget is below the floor, so a tenacity re-entry or a
+    tight chain slice cannot kick off a call that cannot finish."""
+    import time as _time
+
+    monkeypatch.setattr(llm_fallback, "_MIN_USEFUL_ATTEMPT_SECONDS", 8.0)
+    monkeypatch.setattr(settings, "llm_attempt_timeout_seconds", 45.0)
+
+    started = {"called": False}
+
+    class _LLM:
+        model = "m-x"
+
+        async def ainvoke(self, _messages):
+            started["called"] = True
+            return "nope"
+
+    # Deadline only 1s away; floor is 8s -> fail fast without calling ainvoke.
+    near_deadline = _time.monotonic() + 1.0
+
+    with pytest.raises(TimeoutError):
+        await llm_fallback._invoke_with_retry(
+            _LLM(), [], breaker=llm_fallback.llm_breaker, deadline=near_deadline
+        )
+
+    assert started["called"] is False
+
+
+@pytest.mark.asyncio
+async def test_invoke_with_retry_caps_attempt_to_remaining_budget(monkeypatch):
+    """When a deadline is set, the attempt's wall-clock timeout is capped to the
+    remaining budget, not the configured 45s ceiling."""
+    import asyncio as _asyncio
+    import time as _time
+
+    monkeypatch.setattr(llm_fallback, "_MIN_USEFUL_ATTEMPT_SECONDS", 0.1)
+    monkeypatch.setattr(settings, "llm_attempt_timeout_seconds", 45.0)
+
+    class _HangingLLM:
+        model = "m-hang"
+
+        async def ainvoke(self, _messages):
+            await _asyncio.sleep(10.0)  # would exceed the capped timeout
+            return "nope"
+
+    # ~0.3s of budget: the attempt must be cancelled well before 45s.
+    deadline = _time.monotonic() + 0.3
+    t0 = _time.monotonic()
+
+    with pytest.raises(TimeoutError):
+        await llm_fallback._invoke_with_retry(
+            _HangingLLM(), [], breaker=llm_fallback.llm_breaker, deadline=deadline
+        )
+
+    elapsed = _time.monotonic() - t0
+    assert elapsed < 2.0  # capped by remaining budget, not the 45s default
