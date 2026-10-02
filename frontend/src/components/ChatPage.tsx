@@ -3,7 +3,8 @@ import { Send, Bot, User, Wrench, Square, Trash2 } from 'lucide-react'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import { useRestorableState } from '../hooks/useRestorableState'
 import InvestmentDisclaimer from './InvestmentDisclaimer'
-import { API_BASE, authParam } from '../api/config'
+import { API_BASE } from '../api/config'
+import { FetchEventSource } from '../api/sseClient'
 
 /** Strip LLM citation markers (【...】) and render basic inline markdown. */
 function renderChatContent(text: string): ReactNode {
@@ -51,8 +52,8 @@ export default function ChatPage() {
   // #5: Persist threadId so backend context survives refresh
   const [threadId, setThreadId] = useRestorableState('chat-thread-id', `chat-${Date.now()}`)
   const threadIdRef = useRef(threadId)
-  // #2: Store EventSource ref for cleanup on unmount
-  const esRef = useRef<EventSource | null>(null)
+  // #2: Store SSE client ref for cleanup on unmount
+  const esRef = useRef<FetchEventSource | null>(null)
   const mountedRef = useRef(true)
   const inputRef = useRef(input)
   // #6: Synchronous guard to prevent double-send race
@@ -141,15 +142,15 @@ export default function ChatPage() {
     // Close previous connection if any
     esRef.current?.close()
 
-    const auth = authParam()
-    const url = `${API_BASE}/api/chat/stream?message=${encodeURIComponent(text)}&thread_id=${encodeURIComponent(threadIdRef.current)}${auth ? '&' + auth : ''}`
-    const es = new EventSource(url)
+    // Auth rides in the request header via FetchEventSource, not the URL.
+    const url = `${API_BASE}/api/chat/stream?message=${encodeURIComponent(text)}&thread_id=${encodeURIComponent(threadIdRef.current)}`
+    const es = new FetchEventSource(url)
     esRef.current = es
 
     es.addEventListener('llm_token', (e) => {
       if (!mountedRef.current || esRef.current !== es) return
       try {
-        const data = JSON.parse((e as MessageEvent).data)
+        const data = JSON.parse(e.data)
         const token = data.payload?.text || ''
         setMessages((prev) =>
           prev.map((m) => m.id === assistantId ? { ...m, content: m.content + token } : m)
@@ -160,7 +161,7 @@ export default function ChatPage() {
     es.addEventListener('tool_call', (e) => {
       if (!mountedRef.current || esRef.current !== es) return
       try {
-        const data = JSON.parse((e as MessageEvent).data)
+        const data = JSON.parse(e.data)
         const toolName = data.payload?.tool_name || ''
         setMessages((prev) =>
           prev.map((m) => m.id === assistantId

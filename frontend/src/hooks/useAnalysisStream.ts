@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useAnalysisStore } from '../stores/analysisStore'
 import { useSaveStatusStore } from '../stores/saveStatusStore'
-import { API_BASE, authParam } from '../api/config'
+import { API_BASE } from '../api/config'
+import { FetchEventSource, type SSEMessage } from '../api/sseClient'
 import type {
   AnalysisCompletePayload,
   AnalysisTimeoutPayload,
@@ -20,7 +21,7 @@ const INITIAL_RETRY_DELAY = 1_000
  * Uses a generation counter to prevent stale EventSource callbacks from corrupting state.
  */
 export function useAnalysisStream() {
-  const eventSourceRef = useRef<EventSource | null>(null)
+  const eventSourceRef = useRef<FetchEventSource | null>(null)
   const retryCountRef = useRef(0)
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const generationRef = useRef(0)
@@ -87,19 +88,18 @@ export function useAnalysisStream() {
       // Snapshot tickers to prevent mutation between now and a potential retry timeout
       const normalizedTickers = tickers.map((t) => t.trim().toUpperCase())
       const tickerParam = normalizedTickers.join(',')
-      const auth = authParam()
-      const separator = auth ? '&' : ''
-      // On retry, pass run_id and last_event_id for server-side resume/replay
+      // On retry, pass run_id and last_event_id for server-side resume/replay.
+      // Auth no longer rides in the URL - FetchEventSource sends it as a header.
       let resumeParams = ''
       if (isRetry && runIdRef.current) {
         resumeParams = `&run_id=${encodeURIComponent(runIdRef.current)}&last_event_id=${lastEventIdRef.current}`
       }
-      const url = `${API_BASE}/api/analyze/stream?tickers=${encodeURIComponent(tickerParam)}${separator}${auth}${resumeParams}`
+      const url = `${API_BASE}/api/analyze/stream?tickers=${encodeURIComponent(tickerParam)}${resumeParams}`
 
-      const es = new EventSource(url)
+      const es = new FetchEventSource(url)
       eventSourceRef.current = es
 
-      const handleEvent = (e: MessageEvent) => {
+      const handleEvent = (e: SSEMessage) => {
         // Guard: ignore events from stale connections
         if (generationRef.current !== currentGeneration) return
 

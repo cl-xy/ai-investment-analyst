@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell, LabelList } from 'recharts'
 import { Target, TrendingUp, TrendingDown, Activity, AlertCircle, AlertTriangle, CheckCircle, XCircle, MinusCircle } from 'lucide-react'
-import { API_BASE, authParam } from '../api/config'
+import { API_BASE, authHeaders } from '../api/config'
 
 interface CalibrationData {
   status: string
@@ -42,10 +42,10 @@ export default function CalibrationPage() {
     setError(null)
     setLoading(true)
     try {
-      const auth = authParam()
+      const headers = authHeaders()
       const [calRes, predRes] = await Promise.all([
-        fetch(`${API_BASE}/api/calibration?${auth}`, { signal }),
-        fetch(`${API_BASE}/api/calibration/predictions?limit=100&${auth}`, { signal }),
+        fetch(`${API_BASE}/api/calibration`, { signal, headers }),
+        fetch(`${API_BASE}/api/calibration/predictions?limit=100`, { signal, headers }),
       ])
       if (!calRes.ok || !predRes.ok) {
         throw new Error(`Request failed: ${calRes.status}/${predRes.status}`)
