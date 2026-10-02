@@ -10,6 +10,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from enum import Enum
 from functools import lru_cache
 
@@ -168,6 +169,7 @@ async def invoke_with_fallback(
     request_timeout: int = 120,
     json_mode: bool = True,
     tools: list | None = None,
+    deadline: float | None = None,
 ) -> BaseMessage:
     """
     Invoke LLM with a multi-model retry + fallback chain.
@@ -192,6 +194,14 @@ async def invoke_with_fallback(
         tools: Optional tools to bind to the model (for tool-calling loops).
             Applied to every model on every call, since bound runnables aren't
             cacheable the same way as the bare client.
+        deadline: Optional monotonic (time.monotonic()) wall-clock deadline for
+            the WHOLE chain. Without it, every per-attempt timeout on a dead
+            provider stacks up (5 models x 45s = ~3.75 min) and can outlive the
+            caller's own budget, so the caller is cancelled mid-call and never
+            gets to build its degraded result. With it, we stop walking the
+            chain once too little time remains for a useful attempt and raise
+            the last error as an ordinary Exception, which the caller's
+            try/except can turn into a graceful partial.
     """
     from ..config import settings
 
@@ -207,14 +217,36 @@ async def invoke_with_fallback(
     # combining response_format=json_object with tool definitions.
     effective_json_mode = json_mode and not tools
 
+    # Smallest remaining budget worth starting another model with. A free-tier
+    # attempt that completes healthy takes ~35-45s; below this floor the next
+    # model cannot finish before the deadline, so skip it rather than start a
+    # doomed call that the caller's outer timeout would cancel.
+    min_useful = min(settings.llm_attempt_timeout_seconds, 10.0)
+
     last_exc: BaseException | None = None
     for index, model in enumerate(chain):
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining < min_useful:
+                log.warning(
+                    "llm_chain_deadline model=%s remaining=%.1fs floor=%.1fs",
+                    model,
+                    remaining,
+                    min_useful,
+                )
+                break
+            attempt_timeout: float | None = min(settings.llm_attempt_timeout_seconds, remaining)
+        else:
+            attempt_timeout = None
+
         is_primary = index == 0
         breaker = llm_breaker if is_primary else _breaker_for(model)
         llm = _build_llm(model, temperature, max_tokens, request_timeout, effective_json_mode)
         runnable: ChatOpenAI | Runnable = llm.bind_tools(tools) if tools else llm
         try:
-            result = await _invoke_with_retry(runnable, messages, breaker=breaker)
+            result = await _invoke_with_retry(
+                runnable, messages, breaker=breaker, attempt_timeout=attempt_timeout
+            )
             if not is_primary:
                 log.info("fallback_model_succeeded model=%s position=%d", model, index)
             return result
@@ -238,10 +270,10 @@ async def invoke_with_fallback(
                     str(exc)[:100],
                 )
 
-    # Whole chain failed.
+    # Whole chain failed (or ran out of budget).
     if last_exc is not None:
         raise last_exc
-    raise RuntimeError("invoke_with_fallback: empty model chain")
+    raise TimeoutError("invoke_with_fallback: model chain budget exhausted before any attempt")
 
 
 @retry(
@@ -255,6 +287,7 @@ async def _invoke_with_retry(
     messages: list,
     *,
     breaker: "CircuitBreaker" = llm_breaker,
+    attempt_timeout: float | None = None,
 ) -> BaseMessage:
     """Invoke a specific LLM instance with retry, through the given circuit breaker.
 
@@ -264,22 +297,28 @@ async def _invoke_with_retry(
     asyncio.wait_for enforces a real deadline per attempt. On timeout we raise a
     TimeoutError, which _classify_error routes to FALLBACK_TO_OTHER so the
     fallback model is tried instead of the whole run budget being consumed.
+
+    attempt_timeout, when given, caps this attempt below the configured default
+    so the enclosing chain can respect an overall deadline (e.g. the last model
+    only has 20s of the run budget left). Defaults to the configured ceiling.
     """
     from ..config import settings
 
+    effective_timeout = (
+        attempt_timeout if attempt_timeout is not None else settings.llm_attempt_timeout_seconds
+    )
     try:
         return await asyncio.wait_for(
             breaker.call(llm.ainvoke, messages),  # type: ignore[return-value]
-            timeout=settings.llm_attempt_timeout_seconds,
+            timeout=effective_timeout,
         )
     except (asyncio.TimeoutError, TimeoutError) as exc:
         model = getattr(llm, "model_name", None) or getattr(llm, "model", "unknown")
         log.warning(
             "llm_attempt_timeout model=%s after=%.0fs",
             model,
-            settings.llm_attempt_timeout_seconds,
+            effective_timeout,
         )
         raise TimeoutError(
-            f"LLM attempt exceeded {settings.llm_attempt_timeout_seconds:.0f}s "
-            f"wall-clock timeout (model={model})"
+            f"LLM attempt exceeded {effective_timeout:.0f}s wall-clock timeout (model={model})"
         ) from exc

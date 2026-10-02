@@ -51,7 +51,7 @@ async def test_hung_primary_falls_back_to_secondary(monkeypatch):
 
     calls: list[str] = []
 
-    async def _retry(llm, messages, *, breaker=None):
+    async def _retry(llm, messages, *, breaker=None, attempt_timeout=None):
         name = getattr(llm, "_name", "unknown")
         calls.append(name)
         if name == "primary":

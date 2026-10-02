@@ -7,6 +7,7 @@ Falls back to single-shot analysis if debate fails or rate budget is exhausted.
 """
 
 import asyncio
+import contextvars
 import json
 import time
 from datetime import date
@@ -43,6 +44,16 @@ log = get_logger(__name__)
 # Minimum delay between sequential LLM calls to reduce burst contention
 # on free-tier provider workers (Nvidia ResourceExhausted threshold)
 _MIN_CALL_INTERVAL = 4.0  # seconds
+
+# Per-turn wall-clock deadline (time.monotonic() seconds) for the current debate
+# turn. Set by debate_ticker_node before each bull/bear/moderator call and read
+# by _invoke_with_retry so the model fallback chain stops walking once the turn
+# budget is spent, raising an ordinary TimeoutError that the per-turn except
+# handlers turn into a degraded partial. A ContextVar is task-local under
+# asyncio, so concurrent ticker runs do not clobber each other's deadline.
+_turn_deadline: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "debate_turn_deadline", default=None
+)
 
 
 def _coerce_str_list(items: list) -> list[str]:
@@ -136,7 +147,11 @@ async def _invoke_with_retry(messages: list, *, is_retry: bool = False) -> objec
     """
     temperature = 0.2 if is_retry else 0.5
     response = await invoke_with_fallback(
-        messages, temperature=temperature, max_tokens=4096, request_timeout=120
+        messages,
+        temperature=temperature,
+        max_tokens=4096,
+        request_timeout=120,
+        deadline=_turn_deadline.get(),
     )
     finish_reason = (getattr(response, "response_metadata", None) or {}).get("finish_reason")
     if finish_reason == "length":
@@ -462,7 +477,20 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     price_data = ctx["raw_price_data"]
     _log.info("debate_starting")
 
+    # Allocate the per-ticker LLM budget across the three turns so one dead turn
+    # cannot consume the whole budget and get the node cancelled by the route's
+    # outer timeout. Each turn's deadline is the remaining budget divided by the
+    # turns left, so a healthy fast turn hands its slack to later turns.
+    from src.config import settings as _settings
+
+    _ticker_deadline = time.monotonic() + _settings.debate_ticker_budget_seconds
+
+    def _set_turn_deadline(turns_left: int) -> None:
+        remaining = _ticker_deadline - time.monotonic()
+        _turn_deadline.set(time.monotonic() + max(remaining / max(turns_left, 1), 0.0))
+
     # Run bull agent
+    _set_turn_deadline(turns_left=3)
     bull_start = time.monotonic()
     try:
         bull = await _run_bull_agent(ctx)
@@ -496,6 +524,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     await asyncio.sleep(_MIN_CALL_INTERVAL)
 
     # Run bear agent
+    _set_turn_deadline(turns_left=2)
     bear_start = time.monotonic()
     try:
         bear = await _run_bear_agent(ctx, bull)
@@ -529,6 +558,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     await asyncio.sleep(_MIN_CALL_INTERVAL)
 
     # Run moderator
+    _set_turn_deadline(turns_left=1)
     mod_start = time.monotonic()
     try:
         moderator = await _run_moderator(ctx, bull, bear)

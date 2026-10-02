@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     # second spent waiting on a dead primary is multiplied across turns.
     llm_attempt_timeout_seconds: float = 45.0
 
+    # Wall-clock budget for the whole debate (bull + bear + moderator) on one
+    # ticker. Must stay below the route's EXECUTION_TIMEOUT_PER_TICKER (180s) so
+    # the debate node fails fast WITHIN the outer budget and its per-turn
+    # degraded-partial handlers can run and be checkpointed, instead of the
+    # outer timeout cancelling the node mid-call and losing everything. The
+    # debate node splits this across the three turns.
+    debate_ticker_budget_seconds: float = 150.0
+
     # External APIs
     news_api_key: str = ""
     alpha_vantage_api_key: str = ""

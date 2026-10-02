@@ -495,6 +495,47 @@ async def _run_agent(
                 )
                 await queue.put(ev.to_sse())
 
+                # Backstop: if the run timed out before a ticker produced any
+                # analysis (e.g. every LLM provider was down and the debate node
+                # was cancelled mid-call before its own degraded path could run),
+                # synthesize a minimal insufficient_data result from whatever
+                # market data was checkpointed. This guarantees the client always
+                # gets a usable, clearly-degraded payload instead of a bare
+                # timeout. insufficient_data is excluded from prediction history
+                # in persist_full_run, so it does not pollute the track record.
+                raw_prices = state_values.get("raw_prices", {}) or {}
+                for _tk in incomplete:
+                    quote: dict = {}
+                    fundamentals: dict = {}
+                    tk_prices = raw_prices.get(_tk) or {}
+                    if isinstance(tk_prices, dict):
+                        quote = tk_prices.get("quote", {}) or {}
+                        fundamentals = tk_prices.get("fundamentals", {}) or {}
+                    ticker_analyses[_tk] = {
+                        "ticker": _tk,
+                        "signal": "insufficient_data",
+                        "confidence": "low",
+                        "sentiment_score": 0.0,
+                        "thesis": (
+                            "Analysis could not complete in time: LLM providers were "
+                            f"unavailable (timed out in stage {_timeout_stage or 'debate'}). "
+                            "Please retry shortly."
+                        ),
+                        "bull_case": [],
+                        "bear_case": [],
+                        "news_summary": "Analysis unavailable; the run timed out.",
+                        "risk_flags": ["Analysis incomplete"],
+                        "citations": [],
+                        "data_gaps": [
+                            f"Run timed out in stage {_timeout_stage or 'debate'} "
+                            "before analysis completed (LLM providers unavailable)."
+                        ],
+                        "price_data": quote,
+                        "fundamentals": fundamentals,
+                        "earnings": {},
+                        "sec_notes": "",
+                    }
+
             for ticker, analysis in ticker_analyses.items():
                 # Strip internal debate fields from SSE payload
                 clean_analysis = {k: v for k, v in analysis.items() if not k.startswith("_")}
