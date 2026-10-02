@@ -113,12 +113,14 @@ export default function ChatPage() {
     // #6: Synchronous ref guard prevents double-send race
     if (!text || sendingRef.current) return
 
-    // EventSource puts the message in the URL; guard against exceeding browser/server limits
-    if (text.length > 4000) {
+    // EventSource puts the message in the URL; the backend rejects >1000 chars
+    // with a 400 that EventSource cannot surface, so enforce the same cap here
+    // and give the user an immediate, specific reason.
+    if (text.length > 1000) {
       setMessages((prev) => [...prev, {
         id: `err-${Date.now()}`,
         role: 'assistant',
-        content: 'Message too long. Please keep it under 4,000 characters.',
+        content: 'Message too long. Please keep it under 1,000 characters.',
         isStreaming: false,
         toolCalls: [],
       }])
@@ -326,6 +328,7 @@ export default function ChatPage() {
             placeholder="Ask about stocks, portfolio, or market conditions..."
             className="flex-1 resize-none border border-[var(--border)] bg-[var(--surface)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] focus:border-transparent transition-shadow min-h-[48px] max-h-40"
             rows={1}
+            maxLength={1000}
             disabled={isStreaming}
             aria-label="Chat message input"
           />
