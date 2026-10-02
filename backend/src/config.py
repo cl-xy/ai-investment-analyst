@@ -56,8 +56,12 @@ class Settings(BaseSettings):
     # the debate node fails fast WITHIN the outer budget and its per-turn
     # degraded-partial handlers can run and be checkpointed, instead of the
     # outer timeout cancelling the node mid-call and losing everything. The
-    # debate node splits this across the three turns.
-    debate_ticker_budget_seconds: float = 150.0
+    # debate node splits this across the three turns, front-loading the bull
+    # turn (a bull failure zeroes the whole ticker; bear/moderator degrade in
+    # place). Set to 165s: the outer bound is 180s and the two 4s inter-turn
+    # sleeps live outside the per-turn deadlines, so this leaves ~15s of margin
+    # for cancellation unwind, validation, and checkpoint persistence.
+    debate_ticker_budget_seconds: float = 165.0
 
     # External APIs
     news_api_key: str = ""
