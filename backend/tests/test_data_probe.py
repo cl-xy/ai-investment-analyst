@@ -40,7 +40,10 @@ class TestProbeTicker:
     @pytest.mark.asyncio
     async def test_probe_aggregates_all_sources(self):
         with (
-            patch("src.alerts.data_probe.yf_client.get_quote", return_value={"price": 123.45}),
+            patch(
+                "src.alerts.data_probe.yf_client.get_quote",
+                return_value={"current_price": 123.45},
+            ),
             patch(
                 "src.alerts.data_probe.stocktwits.get_ticker_sentiment",
                 return_value={"bullish_ratio": 0.75},
@@ -63,6 +66,58 @@ class TestProbeTicker:
         assert result.latest_filing_form_type == "8-K"
         assert result.article_count == 2
         assert result.data_gaps == []
+
+    @pytest.mark.asyncio
+    async def test_probe_reads_producer_current_price_key(self):
+        """Regression: yfinance_client.get_quote returns the key 'current_price',
+        not 'price'. Reading the wrong key silently disabled price triggers and
+        the price-drift component of alert scoring."""
+        with (
+            patch(
+                "src.alerts.data_probe.yf_client.get_quote",
+                return_value={"current_price": 250.0, "change_pct": 1.2},
+            ),
+            patch("src.alerts.data_probe.stocktwits.get_ticker_sentiment", return_value={}),
+            patch("src.alerts.data_probe.search_filings", return_value=[]),
+            patch("src.alerts.data_probe._fetch_ticker_news", return_value=[]),
+        ):
+            result = await probe_ticker("TSLA")
+
+        assert result.current_price == 250.0
+        assert "probe_price_unavailable" not in result.data_gaps
+
+    @pytest.mark.asyncio
+    async def test_probe_price_zero_is_preserved_not_treated_as_missing(self):
+        """A legitimate 0.0 price must not be dropped by an `or` fallback."""
+        with (
+            patch(
+                "src.alerts.data_probe.yf_client.get_quote",
+                return_value={"current_price": 0.0},
+            ),
+            patch("src.alerts.data_probe.stocktwits.get_ticker_sentiment", return_value={}),
+            patch("src.alerts.data_probe.search_filings", return_value=[]),
+            patch("src.alerts.data_probe._fetch_ticker_news", return_value=[]),
+        ):
+            result = await probe_ticker("ZERO")
+
+        assert result.current_price == 0.0
+        assert "probe_price_unavailable" not in result.data_gaps
+
+    @pytest.mark.asyncio
+    async def test_probe_marks_price_unavailable_when_key_absent(self):
+        with (
+            patch(
+                "src.alerts.data_probe.yf_client.get_quote",
+                return_value={"change_pct": 1.0},
+            ),
+            patch("src.alerts.data_probe.stocktwits.get_ticker_sentiment", return_value={}),
+            patch("src.alerts.data_probe.search_filings", return_value=[]),
+            patch("src.alerts.data_probe._fetch_ticker_news", return_value=[]),
+        ):
+            result = await probe_ticker("NOPX")
+
+        assert result.current_price is None
+        assert "probe_price_unavailable" in result.data_gaps
 
     @pytest.mark.asyncio
     async def test_probe_degrades_gracefully_on_source_failure(self):
@@ -92,7 +147,7 @@ class TestProbeTicker:
         def _get_quote(_ticker):
             nonlocal call_count
             call_count += 1
-            return {"price": 10.0}
+            return {"current_price": 10.0}
 
         with (
             patch("src.alerts.data_probe.yf_client.get_quote", side_effect=_get_quote),
@@ -113,7 +168,7 @@ class TestProbeTicker:
         def _get_quote(_ticker):
             nonlocal call_count
             call_count += 1
-            return {"price": 10.0 + call_count}
+            return {"current_price": 10.0 + call_count}
 
         with (
             patch("src.alerts.data_probe.yf_client.get_quote", side_effect=_get_quote),
@@ -130,7 +185,7 @@ class TestProbeTicker:
     @pytest.mark.asyncio
     async def test_probe_normalizes_ticker_case(self):
         with (
-            patch("src.alerts.data_probe.yf_client.get_quote", return_value={"price": 1.0}),
+            patch("src.alerts.data_probe.yf_client.get_quote", return_value={"current_price": 1.0}),
             patch("src.alerts.data_probe.stocktwits.get_ticker_sentiment", return_value={}),
             patch("src.alerts.data_probe.search_filings", return_value=[]),
             patch("src.alerts.data_probe._fetch_ticker_news", return_value=[]),
@@ -147,7 +202,7 @@ class TestProbeTimeoutCompliance:
 
         async def _slow(*_args, **_kwargs):
             await asyncio.sleep(30)
-            return {"price": 1.0}
+            return {"current_price": 1.0}
 
         with (
             patch("src.alerts.data_probe.asyncio.to_thread", side_effect=_slow),
@@ -164,7 +219,7 @@ class TestProbeTickers:
     @pytest.mark.asyncio
     async def test_probe_multiple_tickers_bounded_concurrency(self):
         with (
-            patch("src.alerts.data_probe.yf_client.get_quote", return_value={"price": 1.0}),
+            patch("src.alerts.data_probe.yf_client.get_quote", return_value={"current_price": 1.0}),
             patch("src.alerts.data_probe.stocktwits.get_ticker_sentiment", return_value={}),
             patch("src.alerts.data_probe.search_filings", return_value=[]),
             patch("src.alerts.data_probe._fetch_ticker_news", return_value=[]),

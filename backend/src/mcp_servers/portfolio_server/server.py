@@ -60,7 +60,9 @@ async def add_position(
     try:
         ticker = _validate_ticker(ticker)
         shares = _validate_positive_float(shares, "shares")
-        cost_basis = _validate_positive_float(cost_basis, "cost_basis")
+        # cost_basis 0.0 means "unknown purchase price" — a valid request when a
+        # user just wants to track a holding without a cost. Allow non-negative.
+        cost_basis = _validate_non_negative_float(cost_basis, "cost_basis")
         if not isinstance(sector, str) or len(sector.strip()) == 0 or len(sector) > 50:
             sector = "Unknown"
         await upsert_position(ticker, shares, cost_basis, sector)

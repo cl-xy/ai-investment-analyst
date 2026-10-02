@@ -85,73 +85,93 @@ async def run_bounded_evaluation(
 
     replay_batch = await replay_cases_batch([(c["case_id"], c["ticker"]) for c in cases])
 
-    scores = []
-    for case, result in zip(cases, replay_batch.results):
-        score = score_case(
-            case_id=str(case["case_id"]),
-            candidate_output=result.output,
-            candidate_status=result.status,
-            latency_ms=result.latency_ms,
-            tokens_used=result.tokens_used,
-            realized_return=case["realized_return"],
-            excess_return=case["excess_return"],
-        )
-        scores.append(score)
+    try:
+        scores = []
+        for case, result in zip(cases, replay_batch.results):
+            score = score_case(
+                case_id=str(case["case_id"]),
+                candidate_output=result.output,
+                candidate_status=result.status,
+                latency_ms=result.latency_ms,
+                tokens_used=result.tokens_used,
+                realized_return=case["realized_return"],
+                excess_return=case["excess_return"],
+            )
+            scores.append(score)
+
+            # The evaluation_results.status CHECK constraint only permits
+            # completed/schema_failed/timeout/error. replay also emits
+            # 'not_replayable' (missing/incomplete frozen inputs); persist it as
+            # 'error' with the reason retained in the `error` column so a single
+            # non-replayable case can't abort the whole run with a CHECK violation.
+            db_status = result.status if result.status != "not_replayable" else "error"
+            db_error = result.error or (
+                "not_replayable" if result.status == "not_replayable" else None
+            )
+
+            await execute(
+                """
+                INSERT INTO evaluation_results
+                    (run_id, case_id, status, candidate_scores, candidate_output, latency_ms, tokens_used, error)
+                VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8)
+                ON CONFLICT (run_id, case_id) DO NOTHING
+                """,
+                run_id,
+                str(case["case_id"]),
+                db_status,
+                json.dumps(
+                    {
+                        "brier_score": score.brier_score,
+                        "outcome_match": score.outcome_match,
+                        "structured_output_valid": score.structured_output_valid,
+                        "citation_resolution_rate": score.citation_resolution_rate,
+                        "evidence_balance_ratio": score.evidence_balance_ratio,
+                    }
+                ),
+                json.dumps(_serializable_output(result.output)),
+                result.latency_ms,
+                result.tokens_used,
+                db_error,
+            )
+
+        aggregate = aggregate_case_scores(scores)
+        decision = decide_comparison(aggregate)
+
+        aggregate_dict = {
+            "case_count": aggregate.case_count,
+            "completed_count": aggregate.completed_count,
+            "avg_brier": aggregate.avg_brier,
+            "outcome_match_rate": aggregate.outcome_match_rate,
+            "structured_output_validity_rate": aggregate.structured_output_validity_rate,
+            "avg_citation_resolution_rate": aggregate.avg_citation_resolution_rate,
+            "avg_evidence_balance_ratio": aggregate.avg_evidence_balance_ratio,
+            "avg_latency_ms": aggregate.avg_latency_ms,
+            "total_tokens_used": aggregate.total_tokens_used,
+            "decision_reasons": decision.reasons,
+        }
 
         await execute(
             """
-            INSERT INTO evaluation_results
-                (run_id, case_id, status, candidate_scores, candidate_output, latency_ms, tokens_used, error)
-            VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8)
-            ON CONFLICT (run_id, case_id) DO NOTHING
+            UPDATE evaluation_runs
+            SET status = 'completed', completed_at = now(), decision = $1,
+                aggregate_scores = $2::jsonb, budget_tokens_used = $3, budget_llm_calls = $4
+            WHERE id = $5
             """,
+            decision.decision,
+            json.dumps(aggregate_dict),
+            aggregate.total_tokens_used,
+            len(cases) * 3,  # bull + bear + moderator per case
             run_id,
-            str(case["case_id"]),
-            result.status,
-            json.dumps(
-                {
-                    "brier_score": score.brier_score,
-                    "outcome_match": score.outcome_match,
-                    "structured_output_valid": score.structured_output_valid,
-                    "citation_resolution_rate": score.citation_resolution_rate,
-                    "evidence_balance_ratio": score.evidence_balance_ratio,
-                }
-            ),
-            json.dumps(_serializable_output(result.output)),
-            result.latency_ms,
-            result.tokens_used,
-            result.error,
         )
-
-    aggregate = aggregate_case_scores(scores)
-    decision = decide_comparison(aggregate)
-
-    aggregate_dict = {
-        "case_count": aggregate.case_count,
-        "completed_count": aggregate.completed_count,
-        "avg_brier": aggregate.avg_brier,
-        "outcome_match_rate": aggregate.outcome_match_rate,
-        "structured_output_validity_rate": aggregate.structured_output_validity_rate,
-        "avg_citation_resolution_rate": aggregate.avg_citation_resolution_rate,
-        "avg_evidence_balance_ratio": aggregate.avg_evidence_balance_ratio,
-        "avg_latency_ms": aggregate.avg_latency_ms,
-        "total_tokens_used": aggregate.total_tokens_used,
-        "decision_reasons": decision.reasons,
-    }
-
-    await execute(
-        """
-        UPDATE evaluation_runs
-        SET status = 'completed', completed_at = now(), decision = $1,
-            aggregate_scores = $2::jsonb, budget_tokens_used = $3, budget_llm_calls = $4
-        WHERE id = $5
-        """,
-        decision.decision,
-        json.dumps(aggregate_dict),
-        aggregate.total_tokens_used,
-        len(cases) * 3,  # bull + bear + moderator per case
-        run_id,
-    )
+    except Exception:
+        # Never leave a run stranded in 'running'. 'failed' is already permitted
+        # by evaluation_runs_status_check, so this needs no schema change.
+        log.exception("eval_run_failed run_id=%s", run_id)
+        await execute(
+            "UPDATE evaluation_runs SET status = 'failed', completed_at = now() WHERE id = $1",
+            run_id,
+        )
+        raise
 
     return {
         "run_id": run_id,

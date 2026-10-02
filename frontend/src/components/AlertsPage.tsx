@@ -295,7 +295,7 @@ function TelegramSubscriptionPanel() {
     // the user completes /start in Telegram and comes back to the tab —
     // there's no webhook->frontend push channel for this (no per-session
     // linkage to the chat_id), so short polling is the simplest fix.
-    const interval = setInterval(() => checkStatus(), 5000)
+    const interval = setInterval(() => checkStatus(controller.signal), 5000)
     return () => {
       controller.abort()
       clearInterval(interval)

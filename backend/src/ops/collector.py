@@ -24,6 +24,10 @@ log = get_logger("ops.collector")
 
 _ROLLING_WINDOW_SECONDS = 7 * 24 * 3600  # 7 days
 _MAX_RECENT_TRACES = 50
+# Hard ceiling on retained request records (defensive OOM guard on top of the
+# 7-day time-based prune). At ~50k records this is a few MB; generous enough to
+# never clip the SLO window under normal load on the 512MB VM.
+_MAX_REQUEST_RECORDS = 50_000
 
 
 @dataclass
@@ -65,8 +69,11 @@ class OpsCollector:
         self._lock = threading.Lock()
         self._started_at = time.time()
 
-        # Request tracking (rolling window for SLO)
-        self._requests: deque[RequestRecord] = deque()
+        # Request tracking (rolling 7-day window for SLO). The time-based
+        # cutoff in record_request() prunes to the SLO window, but a maxlen
+        # ceiling is a hard memory bound so sustained high throughput between
+        # prune passes can't grow this unbounded (mirrors the other deques).
+        self._requests: deque[RequestRecord] = deque(maxlen=_MAX_REQUEST_RECORDS)
 
         # Counters by endpoint and status
         self._request_counts: dict[str, int] = defaultdict(int)

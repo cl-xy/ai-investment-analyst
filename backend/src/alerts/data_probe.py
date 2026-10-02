@@ -75,7 +75,14 @@ async def _fetch_price(ticker: str) -> tuple[float | None, list[str]]:
         quote = await asyncio.wait_for(
             asyncio.to_thread(yf_client.get_quote, ticker), timeout=_PROBE_TIMEOUT
         )
-        price = quote.get("price") if isinstance(quote, dict) else None
+        # yfinance_client.get_quote emits "current_price"; keep "price" as a
+        # fallback so this doesn't regress if the producer is ever normalized.
+        # Use `is not None` (not `or`) so a legitimate 0.0 isn't skipped.
+        price = None
+        if isinstance(quote, dict):
+            price = quote.get("current_price")
+            if price is None:
+                price = quote.get("price")
         if price is None:
             gaps.append("probe_price_unavailable")
         return price, gaps

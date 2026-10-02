@@ -65,16 +65,32 @@ _in_flight_tickers: set[str] = set()
 
 
 def _store_event(run_id: str, sse_msg: str):
-    """Store SSE message for potential replay."""
+    """Store SSE message for potential replay.
+
+    llm_token and heartbeat frames are the unbounded allocation here (a single
+    debate streams thousands of token frames). The gapless reconnect contract
+    only requires seq>N *domain* events on resume (run_started/node_*/tool_*/
+    debate_*/analysis_complete/run_completed/error), so we skip persisting the
+    ephemeral frames. We still refresh the run's timestamp on every frame so a
+    long token-only stretch can't trip the 300s idle eviction mid-run.
+    """
     global _last_eviction
     now = time.time()
+    # Second line of an SSE frame is "event: <type>" (see StreamEvent.to_sse).
+    event_line = next((ln for ln in sse_msg.split("\n", 3) if ln.startswith("event: ")), "")
+    skip_body = event_line in ("event: llm_token", "event: heartbeat")
     if run_id not in _recent_runs:
+        if skip_body:
+            # Nothing durable to retain yet; don't create an empty run entry
+            # (it would be indistinguishable from "unknown run" on replay).
+            return
         _recent_runs[run_id] = (now, [])
     else:
         # Pop and re-insert to move to end (maintain LRU order for eviction)
-        _recent_runs[run_id] = _recent_runs.pop(run_id)
-    _recent_runs[run_id] = (now, _recent_runs[run_id][1])
-    _recent_runs[run_id][1].append(sse_msg)
+        prior = _recent_runs.pop(run_id)
+        _recent_runs[run_id] = (now, prior[1])
+    if not skip_body:
+        _recent_runs[run_id][1].append(sse_msg)
     # Evict expired/overflow only periodically, not on every event
     if now - _last_eviction > _EVICT_INTERVAL:
         _last_eviction = now
@@ -134,7 +150,7 @@ async def _run_agent(
 
     # Initialize per-ticker cost attribution tracking
     for t in tickers_upper:
-        cost_attributor.start_analysis(t)
+        cost_attributor.start_analysis(t, run_id=correlation_id or "")
 
     event = emitter.run_started(tickers_upper)
     await queue.put(event.to_sse())
@@ -305,6 +321,7 @@ async def _run_agent(
                                     model_type=_attr_model_type,
                                     input_tokens=_split_input,
                                     output_tokens=_split_output,
+                                    run_id=correlation_id or "",
                                 )
 
                         # Emit debate turn events when inside the debate node
@@ -388,6 +405,7 @@ async def _run_agent(
                                 input_tokens=_input_tokens,
                                 output_tokens=_output_tokens,
                                 duration_ms=duration_ms,
+                                run_id=correlation_id or "",
                             )
 
                             role = DEBATE_ROLES[min(count, _num_debate_turns - 1)]
@@ -551,7 +569,9 @@ async def _run_agent(
 
                 # Flush per-ticker cost attribution to PostgreSQL
                 try:
-                    await cost_attributor.flush(ticker, correlation_id=correlation_id)
+                    await cost_attributor.flush(
+                        ticker, correlation_id=correlation_id, run_id=correlation_id or ""
+                    )
                 except Exception:
                     pass  # Non-critical, don't break the stream
 
@@ -639,7 +659,9 @@ async def _run_agent(
         # Flush cost attribution for all started tickers (even on timeout)
         for ticker in tickers_upper:
             try:
-                await cost_attributor.flush(ticker, correlation_id=correlation_id)
+                await cost_attributor.flush(
+                    ticker, correlation_id=correlation_id, run_id=correlation_id or ""
+                )
             except Exception:
                 pass
 

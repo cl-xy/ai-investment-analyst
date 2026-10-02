@@ -136,29 +136,30 @@ def _format_alert_message(alert: Alert, frontend_url: str) -> str:
 
 
 async def _dispatch_allowed(ticker: str) -> bool:
-    """Atomic-ish check-and-set for the per-ticker cooldown window. Not a hard
-    guarantee under concurrent evaluation runs, but the evaluation pipeline
-    already limits ticker concurrency, so races are unlikely in practice."""
-    row = await fetchrow(
-        "SELECT last_dispatched_at FROM alert_dispatch_state WHERE ticker = $1", ticker
-    )
-    if row is not None:
-        elapsed_hours = (
-            datetime.now(timezone.utc) - row["last_dispatched_at"]
-        ).total_seconds() / 3600.0
-        if elapsed_hours < _DISPATCH_COOLDOWN_HOURS:
-            return False
+    """Atomically claim the per-ticker cooldown window.
 
-    await execute(
+    Single statement so two processes (e.g. two Fly machines running the same
+    scheduled evaluation) cannot both observe the window as expired and both
+    send. On conflict, PostgreSQL takes a row lock on the ticker; the loser
+    re-evaluates the WHERE against the winner's committed timestamp and gets no
+    RETURNING row. Matches the previous semantics: a claim is allowed when the
+    elapsed time is at least the cooldown (deny while strictly within it).
+    """
+    row = await fetchrow(
         """
         INSERT INTO alert_dispatch_state (ticker, last_dispatched_at)
         VALUES ($1, $2)
-        ON CONFLICT (ticker) DO UPDATE SET last_dispatched_at = EXCLUDED.last_dispatched_at
+        ON CONFLICT (ticker) DO UPDATE
+            SET last_dispatched_at = EXCLUDED.last_dispatched_at
+            WHERE alert_dispatch_state.last_dispatched_at
+                  <= EXCLUDED.last_dispatched_at - ($3 * INTERVAL '1 hour')
+        RETURNING ticker
         """,
         ticker,
         datetime.now(timezone.utc),
+        _DISPATCH_COOLDOWN_HOURS,
     )
-    return True
+    return row is not None
 
 
 async def dispatch_alert(alert: Alert, *, force: bool = False) -> int:

@@ -39,14 +39,20 @@ class AnalysisCostRecord:
 
 
 class CostAttributor:
-    """Track and persist per-ticker cost attribution."""
+    """Track and persist per-ticker cost attribution.
+
+    Sessions are keyed by (run_id, ticker) so two concurrent analyses that
+    include the same ticker (e.g. a solo "AAPL" run and an "AAPL,NVDA" run)
+    don't clobber each other's accumulated token counts. run_id defaults to
+    "" so callers that don't thread a run id still work (single-run case).
+    """
 
     def __init__(self):
-        self._current_session: dict[str, AnalysisCostRecord] = {}
+        self._current_session: dict[tuple[str, str], AnalysisCostRecord] = {}
 
-    def start_analysis(self, ticker: str) -> None:
+    def start_analysis(self, ticker: str, run_id: str = "") -> None:
         """Begin tracking costs for a ticker analysis."""
-        self._current_session[ticker] = AnalysisCostRecord(ticker=ticker)
+        self._current_session[(run_id, ticker)] = AnalysisCostRecord(ticker=ticker)
 
     def record_llm_call(
         self,
@@ -55,12 +61,14 @@ class CostAttributor:
         input_tokens: int,
         output_tokens: int,
         duration_ms: int = 0,
+        run_id: str = "",
     ) -> None:
         """Record an LLM call's token usage against a ticker."""
-        if ticker not in self._current_session:
-            self.start_analysis(ticker)
+        key = (run_id, ticker)
+        if key not in self._current_session:
+            self.start_analysis(ticker, run_id)
 
-        record = self._current_session[ticker]
+        record = self._current_session[key]
         record.input_tokens += input_tokens
         record.output_tokens += output_tokens
         record.total_tokens += input_tokens + output_tokens
@@ -80,10 +88,10 @@ class CostAttributor:
         record.model_breakdown[model_type]["cost"] += cost
 
     async def flush(
-        self, ticker: str, correlation_id: str | None = None
+        self, ticker: str, correlation_id: str | None = None, run_id: str = ""
     ) -> AnalysisCostRecord | None:
         """Persist the cost record for a completed analysis and clear session state."""
-        record = self._current_session.pop(ticker, None)
+        record = self._current_session.pop((run_id, ticker), None)
         if not record:
             return None
 

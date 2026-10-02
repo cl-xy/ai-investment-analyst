@@ -453,24 +453,24 @@ class TestRunBaselineAnalysisAndNotify:
 class TestDispatchRateLimiting:
     @pytest.mark.asyncio
     async def test_allows_first_dispatch(self):
-        with patch("src.alerts.telegram.fetchrow", new=AsyncMock(return_value=None)):
-            with patch("src.alerts.telegram.execute", new=AsyncMock()):
-                allowed = await _dispatch_allowed("NVDA")
+        # First dispatch: the INSERT succeeds and RETURNING yields the ticker row.
+        with patch("src.alerts.telegram.fetchrow", new=AsyncMock(return_value={"ticker": "NVDA"})):
+            allowed = await _dispatch_allowed("NVDA")
         assert allowed is True
 
     @pytest.mark.asyncio
     async def test_blocks_dispatch_within_cooldown(self):
-        recent = {"last_dispatched_at": datetime.now(timezone.utc) - timedelta(minutes=30)}
-        with patch("src.alerts.telegram.fetchrow", new=AsyncMock(return_value=recent)):
+        # Within cooldown: the conditional ON CONFLICT WHERE fails, so RETURNING
+        # yields no row and fetchrow returns None.
+        with patch("src.alerts.telegram.fetchrow", new=AsyncMock(return_value=None)):
             allowed = await _dispatch_allowed("NVDA")
         assert allowed is False
 
     @pytest.mark.asyncio
     async def test_allows_dispatch_after_cooldown_expires(self):
-        old = {"last_dispatched_at": datetime.now(timezone.utc) - timedelta(hours=5)}
-        with patch("src.alerts.telegram.fetchrow", new=AsyncMock(return_value=old)):
-            with patch("src.alerts.telegram.execute", new=AsyncMock()):
-                allowed = await _dispatch_allowed("NVDA")
+        # Cooldown expired: the conditional update applies and RETURNING yields a row.
+        with patch("src.alerts.telegram.fetchrow", new=AsyncMock(return_value={"ticker": "NVDA"})):
+            allowed = await _dispatch_allowed("NVDA")
         assert allowed is True
 
 

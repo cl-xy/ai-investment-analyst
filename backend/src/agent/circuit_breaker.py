@@ -154,6 +154,11 @@ class CircuitBreaker:
                 async with self._lock:
                     self._state = CircuitState.OPEN
                     self._probe_in_flight = False
+                    # Reset the recovery clock. Without this, _last_failure_time
+                    # predates the elapsed recovery window, so the very next
+                    # caller immediately recomputes HALF_OPEN and probes again,
+                    # defeating the recovery backoff.
+                    self._last_failure_time = time.monotonic()
             raise
         except CircuitBreakerOpen:
             raise
