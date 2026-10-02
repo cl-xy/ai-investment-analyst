@@ -30,6 +30,7 @@ def _snapshot(**overrides) -> LastAnalysisSnapshot:
         fundamentals={"sector": "Technology"},
         analysis_id="test-id",
         created_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        article_count=5,
     )
     defaults.update(overrides)
     return LastAnalysisSnapshot(**defaults)
@@ -80,6 +81,36 @@ class TestEvaluateTickerNoDrift:
         assert outcome.evaluated is True
         assert outcome.alert is None
         assert outcome.drift_score == 0.0
+
+    @pytest.mark.asyncio
+    async def test_article_count_baseline_comes_from_snapshot_not_probe(self):
+        """Regression: the pipeline must diff the analysis-time article count
+        (snapshot) against the fresh probe count. If both came from the probe
+        again, a news surge would be invisible."""
+        # Analysis saw 3 articles; a fresh probe sees 18 -> a real news surge.
+        snapshot = _snapshot(article_count=3)
+        probe = _probe(article_count=18)
+
+        with (
+            patch("src.alerts.pipeline.get_last_analysis", new=AsyncMock(return_value=snapshot)),
+            patch("src.alerts.pipeline.probe_ticker", new=AsyncMock(return_value=probe)),
+            patch(
+                "src.alerts.pipeline.check_all_triggers_for_ticker",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch(
+                "src.alerts.pipeline.judge_drift",
+                new=AsyncMock(return_value=JudgeResult(llm_invoked=False, judgment=None)),
+            ),
+            patch("src.alerts.pipeline.compose_alert"),
+            patch("src.alerts.pipeline.persist_alert", new=AsyncMock()),
+            patch("src.alerts.pipeline.dispatch_alert", new=AsyncMock(return_value=0)),
+        ):
+            outcome = await evaluate_ticker("NVDA", dispatch=False)
+
+        # The news surge alone must register a non-zero drift score.
+        assert outcome.drift_score is not None
+        assert outcome.drift_score > 0.0
 
 
 class TestEvaluateTickerFullDriftFlow:

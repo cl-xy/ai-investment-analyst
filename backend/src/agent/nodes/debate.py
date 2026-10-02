@@ -648,6 +648,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
             "fundamentals": price_data.get("fundamentals", {}),
             "earnings": ctx.get("raw_earnings", {}),
             "sec_notes": moderator.sec_notes,
+            "article_count": ctx.get("article_count", 0),
             # Debate-specific fields for persistence
             "_debate": debate_record.model_dump(),
             "_verdict_rationale": _dedup_text(moderator.verdict_rationale),
@@ -672,6 +673,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
             "fundamentals": price_data.get("fundamentals", {}),
             "earnings": ctx.get("raw_earnings", {}),
             "sec_notes": "",
+            "article_count": ctx.get("article_count", 0),
         }
 
     existing = dict(state.get("ticker_analyses", {}))
