@@ -147,7 +147,13 @@ export function useAnalysisStream() {
           if (event.type === 'run_completed') {
             const payload = event.payload as unknown as RunCompletedPayload
             setComplete(payload)
-            setSaved()
+            // Only claim "Saved" if the backend actually persisted the run.
+            // persisted is undefined on older servers -> treat as saved.
+            if (payload.persisted === false) {
+              setFailed('Analysis completed but could not be saved. It may not appear in history.')
+            } else {
+              setSaved()
+            }
             disconnect()
           }
 

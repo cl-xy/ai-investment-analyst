@@ -158,6 +158,11 @@ async def _run_agent(
     ticker_analyses: dict = {}
     _run_succeeded = False
     _timed_out = False
+    # Whether results were durably written to Postgres. Stays True when no
+    # persistence is attempted (no completed tickers); set False only when a
+    # persist_full_run call actually raises. The run_completed event carries
+    # this so the client's "Saved" chip reflects the real outcome.
+    _run_persisted = True
 
     try:
         message = f"Analyze these stocks: {', '.join(tickers_upper)}"
@@ -589,9 +594,11 @@ async def _run_agent(
                     await persist_full_run(
                         tickers_upper, ticker_analyses, report_md, correlation_id=correlation_id
                     )
+                    _run_persisted = True
                 except Exception as persist_err:
                     import logging as _logging
 
+                    _run_persisted = False
                     _logging.getLogger("analyze_stream").warning(
                         "Persistence failed: %s", persist_err
                     )
@@ -670,6 +677,7 @@ async def _run_agent(
             total_duration_ms=summary["total_duration_ms"],
             total_tokens=summary["total_tokens"],
             cost_usd=summary["cost_usd"],
+            persisted=_run_persisted,
         )
         await queue.put(ev.to_sse())
 

@@ -247,3 +247,15 @@ class TestSSEEventPayloads:
         assert event.payload["total_duration_ms"] == 8500
         assert event.payload["total_tokens"] == 3200
         assert event.payload["cost_usd"] == 0.0025
+
+    def test_run_completed_persisted_flag(self):
+        """run_completed carries a persisted flag (defaults True) so the client
+        reflects the real save outcome, not just stream completion."""
+        from src.agent.events import EventEmitter
+
+        emitter = EventEmitter()
+        default_ev = emitter.run_completed(["NVDA"], total_duration_ms=100)
+        assert default_ev.payload["persisted"] is True
+
+        failed_ev = emitter.run_completed(["NVDA"], total_duration_ms=100, persisted=False)
+        assert failed_ev.payload["persisted"] is False

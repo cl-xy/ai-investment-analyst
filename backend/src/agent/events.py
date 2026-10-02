@@ -235,6 +235,7 @@ class EventEmitter:
         total_duration_ms: int,
         total_tokens: int = 0,
         cost_usd: float = 0.0,
+        persisted: bool = True,
     ) -> StreamEvent:
         return self._emit(
             EventType.RUN_COMPLETED,
@@ -243,6 +244,13 @@ class EventEmitter:
                 "total_duration_ms": total_duration_ms,
                 "total_tokens": total_tokens,
                 "cost_usd": cost_usd,
+                # Whether the run was durably written to Postgres. The client
+                # gates its "Saved" indicator on this instead of on mere
+                # receipt of run_completed, so a swallowed persistence error is
+                # not reported as a successful save. Defaults True so callers
+                # that never attempt persistence (e.g. no completed tickers)
+                # keep prior behavior.
+                "persisted": persisted,
             },
         )
 
