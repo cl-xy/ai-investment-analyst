@@ -65,6 +65,9 @@ export interface RunCompletedPayload {
   total_duration_ms: number
   total_tokens: number
   cost_usd: number
+  // Whether the backend durably persisted the run. Absent on older servers;
+  // treat undefined as true to preserve prior behavior.
+  persisted?: boolean
 }
 
 export interface Citation {

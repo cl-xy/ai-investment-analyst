@@ -192,3 +192,44 @@ class TestCircuitBreakerTransitions:
                 await breaker.call(failing)
 
         assert breaker.state == CircuitState.CLOSED
+
+
+class TestCancelledProbe:
+    @pytest.mark.asyncio
+    async def test_cancelled_probe_resets_recovery_clock(self, breaker):
+        """A cancelled half-open probe must reopen the circuit and reset the
+        recovery clock, so the next caller is rejected for the full recovery
+        window instead of immediately re-probing a still-unhealthy backend."""
+
+        async def failing():
+            raise RuntimeError("boom")
+
+        async def hanging():
+            await asyncio.sleep(10)
+
+        # Trip open.
+        for _ in range(3):
+            with pytest.raises(RuntimeError):
+                await breaker.call(failing)
+        assert breaker.state == CircuitState.OPEN
+
+        # Let recovery elapse -> HALF_OPEN.
+        await asyncio.sleep(0.15)
+        assert breaker.state == CircuitState.HALF_OPEN
+
+        # Start a probe and cancel it mid-flight.
+        probe = asyncio.create_task(breaker.call(hanging))
+        await asyncio.sleep(0.01)
+        probe.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await probe
+
+        # Immediately after cancellation the circuit must be OPEN (not instantly
+        # HALF_OPEN again): the recovery clock was reset.
+        assert breaker.state == CircuitState.OPEN
+        with pytest.raises(CircuitBreakerOpen):
+            await breaker.call(failing)
+
+        # After the recovery window elapses again, it may probe once more.
+        await asyncio.sleep(0.15)
+        assert breaker.state == CircuitState.HALF_OPEN

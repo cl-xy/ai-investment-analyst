@@ -29,6 +29,11 @@ class TickerAnalysis(TypedDict):
     fundamentals: dict
     earnings: dict
     sec_notes: str
+    # Count of news articles the analysis was built on, captured at analysis
+    # time so the drift scorer has a real baseline to diff fresh probe counts
+    # against (see alerts/drift_scorer.py news_volume_spike). Optional: older
+    # rows and degraded partials may omit it.
+    article_count: NotRequired[int]
 
 
 class PortfolioPosition(TypedDict):

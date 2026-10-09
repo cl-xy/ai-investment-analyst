@@ -15,8 +15,53 @@ class Settings(BaseSettings):
     # Keep fallbacks on a different upstream provider so an Nvidia worker
     # exhaustion does not also take down the recovery path.
     llm_model_fallback: str = "google/gemma-4-31b-it:free"
+    # Ordered recovery chain tried after the primary, across distinct upstream
+    # providers. The free-tier 429s are limit_source=upstream_provider_shared_pool,
+    # so a single same-provider fallback is not enough: when one provider's pool
+    # is saturated, we need to route to a genuinely different provider. All models
+    # here support response_format=json_object (required for the debate's JSON mode).
+    # Comma-separated; override via LLM_FALLBACK_MODELS env var.
+    llm_fallback_models: str = (
+        "google/gemma-4-31b-it:free,"
+        "qwen/qwen3.8-27b:free,"
+        "dots-studio/dots-3-note-preview:free,"
+        "google/gemma-4-26b-a4b-it:free"
+    )
     llm_router_model: str = "nvidia/nemotron-3.5-lightning:free"
     llm_router_model_fallback: str = "google/gemma-4-31b-it:free"
+
+    @property
+    def llm_fallback_chain(self) -> list[str]:
+        """Ordered, de-duplicated list of fallback model IDs to try after primary."""
+        seen: dict[str, None] = {}
+        for mid in self.llm_fallback_models.split(","):
+            mid = mid.strip()
+            if mid:
+                seen.setdefault(mid, None)
+        return list(seen)
+
+    # Hard wall-clock ceiling on a single LLM attempt. request_timeout on
+    # ChatOpenAI is only an httpx inter-chunk read timeout, so a trickling
+    # free-tier stream (a token or keepalive every <120s) never trips it and
+    # the call hangs until the outer run budget is exhausted. This bounds each
+    # attempt in real time so a stall fails fast and the fallback chain runs.
+    # Set below a healthy free-tier completion (observed ~44s for a debate turn)
+    # so a genuinely working model still finishes, but a stalled primary is
+    # abandoned quickly: with a 3-turn debate and a multi-model chain, every
+    # second spent waiting on a dead primary is multiplied across turns.
+    llm_attempt_timeout_seconds: float = 45.0
+
+    # Wall-clock budget for the whole debate (bull + bear + moderator) on one
+    # ticker. Must stay below the route's EXECUTION_TIMEOUT_PER_TICKER (180s) so
+    # the debate node fails fast WITHIN the outer budget and its per-turn
+    # degraded-partial handlers can run and be checkpointed, instead of the
+    # outer timeout cancelling the node mid-call and losing everything. The
+    # debate node splits this across the three turns, front-loading the bull
+    # turn (a bull failure zeroes the whole ticker; bear/moderator degrade in
+    # place). Set to 165s: the outer bound is 180s and the two 4s inter-turn
+    # sleeps live outside the per-turn deadlines, so this leaves ~15s of margin
+    # for cancellation unwind, validation, and checkpoint persistence.
+    debate_ticker_budget_seconds: float = 165.0
 
     # External APIs
     news_api_key: str = ""

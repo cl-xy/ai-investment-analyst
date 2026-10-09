@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useAnalysisStore } from '../stores/analysisStore'
 import { useSaveStatusStore } from '../stores/saveStatusStore'
-import { API_BASE, authParam } from '../api/config'
+import { API_BASE } from '../api/config'
+import { FetchEventSource, type SSEMessage } from '../api/sseClient'
 import type {
   AnalysisCompletePayload,
   AnalysisTimeoutPayload,
@@ -20,7 +21,7 @@ const INITIAL_RETRY_DELAY = 1_000
  * Uses a generation counter to prevent stale EventSource callbacks from corrupting state.
  */
 export function useAnalysisStream() {
-  const eventSourceRef = useRef<EventSource | null>(null)
+  const eventSourceRef = useRef<FetchEventSource | null>(null)
   const retryCountRef = useRef(0)
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const generationRef = useRef(0)
@@ -87,19 +88,18 @@ export function useAnalysisStream() {
       // Snapshot tickers to prevent mutation between now and a potential retry timeout
       const normalizedTickers = tickers.map((t) => t.trim().toUpperCase())
       const tickerParam = normalizedTickers.join(',')
-      const auth = authParam()
-      const separator = auth ? '&' : ''
-      // On retry, pass run_id and last_event_id for server-side resume/replay
+      // On retry, pass run_id and last_event_id for server-side resume/replay.
+      // Auth no longer rides in the URL - FetchEventSource sends it as a header.
       let resumeParams = ''
       if (isRetry && runIdRef.current) {
         resumeParams = `&run_id=${encodeURIComponent(runIdRef.current)}&last_event_id=${lastEventIdRef.current}`
       }
-      const url = `${API_BASE}/api/analyze/stream?tickers=${encodeURIComponent(tickerParam)}${separator}${auth}${resumeParams}`
+      const url = `${API_BASE}/api/analyze/stream?tickers=${encodeURIComponent(tickerParam)}${resumeParams}`
 
-      const es = new EventSource(url)
+      const es = new FetchEventSource(url)
       eventSourceRef.current = es
 
-      const handleEvent = (e: MessageEvent) => {
+      const handleEvent = (e: SSEMessage) => {
         // Guard: ignore events from stale connections
         if (generationRef.current !== currentGeneration) return
 
@@ -147,7 +147,13 @@ export function useAnalysisStream() {
           if (event.type === 'run_completed') {
             const payload = event.payload as unknown as RunCompletedPayload
             setComplete(payload)
-            setSaved()
+            // Only claim "Saved" if the backend actually persisted the run.
+            // persisted is undefined on older servers -> treat as saved.
+            if (payload.persisted === false) {
+              setFailed('Analysis completed but could not be saved. It may not appear in history.')
+            } else {
+              setSaved()
+            }
             disconnect()
           }
 
@@ -168,12 +174,15 @@ export function useAnalysisStream() {
           // Error handling
           if (event.type === 'error') {
             const msg = (event.payload as { message?: string }).message || 'Unknown error'
-            const recoverable = (event.payload as { recoverable?: boolean }).recoverable
-            if (!recoverable) {
-              setError(msg)
-              setFailed(msg)
-              disconnect()
-            }
+            // Both recoverable and non-recoverable errors surface a retriable
+            // failure and stop the stream. A recoverable error (e.g. a reconnect
+            // landed on a machine without this run's in-memory state and no
+            // durable trace exists yet) means "this attempt can't continue here,
+            // retry" rather than a permanent failure, but the UX is the same:
+            // show the message and let the user retry instead of hanging.
+            setError(msg)
+            setFailed(msg)
+            disconnect()
           }
         } catch {
           // Ignore malformed events (e.g. heartbeats with no parseable data)

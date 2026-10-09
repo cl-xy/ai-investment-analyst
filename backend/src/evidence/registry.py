@@ -20,7 +20,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from src.api.json_coerce import as_list
 from src.db import execute, executemany, fetch, fetchrow
+from src.logging_config import get_logger
+
+log = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Artifact model
@@ -378,15 +382,33 @@ async def get_audit_bundle(run_id: str) -> dict[str, Any] | None:
         run_id,
     )
 
-    # Fetch the analysis result
-    analysis_rows = await fetch(
-        """
-        SELECT ticker, signal, confidence, thesis, citations, data_gaps
-        FROM ticker_analyses
-        WHERE run_id = $1
-        """,
-        run_id,
-    )
+    # Fetch the analysis result. ticker_analyses has no run_id/citations/data_gaps
+    # columns and no direct FK to runs; the only real link is
+    # predictions.correlation_id (populated on the streaming path with the same
+    # value as runs.run_id / evidence_artifacts.run_id) -> predictions.analysis_id
+    # -> ticker_analyses.analysis_id. This is a secondary bundle section, so any
+    # failure or missing linkage degrades to an empty list rather than failing
+    # the whole audit bundle.
+    analysis_rows: list = []
+    analyses_status = "ok"
+    try:
+        analysis_rows = await fetch(
+            """
+            SELECT ta.ticker, ta.signal, ta.confidence, ta.thesis,
+                   ta.bull_case, ta.bear_case, ta.risk_flags
+            FROM predictions p
+            JOIN ticker_analyses ta
+              ON ta.analysis_id = p.analysis_id AND ta.ticker = p.ticker
+            WHERE p.correlation_id = $1
+            ORDER BY ta.ticker
+            """,
+            run_id,
+        )
+        if not analysis_rows:
+            analyses_status = "unavailable_no_linkage"
+    except Exception as exc:  # secondary section: never fail the bundle
+        log.warning("audit_bundle_analyses_failed run_id=%s error=%s", run_id, exc)
+        analyses_status = "unavailable_query_failed"
 
     # Build the bundle
     bundle = {
@@ -428,11 +450,13 @@ async def get_audit_bundle(run_id: str) -> dict[str, Any] | None:
                 "signal": r["signal"],
                 "confidence": r["confidence"],
                 "thesis": r["thesis"],
-                "citations": json.loads(r["citations"]) if r.get("citations") else [],
-                "data_gaps": json.loads(r["data_gaps"]) if r.get("data_gaps") else [],
+                "bull_case": as_list(r.get("bull_case")),
+                "bear_case": as_list(r.get("bear_case")),
+                "risk_flags": as_list(r.get("risk_flags")),
             }
             for r in analysis_rows
         ],
+        "analyses_status": analyses_status,
         "integrity": {
             "artifact_count": len(artifact_rows),
             "bundle_hash": "",  # computed below

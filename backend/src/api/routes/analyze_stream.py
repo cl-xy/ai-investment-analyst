@@ -7,7 +7,6 @@ Handles timeouts and real tool latency measurement.
 
 import asyncio
 import json
-import os
 import time
 from collections import defaultdict
 
@@ -66,16 +65,32 @@ _in_flight_tickers: set[str] = set()
 
 
 def _store_event(run_id: str, sse_msg: str):
-    """Store SSE message for potential replay."""
+    """Store SSE message for potential replay.
+
+    llm_token and heartbeat frames are the unbounded allocation here (a single
+    debate streams thousands of token frames). The gapless reconnect contract
+    only requires seq>N *domain* events on resume (run_started/node_*/tool_*/
+    debate_*/analysis_complete/run_completed/error), so we skip persisting the
+    ephemeral frames. We still refresh the run's timestamp on every frame so a
+    long token-only stretch can't trip the 300s idle eviction mid-run.
+    """
     global _last_eviction
     now = time.time()
+    # Second line of an SSE frame is "event: <type>" (see StreamEvent.to_sse).
+    event_line = next((ln for ln in sse_msg.split("\n", 3) if ln.startswith("event: ")), "")
+    skip_body = event_line in ("event: llm_token", "event: heartbeat")
     if run_id not in _recent_runs:
+        if skip_body:
+            # Nothing durable to retain yet; don't create an empty run entry
+            # (it would be indistinguishable from "unknown run" on replay).
+            return
         _recent_runs[run_id] = (now, [])
     else:
         # Pop and re-insert to move to end (maintain LRU order for eviction)
-        _recent_runs[run_id] = _recent_runs.pop(run_id)
-    _recent_runs[run_id] = (now, _recent_runs[run_id][1])
-    _recent_runs[run_id][1].append(sse_msg)
+        prior = _recent_runs.pop(run_id)
+        _recent_runs[run_id] = (now, prior[1])
+    if not skip_body:
+        _recent_runs[run_id][1].append(sse_msg)
     # Evict expired/overflow only periodically, not on every event
     if now - _last_eviction > _EVICT_INTERVAL:
         _last_eviction = now
@@ -135,7 +150,7 @@ async def _run_agent(
 
     # Initialize per-ticker cost attribution tracking
     for t in tickers_upper:
-        cost_attributor.start_analysis(t)
+        cost_attributor.start_analysis(t, run_id=correlation_id or "")
 
     event = emitter.run_started(tickers_upper)
     await queue.put(event.to_sse())
@@ -143,6 +158,11 @@ async def _run_agent(
     ticker_analyses: dict = {}
     _run_succeeded = False
     _timed_out = False
+    # Whether results were durably written to Postgres. Stays True when no
+    # persistence is attempted (no completed tickers); set False only when a
+    # persist_full_run call actually raises. The run_completed event carries
+    # this so the client's "Saved" chip reflects the real outcome.
+    _run_persisted = True
 
     try:
         message = f"Analyze these stocks: {', '.join(tickers_upper)}"
@@ -306,6 +326,7 @@ async def _run_agent(
                                     model_type=_attr_model_type,
                                     input_tokens=_split_input,
                                     output_tokens=_split_output,
+                                    run_id=correlation_id or "",
                                 )
 
                         # Emit debate turn events when inside the debate node
@@ -389,6 +410,7 @@ async def _run_agent(
                                 input_tokens=_input_tokens,
                                 output_tokens=_output_tokens,
                                 duration_ms=duration_ms,
+                                run_id=correlation_id or "",
                             )
 
                             role = DEBATE_ROLES[min(count, _num_debate_turns - 1)]
@@ -496,6 +518,47 @@ async def _run_agent(
                 )
                 await queue.put(ev.to_sse())
 
+                # Backstop: if the run timed out before a ticker produced any
+                # analysis (e.g. every LLM provider was down and the debate node
+                # was cancelled mid-call before its own degraded path could run),
+                # synthesize a minimal insufficient_data result from whatever
+                # market data was checkpointed. This guarantees the client always
+                # gets a usable, clearly-degraded payload instead of a bare
+                # timeout. insufficient_data is excluded from prediction history
+                # in persist_full_run, so it does not pollute the track record.
+                raw_prices = state_values.get("raw_prices", {}) or {}
+                for _tk in incomplete:
+                    quote: dict = {}
+                    fundamentals: dict = {}
+                    tk_prices = raw_prices.get(_tk) or {}
+                    if isinstance(tk_prices, dict):
+                        quote = tk_prices.get("quote", {}) or {}
+                        fundamentals = tk_prices.get("fundamentals", {}) or {}
+                    ticker_analyses[_tk] = {
+                        "ticker": _tk,
+                        "signal": "insufficient_data",
+                        "confidence": "low",
+                        "sentiment_score": 0.0,
+                        "thesis": (
+                            "Analysis could not complete in time: LLM providers were "
+                            f"unavailable (timed out in stage {_timeout_stage or 'debate'}). "
+                            "Please retry shortly."
+                        ),
+                        "bull_case": [],
+                        "bear_case": [],
+                        "news_summary": "Analysis unavailable; the run timed out.",
+                        "risk_flags": ["Analysis incomplete"],
+                        "citations": [],
+                        "data_gaps": [
+                            f"Run timed out in stage {_timeout_stage or 'debate'} "
+                            "before analysis completed (LLM providers unavailable)."
+                        ],
+                        "price_data": quote,
+                        "fundamentals": fundamentals,
+                        "earnings": {},
+                        "sec_notes": "",
+                    }
+
             for ticker, analysis in ticker_analyses.items():
                 # Strip internal debate fields from SSE payload
                 clean_analysis = {k: v for k, v in analysis.items() if not k.startswith("_")}
@@ -511,7 +574,9 @@ async def _run_agent(
 
                 # Flush per-ticker cost attribution to PostgreSQL
                 try:
-                    await cost_attributor.flush(ticker, correlation_id=correlation_id)
+                    await cost_attributor.flush(
+                        ticker, correlation_id=correlation_id, run_id=correlation_id or ""
+                    )
                 except Exception:
                     pass  # Non-critical, don't break the stream
 
@@ -529,9 +594,11 @@ async def _run_agent(
                     await persist_full_run(
                         tickers_upper, ticker_analyses, report_md, correlation_id=correlation_id
                     )
+                    _run_persisted = True
                 except Exception as persist_err:
                     import logging as _logging
 
+                    _run_persisted = False
                     _logging.getLogger("analyze_stream").warning(
                         "Persistence failed: %s", persist_err
                     )
@@ -599,7 +666,9 @@ async def _run_agent(
         # Flush cost attribution for all started tickers (even on timeout)
         for ticker in tickers_upper:
             try:
-                await cost_attributor.flush(ticker, correlation_id=correlation_id)
+                await cost_attributor.flush(
+                    ticker, correlation_id=correlation_id, run_id=correlation_id or ""
+                )
             except Exception:
                 pass
 
@@ -608,6 +677,7 @@ async def _run_agent(
             total_duration_ms=summary["total_duration_ms"],
             total_tokens=summary["total_tokens"],
             cost_usd=summary["cost_usd"],
+            persisted=_run_persisted,
         )
         await queue.put(ev.to_sse())
 
@@ -665,18 +735,49 @@ async def _stream_generator(
     if last_event_id is not None and resume_run_id:
         replayed = _replay_events(resume_run_id, last_event_id)
         if not replayed and resume_run_id not in _recent_runs:
-            # Run state not found on this instance (likely routed to different machine).
-            # Emit a terminal error so the client stops reconnecting blindly.
+            # Run state is not in this process's in-memory store. This happens
+            # when the reconnect is routed to a different machine, or the owning
+            # process was restarted by a rolling deploy. The in-memory store is
+            # process-local, so fall back to the durable trace in Postgres: a
+            # completed run can be replayed from there regardless of which
+            # machine (or process generation) finished it.
             from datetime import datetime, timezone
 
+            db_events: list[str] = []
+            run_completed_in_db = False
+            try:
+                from src.ops.trace_recorder import get_trace_by_run_id
+
+                trace = await get_trace_by_run_id(resume_run_id)
+                if trace:
+                    for ev in trace.get("events", []):
+                        seq = ev.get("seq")
+                        if isinstance(seq, int) and seq > last_event_id:
+                            db_events.append(StreamEvent(**ev).to_sse())
+                        if ev.get("type") == "run_completed":
+                            run_completed_in_db = True
+            except Exception:
+                # DB fallback is best-effort; fall through to recoverable error.
+                db_events = []
+
+            if db_events or run_completed_in_db:
+                for ev in db_events:
+                    yield ev
+                slot_released = True
+                return
+
+            # No durable trace yet: the run is either still live on an
+            # unreachable process, or never got far enough to persist. Tell the
+            # client this attempt can't be resumed here, but keep it recoverable
+            # so the UI offers a clean retry instead of a dead end.
             error_event = StreamEvent(
                 run_id=resume_run_id,
                 seq=last_event_id + 1 if last_event_id else 1,
                 type=EventType.ERROR,
                 timestamp=datetime.now(timezone.utc).isoformat(),
                 payload={
-                    "message": "Run state unavailable on this instance. Please start a new analysis.",
-                    "recoverable": False,
+                    "message": "This analysis can't be resumed here. Please retry.",
+                    "recoverable": True,
                 },
             )
             yield error_event.to_sse()
@@ -850,9 +951,6 @@ async def analyze_stream(
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         }
-        fly_alloc_id = os.environ.get("FLY_ALLOC_ID")
-        if fly_alloc_id:
-            headers["fly-replay-src"] = fly_alloc_id
 
         return StreamingResponse(
             _stream_generator(
@@ -897,11 +995,6 @@ async def analyze_stream(
         "Connection": "keep-alive",
         "X-Accel-Buffering": "no",
     }
-
-    # Fly.io: pin SSE reconnections to this machine (holds in-memory event store)
-    fly_alloc_id = os.environ.get("FLY_ALLOC_ID")
-    if fly_alloc_id:
-        headers["fly-replay-src"] = fly_alloc_id
 
     return StreamingResponse(
         _stream_generator(

@@ -100,6 +100,7 @@ async def _persist_analysis_with_debate(
     fundamentals = analysis.get("fundamentals", {})
     earnings = analysis.get("earnings", {})
     sec_notes = analysis.get("sec_notes") or ""
+    article_count = int(analysis.get("article_count") or 0)
 
     await conn.execute(
         """
@@ -107,8 +108,8 @@ async def _persist_analysis_with_debate(
             analysis_id, ticker, signal, confidence, sentiment_score,
             thesis, bull_case, bear_case, news_summary, risk_flags,
             price_data, fundamentals, earnings, sec_notes,
-            debate, verdict_rationale, key_disagreements
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+            debate, verdict_rationale, key_disagreements, article_count
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
         """,
         analysis_id,
         ticker,
@@ -127,6 +128,7 @@ async def _persist_analysis_with_debate(
         debate_json,
         verdict_rationale,
         _safe_json_dumps(key_disagreements),
+        article_count,
     )
 
 

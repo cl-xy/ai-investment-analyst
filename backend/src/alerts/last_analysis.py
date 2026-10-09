@@ -31,6 +31,10 @@ class LastAnalysisSnapshot:
     analysis_id: str
     created_at: datetime
     thesis: str = ""
+    # News article count captured when this analysis was produced; the drift
+    # scorer diffs a fresh probe count against this baseline. 0 for rows
+    # written before this column existed (treated as "no baseline").
+    article_count: int = 0
 
 
 async def get_last_analysis(ticker: str) -> LastAnalysisSnapshot | None:
@@ -39,7 +43,8 @@ async def get_last_analysis(ticker: str) -> LastAnalysisSnapshot | None:
     row = await fetchrow(
         """
         SELECT ta.ticker, ta.signal, ta.confidence, ta.sentiment_score, ta.thesis,
-               ta.risk_flags, ta.price_data, ta.fundamentals, ta.analysis_id, a.created_at
+               ta.risk_flags, ta.price_data, ta.fundamentals, ta.analysis_id,
+               ta.article_count, a.created_at
         FROM ticker_analyses ta
         JOIN analyses a ON ta.analysis_id = a.id
         WHERE ta.ticker = $1 AND ta.signal != 'insufficient_data'
@@ -62,6 +67,7 @@ async def get_last_analysis(ticker: str) -> LastAnalysisSnapshot | None:
         fundamentals=as_dict(row["fundamentals"]),
         analysis_id=str(row["analysis_id"]),
         created_at=row["created_at"],
+        article_count=row["article_count"] or 0,
     )
 
 

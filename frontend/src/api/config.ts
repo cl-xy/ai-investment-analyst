@@ -41,8 +41,3 @@ export function authHeaders(): Record<string, string> {
   if (!DEMO_PASSWORD) return {}
   return { 'X-Demo-Password': DEMO_PASSWORD }
 }
-
-export function authParam(): string {
-  if (!DEMO_PASSWORD) return ''
-  return `password=${encodeURIComponent(DEMO_PASSWORD)}`
-}

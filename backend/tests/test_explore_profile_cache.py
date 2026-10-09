@@ -53,7 +53,9 @@ async def test_saves_successful_company_description_for_later_fallback():
 
 @pytest.mark.asyncio
 async def test_uses_last_known_description_when_yahoo_profile_is_empty():
-    cached_profile = AsyncMock(return_value=({"description": "Saved CBRS description"}, "src", True))
+    cached_profile = AsyncMock(
+        return_value=({"description": "Saved CBRS description"}, "src", True)
+    )
     with (
         patch.object(explore, "_fetch_price_history", _price_history),
         patch.object(explore, "_fetch_yf_info", AsyncMock(return_value={})),

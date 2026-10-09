@@ -254,6 +254,7 @@ ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS debate JSONB;
 ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS verdict_rationale TEXT NOT NULL DEFAULT '';
 ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS key_disagreements JSONB NOT NULL DEFAULT '[]';
 ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS earnings JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS article_count INTEGER NOT NULL DEFAULT 0;
 
 -- Traces table for replay system
 CREATE TABLE IF NOT EXISTS traces (

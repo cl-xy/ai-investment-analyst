@@ -174,3 +174,27 @@ class TestFixtureScenarios:
         result = score_drift(previous_sentiment=0.5, current_sentiment=0.65, threshold=0.05)
         assert result.threshold == 0.05
         assert result.likely_changed == (result.score >= 0.05)
+
+
+class TestComponentsCarrySignal:
+    """Regression guards: catch a component silently going inert again (the
+    bug where news_volume_spike and risk_flag_count_delta were fed identical
+    previous/current args and contributed a constant zero)."""
+
+    def test_news_volume_spike_is_weighted_and_live(self):
+        """A real jump in article count must move the overall score, not just
+        the component sub-score."""
+        flat = score_drift(previous_article_count=4, current_article_count=4)
+        spike = score_drift(previous_article_count=4, current_article_count=20)
+        assert spike.components.news_volume_spike > 0.0
+        assert spike.score > flat.score
+
+    def test_risk_flag_count_delta_no_longer_weighted(self):
+        """risk_flag_count_delta was dropped from live WEIGHTS (no cheap current
+        count exists). Changing only the risk-flag counts must NOT move the
+        score, even though the component sub-score still computes."""
+        base = score_drift(previous_risk_flag_count=1, current_risk_flag_count=1)
+        changed = score_drift(previous_risk_flag_count=1, current_risk_flag_count=5)
+        assert changed.components.risk_flag_count_delta > 0.0  # still computed
+        assert changed.score == base.score  # but not weighted
+        assert "risk_flag_count_delta" not in WEIGHTS

@@ -73,9 +73,10 @@ async def evaluate_ticker(
     probe = await probe_ticker(ticker)
     events = await check_all_triggers_for_ticker(ticker, snapshot, probe)
 
-    # Article-count baseline comes from data_gaps-free prior news coverage,
-    # which we don't persist separately — treat "no signal" gracefully by
-    # falling back to the current count as its own baseline (delta = 0).
+    # news_volume_spike now diffs the article count captured at analysis time
+    # (snapshot.article_count) against the fresh probe count. Rows written
+    # before the article_count column existed carry 0, which the scorer treats
+    # as "no baseline" (delta neutral) rather than a false spike.
     drift = score_drift(
         previous_sentiment=snapshot.sentiment_score,
         current_sentiment=probe.sentiment_score
@@ -83,10 +84,8 @@ async def evaluate_ticker(
         else snapshot.sentiment_score,
         price_at_prediction=_extract_price(snapshot),
         current_price=probe.current_price,
-        previous_risk_flag_count=len(snapshot.risk_flags),
-        current_risk_flag_count=len(snapshot.risk_flags),  # probe doesn't re-derive risk flags
         new_sec_filing_detected=any(e.trigger_type == "sec_filing" for e in events),
-        previous_article_count=probe.article_count,
+        previous_article_count=snapshot.article_count,
         current_article_count=probe.article_count,
         peer_signal_flipped=any(e.trigger_type == "peer_signal" for e in events),
         threshold=DEFAULT_DRIFT_THRESHOLD,

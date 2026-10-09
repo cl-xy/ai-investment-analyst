@@ -40,7 +40,7 @@ export default function OpsPage() {
   const [error, setError] = useState<string | null>(null)
   const [confirmingChaos, setConfirmingChaos] = useState<string | null>(null)
 
-  const fetchAll = useCallback(async () => {
+  const fetchAll = useCallback(async (isActive: () => boolean = () => true) => {
     const [h, s, m, c, co] = await Promise.allSettled([
       getHealth(),
       getSLO(),
@@ -48,6 +48,10 @@ export default function OpsPage() {
       getChaosState(),
       getCostAttribution(7),
     ])
+    // Drop results from a poll that was superseded (component unmounted, or a
+    // newer action ran) so a slow in-flight poll can't clobber fresher state
+    // such as an optimistic chaos toggle.
+    if (!isActive()) return
     if (h.status === 'fulfilled') setHealth(h.value)
     if (s.status === 'fulfilled') setSLO(s.value)
     if (m.status === 'fulfilled') setMetrics(m.value)
@@ -67,9 +71,14 @@ export default function OpsPage() {
   }, [])
 
   useEffect(() => {
-    fetchAll()
-    const interval = setInterval(fetchAll, 10000)
-    return () => clearInterval(interval)
+    let active = true
+    const isActive = () => active
+    fetchAll(isActive)
+    const interval = setInterval(() => fetchAll(isActive), 10000)
+    return () => {
+      active = false
+      clearInterval(interval)
+    }
   }, [fetchAll])
 
   const toggleChaosScenarioHandler = async (scenarioId: string) => {
@@ -149,7 +158,7 @@ export default function OpsPage() {
           </p>
         </div>
         <button
-          onClick={fetchAll}
+          onClick={() => fetchAll()}
           className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors focus-ring rounded px-3 py-2 min-h-[36px]"
         >
           <RefreshCw className="w-3.5 h-3.5" />

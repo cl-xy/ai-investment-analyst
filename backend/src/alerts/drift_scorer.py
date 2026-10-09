@@ -21,13 +21,20 @@ DEFAULT_DRIFT_THRESHOLD = 0.4
 
 # Component weights. Must sum to 1.0 (enforced by a test, not at runtime,
 # so a bad edit fails CI loudly rather than silently under/over-weighting).
+#
+# risk_flag_count_delta was dropped from the live weights: risk flags are
+# produced only by the full debate (LLM) pipeline, and the cheap no-LLM probe
+# cannot re-derive a *current* count to diff against the baseline. Keeping it
+# with identical prev/current args made it contribute a constant zero, so a
+# fifth of the score weight was inert. The remaining five components are
+# renormalized to sum to 1.0. A new current risk-flag signal would need a
+# deterministic non-LLM source before this can be reinstated honestly.
 WEIGHTS: dict[str, float] = {
-    "sentiment_delta": 0.25,
-    "price_move_pct": 0.20,
-    "risk_flag_count_delta": 0.20,
-    "new_sec_filing": 0.15,
-    "news_volume_spike": 0.10,
-    "peer_signal_flip": 0.10,
+    "sentiment_delta": 0.3125,
+    "price_move_pct": 0.25,
+    "new_sec_filing": 0.1875,
+    "news_volume_spike": 0.125,
+    "peer_signal_flip": 0.125,
 }
 
 # Component-specific normalization constants.
@@ -152,7 +159,6 @@ def score_drift(
     total = (
         components.sentiment_delta * WEIGHTS["sentiment_delta"]
         + components.price_move_pct * WEIGHTS["price_move_pct"]
-        + components.risk_flag_count_delta * WEIGHTS["risk_flag_count_delta"]
         + components.new_sec_filing * WEIGHTS["new_sec_filing"]
         + components.news_volume_spike * WEIGHTS["news_volume_spike"]
         + components.peer_signal_flip * WEIGHTS["peer_signal_flip"]

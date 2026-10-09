@@ -42,7 +42,9 @@ class FakeEmitter:
     def analysis_complete(self, ticker, analysis):
         return self._make_event("analysis_complete")
 
-    def run_completed(self, tickers, total_duration_ms, total_tokens=0, cost_usd=0.0):
+    def run_completed(
+        self, tickers, total_duration_ms, total_tokens=0, cost_usd=0.0, persisted=True
+    ):
         return self._make_event("run_completed")
 
     def error(self, message, recoverable=True, context=""):

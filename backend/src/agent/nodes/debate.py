@@ -7,6 +7,7 @@ Falls back to single-shot analysis if debate fails or rate budget is exhausted.
 """
 
 import asyncio
+import contextvars
 import json
 import time
 from datetime import date
@@ -43,6 +44,39 @@ log = get_logger(__name__)
 # Minimum delay between sequential LLM calls to reduce burst contention
 # on free-tier provider workers (Nvidia ResourceExhausted threshold)
 _MIN_CALL_INTERVAL = 4.0  # seconds
+
+# Fraction of the *remaining* per-ticker budget to grant the current turn,
+# keyed by turns_left (3=bull, 2=bear, 1=moderator). Bull is front-loaded: its
+# failure zeroes the whole ticker (insufficient_data card) whereas bear/moderator
+# degrade in place, so bull gets the largest slice - enough to abandon one
+# stalled primary (capped at llm_attempt_timeout_seconds) and still reach a
+# healthy fallback. Keys default to an even split for any other turn count.
+_TURN_WEIGHTS = {3: 0.5, 2: 0.6, 1: 1.0}
+# Never hand a turn less than one healthy-call window (observed ~44s), unless the
+# remaining budget itself is already below that (then the turn gets what is left).
+_MIN_TURN_BUDGET = 30.0
+
+
+def _turn_budget(remaining: float, turns_left: int) -> float:
+    """Wall-clock seconds to grant the current debate turn.
+
+    Front-loads bull, floors each turn at _MIN_TURN_BUDGET (or the remaining
+    budget if that is already smaller), and never returns a negative value.
+    """
+    weight = _TURN_WEIGHTS.get(turns_left, 1.0 / max(turns_left, 1))
+    floor = min(_MIN_TURN_BUDGET, max(remaining, 0.0))
+    return max(remaining * weight, floor)
+
+
+# Per-turn wall-clock deadline (time.monotonic() seconds) for the current debate
+# turn. Set by debate_ticker_node before each bull/bear/moderator call and read
+# by _invoke_with_retry so the model fallback chain stops walking once the turn
+# budget is spent, raising an ordinary TimeoutError that the per-turn except
+# handlers turn into a degraded partial. A ContextVar is task-local under
+# asyncio, so concurrent ticker runs do not clobber each other's deadline.
+_turn_deadline: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "debate_turn_deadline", default=None
+)
 
 
 def _coerce_str_list(items: list) -> list[str]:
@@ -136,7 +170,11 @@ async def _invoke_with_retry(messages: list, *, is_retry: bool = False) -> objec
     """
     temperature = 0.2 if is_retry else 0.5
     response = await invoke_with_fallback(
-        messages, temperature=temperature, max_tokens=4096, request_timeout=120
+        messages,
+        temperature=temperature,
+        max_tokens=4096,
+        request_timeout=120,
+        deadline=_turn_deadline.get(),
     )
     finish_reason = (getattr(response, "response_metadata", None) or {}).get("finish_reason")
     if finish_reason == "length":
@@ -462,7 +500,24 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     price_data = ctx["raw_price_data"]
     _log.info("debate_starting")
 
+    # Allocate the per-ticker LLM budget across the three turns so one dead turn
+    # cannot consume the whole budget and get the node cancelled by the route's
+    # outer timeout. Bull is front-loaded: a bull failure returns a total
+    # insufficient_data card (nothing to synthesize), while bear and moderator
+    # failures degrade in place (bull-only hold, or bull+bear synthesis). So the
+    # bull turn gets the largest slice - enough to abandon a stalled primary and
+    # still reach a healthy fallback - and later turns split the remainder, each
+    # with a floor so the moderator is never starved below one useful attempt.
+    from src.config import settings as _settings
+
+    _ticker_deadline = time.monotonic() + _settings.debate_ticker_budget_seconds
+
+    def _set_turn_deadline(turns_left: int) -> None:
+        remaining = _ticker_deadline - time.monotonic()
+        _turn_deadline.set(time.monotonic() + _turn_budget(remaining, turns_left))
+
     # Run bull agent
+    _set_turn_deadline(turns_left=3)
     bull_start = time.monotonic()
     try:
         bull = await _run_bull_agent(ctx)
@@ -496,6 +551,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     await asyncio.sleep(_MIN_CALL_INTERVAL)
 
     # Run bear agent
+    _set_turn_deadline(turns_left=2)
     bear_start = time.monotonic()
     try:
         bear = await _run_bear_agent(ctx, bull)
@@ -529,6 +585,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     await asyncio.sleep(_MIN_CALL_INTERVAL)
 
     # Run moderator
+    _set_turn_deadline(turns_left=1)
     mod_start = time.monotonic()
     try:
         moderator = await _run_moderator(ctx, bull, bear)
@@ -591,6 +648,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
             "fundamentals": price_data.get("fundamentals", {}),
             "earnings": ctx.get("raw_earnings", {}),
             "sec_notes": moderator.sec_notes,
+            "article_count": ctx.get("article_count", 0),
             # Debate-specific fields for persistence
             "_debate": debate_record.model_dump(),
             "_verdict_rationale": _dedup_text(moderator.verdict_rationale),
@@ -615,6 +673,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
             "fundamentals": price_data.get("fundamentals", {}),
             "earnings": ctx.get("raw_earnings", {}),
             "sec_notes": "",
+            "article_count": ctx.get("article_count", 0),
         }
 
     existing = dict(state.get("ticker_analyses", {}))

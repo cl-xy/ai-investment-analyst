@@ -97,3 +97,42 @@ def test_sentiment_block_appears_in_bull_prompt():
 
     assert "RETAIL SENTIMENT" in prompt
     assert "Messages analyzed: 4" in prompt
+
+
+from unittest.mock import patch
+
+import pytest
+
+from src.agent.nodes import debate as debate_mod
+
+
+@pytest.mark.asyncio
+async def test_debate_node_returns_degraded_partial_when_chain_exhausted():
+    """When the model chain is exhausted (all providers down), the bull turn
+    raises an ordinary exception and the node returns a degraded insufficient_data
+    partial for the ticker instead of propagating the failure. This is the
+    graceful-retry path that the per-turn deadline makes reachable."""
+    state = {
+        "tickers_to_analyze": ["NVDA"],
+        "ticker_analyses": {},
+        "raw_prices": {"NVDA": {"quote": {"price": 100.0}, "fundamentals": {"pe": 30}}},
+        "raw_news": {},
+        "raw_filings": {},
+        "raw_earnings": {},
+        "raw_sentiment": {},
+        "correlation_id": "test-corr",
+    }
+
+    async def _boom(*_a, **_k):
+        # Simulate the fallback chain exhausting all providers.
+        raise TimeoutError("LLM attempt exceeded wall-clock timeout (model=x)")
+
+    with patch.object(debate_mod, "_run_bull_agent", side_effect=_boom):
+        result = await debate_mod.debate_ticker_node(state)
+
+    analyses = result["ticker_analyses"]
+    assert "NVDA" in analyses
+    assert analyses["NVDA"]["signal"] == "insufficient_data"
+    # Degraded partial still carries the checkpointed market data.
+    assert analyses["NVDA"]["price_data"] == {"price": 100.0}
+    assert analyses["NVDA"]["data_gaps"]

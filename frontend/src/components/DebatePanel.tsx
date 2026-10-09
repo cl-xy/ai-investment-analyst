@@ -153,7 +153,7 @@ export default function DebatePanel({ ticker }: DebatePanelProps) {
                   debate.verdict.signal === 'sell' ? 'bg-[var(--bearish)]/20 text-[var(--bearish)]' :
                   'bg-[var(--text-muted)]/20 text-[var(--text-secondary)]'
                 }`}>
-                  {debate.verdict.signal.toUpperCase()} ({debate.verdict.confidence})
+                  {(debate.verdict.signal ?? 'hold').toUpperCase()} ({debate.verdict.confidence})
                 </span>
               </div>
               <Markdown className="mb-3">{debate.verdict.verdict_rationale}</Markdown>

@@ -103,6 +103,32 @@ async def get_featured_trace() -> dict | None:
     return _row_to_trace(row)
 
 
+async def get_trace_by_run_id(run_id: str) -> dict | None:
+    """Get the most recent completed trace for a run_id (with full events).
+
+    Used for cross-machine SSE reconnection: when a client reconnects and the
+    in-memory event store on the serving machine has no record of the run
+    (different machine, or state wiped by a rolling deploy), fall back to the
+    durable trace in Postgres so a completed run can still be replayed. The
+    trace is only written once a run finishes, so this recovers completed runs,
+    not ones still live on a now-unreachable process.
+    """
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        """
+        SELECT id, run_id, tickers, events, duration_ms, status, signal, created_at
+        FROM traces
+        WHERE run_id = $1
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        run_id,
+    )
+    if not row:
+        return None
+    return _row_to_trace(row)
+
+
 async def get_trace(trace_id: uuid.UUID) -> dict | None:
     """Get a single trace by ID."""
     pool = await get_pool()

@@ -38,3 +38,9 @@ CLAUDE.md
 AGENTS.md
 opencode.json
 .opencode/
+
+# Local-only archives and tooling config (never commit)
+.ai.zip
+.kiro.zip
+.mcp.json
+.vercel/
