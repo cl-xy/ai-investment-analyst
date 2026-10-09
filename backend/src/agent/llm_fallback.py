@@ -58,6 +58,11 @@ def _classify_error(exc: BaseException) -> ErrorSeverity:
     ):
         return ErrorSeverity.NOT_RETRYABLE
 
+    # Rate limits and upstream capacity are route-specific often enough that
+    # retrying the same model immediately only adds load. Switch providers.
+    if re.search(r"\b429\b", exc_str) or "rate limit" in exc_str or "rate_limit" in exc_str:
+        return ErrorSeverity.FALLBACK_TO_OTHER
+
     # Upstream provider capacity: try a different model
     if "resource" in exc_str and "exhausted" in exc_str:
         return ErrorSeverity.FALLBACK_TO_OTHER
@@ -68,10 +73,8 @@ def _classify_error(exc: BaseException) -> ErrorSeverity:
     if "overloaded" in exc_str:
         return ErrorSeverity.FALLBACK_TO_OTHER
 
-    # Rate limit or transient: retry same model first
-    if re.search(r"\b(429|500)\b", exc_str):
-        return ErrorSeverity.RETRY_SAME_MODEL
-    if "rate limit" in exc_str:
+    # Other transient server failures can succeed on a quick retry.
+    if re.search(r"\b500\b", exc_str):
         return ErrorSeverity.RETRY_SAME_MODEL
     if any(term in exc_str for term in ("connection", "temporar", "unavailable")):
         return ErrorSeverity.RETRY_SAME_MODEL

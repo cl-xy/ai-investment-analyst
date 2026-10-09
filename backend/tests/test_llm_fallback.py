@@ -51,8 +51,6 @@ class TestClassifyError:
     @pytest.mark.parametrize(
         "message",
         [
-            "429 Too Many Requests",
-            "rate limit exceeded",
             "connection reset by peer",
             "service unavailable",
         ],
@@ -63,6 +61,8 @@ class TestClassifyError:
     @pytest.mark.parametrize(
         "message",
         [
+            "429 Too Many Requests",
+            "rate limit exceeded",
             "resource exhausted: quota exceeded",
             "502 Bad Gateway",
             "503 Service Unavailable",
@@ -93,11 +93,13 @@ class TestRetryAndFallbackHelpers:
     def test_is_retryable_error_true_only_for_retry_same_model(self):
         assert _is_retryable_error(RuntimeError("temporarily unavailable")) is True
         assert _is_retryable_error(RuntimeError("502 Bad Gateway")) is False
+        assert _is_retryable_error(RuntimeError("429 Too Many Requests")) is False
         assert _is_retryable_error(RuntimeError("401 Unauthorized")) is False
 
     def test_is_fallback_worthy_false_only_for_not_retryable(self):
         assert _is_fallback_worthy(RuntimeError("temporarily overloaded")) is True
         assert _is_fallback_worthy(RuntimeError("502 Bad Gateway")) is True
+        assert _is_fallback_worthy(RuntimeError("429 Too Many Requests")) is True
         assert _is_fallback_worthy(RuntimeError("401 Unauthorized")) is False
 
 
