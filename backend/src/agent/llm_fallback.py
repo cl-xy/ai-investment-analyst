@@ -88,9 +88,20 @@ def _classify_error(exc: BaseException) -> ErrorSeverity:
     ):
         return ErrorSeverity.NOT_RETRYABLE
 
-    # Rate limits and upstream capacity are route-specific often enough that
-    # retrying the same model immediately only adds load. Switch providers.
-    if re.search(r"\b429\b", exc_str) or "rate limit" in exc_str or "rate_limit" in exc_str:
+    # OpenRouter can identify a shared upstream pool limit explicitly. That
+    # means another model/provider is more useful than retrying this route.
+    if "upstream_provider_shared_pool" in exc_str or "shared pool" in exc_str:
+        return ErrorSeverity.FALLBACK_TO_OTHER
+
+    if "rate limit" in exc_str and any(term in exc_str for term in ("temporarily", "temporary")):
+        return ErrorSeverity.RETRY_SAME_MODEL
+
+    # A generic 429 may be a short-lived throttle: retry once on the same
+    # model. Text-only rate-limit errors without a status code are treated as
+    # route-specific and sent to the fallback model.
+    if re.search(r"\b429\b", exc_str):
+        return ErrorSeverity.RETRY_SAME_MODEL
+    if "rate limit" in exc_str or "rate_limit" in exc_str:
         return ErrorSeverity.FALLBACK_TO_OTHER
 
     # Upstream provider capacity: try a different model
