@@ -74,6 +74,36 @@ class ErrorSeverity(Enum):
     FALLBACK_TO_OTHER = "fallback_to_other"
 
 
+def _is_stream_corruption(exc: BaseException) -> bool:
+    """True for a malformed/truncated SSE-stream or JSON-decode transport error.
+
+    The provider began streaming a response and then emitted a bad or truncated
+    frame (bad JSON chunk, truncated SSE data, incomplete chunked read, peer
+    closed mid-body). These are transient and usually worker/model-specific.
+
+    Scope is deliberately narrow: only stream/SSE/chunk/decode-shaped wording
+    matches. A bare "connection reset by peer" is intentionally NOT matched here
+    (that stays RETRY_SAME_MODEL), and a plain schema/validation message with no
+    stream/decode wording stays NOT_RETRYABLE. Auth/bad-request (400/401) is
+    screened out earlier in _classify_error.
+    """
+    exc_str = str(exc).lower()
+    stream_terms = (
+        "sse",
+        "stream",
+        "chunk",
+        "incomplete read",
+        "incomplete chunked read",
+        "peer closed",
+        "response ended prematurely",
+        "error injected",
+    )
+    decode_terms = ("decode", "parse", "expecting value", "unterminated")
+    if any(t in exc_str for t in stream_terms):
+        return True
+    return "json" in exc_str and any(t in exc_str for t in decode_terms)
+
+
 def _classify_error(exc: BaseException) -> ErrorSeverity:
     """Classify an exception to determine retry/fallback strategy."""
     # Circuit breaker open means primary is failing repeatedly
@@ -112,6 +142,17 @@ def _classify_error(exc: BaseException) -> ErrorSeverity:
     if "timeout" in exc_str:
         return ErrorSeverity.FALLBACK_TO_OTHER
     if "overloaded" in exc_str:
+        return ErrorSeverity.FALLBACK_TO_OTHER
+    # Transport/stream-decode failures: the provider began streaming an SSE
+    # response and then emitted a malformed or truncated chunk (bad JSON frame,
+    # truncated SSE data, incomplete chunked read, peer closed mid-body). These
+    # surface as an openai.APIError whose message carries none of the numeric
+    # status tokens above, so without this branch they fall through to
+    # NOT_RETRYABLE and nuke the whole turn on the primary. They are transient
+    # and often model/worker-specific, so route to a DIFFERENT provider rather
+    # than hammering the same stream that just broke. See _is_stream_corruption
+    # for the (deliberately narrow) matching rules.
+    if _is_stream_corruption(exc):
         return ErrorSeverity.FALLBACK_TO_OTHER
     # A 429 caused by the provider's shared free-tier pool being saturated
     # (limit_source=upstream_provider_shared_pool) will not clear in a 2-10s
@@ -303,6 +344,22 @@ async def invoke_with_fallback(
             return result
         except Exception as exc:
             last_exc = exc
+            # Observability: count malformed/truncated SSE-stream decode failures
+            # so they surface on the ops dashboard (/ops/metrics ->
+            # counters.llm_stream_corruptions_total, labelled by model). This is
+            # the transient class the stream-decode branch of _classify_error
+            # routes to FALLBACK_TO_OTHER; tracking it distinguishes "provider is
+            # emitting broken frames" from ordinary 429/timeout fallbacks.
+            # Best-effort: a metrics failure must never break the LLM path.
+            if _classify_error(exc) is ErrorSeverity.FALLBACK_TO_OTHER and _is_stream_corruption(
+                exc
+            ):
+                try:
+                    from src.metrics import metrics as _metrics
+
+                    _metrics.inc("llm_stream_corruptions_total", labels={"model": model})
+                except Exception:  # pragma: no cover - defensive
+                    pass
             # Auth/bad-request style errors won't be fixed by another model.
             if not _is_fallback_worthy(exc):
                 raise

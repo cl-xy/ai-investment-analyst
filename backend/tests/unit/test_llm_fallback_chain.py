@@ -30,6 +30,46 @@ def test_plain_429_still_retries_same_model():
     assert llm_fallback._classify_error(exc) is llm_fallback.ErrorSeverity.RETRY_SAME_MODEL
 
 
+def test_malformed_sse_stream_routes_to_other_model():
+    """A malformed/truncated JSON chunk mid-SSE-stream is a transient transport
+    failure, not a permanent one: it must route to a different provider instead
+    of falling through to NOT_RETRYABLE and nuking the whole turn.
+
+    Regression: a live CELH debate run failed with
+    'Debate failed: bull agent error (APIError)' /
+    'Bull agent failed: JSON error injected into SSE stream' because this exact
+    error string matched none of the numeric status patterns and classified as
+    NOT_RETRYABLE, so no same-model retry and no fallback model ever ran.
+    """
+    for body in (
+        "APIError: JSON error injected into SSE stream",
+        "openai.APIError: error while parsing stream chunk: Expecting value",
+        "peer closed connection without sending complete message body (incomplete chunked read)",
+        "json decode error: unterminated string in SSE data",
+    ):
+        exc = Exception(body)
+        assert llm_fallback._classify_error(exc) is llm_fallback.ErrorSeverity.FALLBACK_TO_OTHER, (
+            f"expected FALLBACK_TO_OTHER for: {body!r}"
+        )
+
+
+def test_schema_and_auth_errors_stay_not_retryable():
+    """The new stream/decode branch must not swallow genuinely permanent errors.
+
+    A 400/401 is still NOT_RETRYABLE even if the message happens to mention JSON
+    (the auth check runs first), and a plain schema/validation message with no
+    stream/decode wording also stays NOT_RETRYABLE.
+    """
+    assert (
+        llm_fallback._classify_error(Exception("Error code: 400 - invalid json schema"))
+        is llm_fallback.ErrorSeverity.NOT_RETRYABLE
+    )
+    assert (
+        llm_fallback._classify_error(Exception("response did not match the expected schema"))
+        is llm_fallback.ErrorSeverity.NOT_RETRYABLE
+    )
+
+
 def test_fallback_chain_is_ordered_and_deduped():
     """The configured chain parses into an ordered, de-duplicated model list."""
     chain = settings.llm_fallback_chain
@@ -37,6 +77,89 @@ def test_fallback_chain_is_ordered_and_deduped():
     assert len(chain) == len(set(chain)), "fallback chain must have no duplicates"
     # Primary is prepended inside invoke_with_fallback; it should not also appear here.
     assert settings.llm_model not in chain
+
+
+def test_is_stream_corruption_narrow_scope():
+    """The helper only matches stream/SSE/chunk/decode wording, not bare
+    connection resets or plain schema errors."""
+    assert llm_fallback._is_stream_corruption(Exception("JSON error injected into SSE stream"))
+    assert llm_fallback._is_stream_corruption(Exception("error parsing stream chunk"))
+    assert llm_fallback._is_stream_corruption(Exception("json decode error: unterminated string"))
+    # Not stream-shaped:
+    assert not llm_fallback._is_stream_corruption(Exception("connection reset by peer"))
+    assert not llm_fallback._is_stream_corruption(Exception("429 too many requests"))
+    assert not llm_fallback._is_stream_corruption(Exception("response did not match schema"))
+
+
+@pytest.mark.asyncio
+async def test_stream_corruption_increments_metric():
+    """When a model fails mid-stream, the ops counter is incremented with the
+    failing model label so the corruption surfaces on /ops/metrics, and the
+    chain still falls over to a healthy model."""
+    from src.metrics import metrics
+
+    before = metrics.llm_stream_corruptions_total.get(labels={"model": "m-primary"})
+
+    async def _retry(llm, messages, *, breaker=None, deadline=None):
+        model = getattr(llm, "_model_id", "unknown")
+        if model == "m-primary":
+            raise Exception("APIError: JSON error injected into SSE stream")
+        return "ok-from-fallback"
+
+    def _fake_build(model, *_a, **_k):
+        m = AsyncMock()
+        m._model_id = model
+        return m
+
+    with (
+        patch.object(llm_fallback, "_build_llm", side_effect=_fake_build),
+        patch.object(llm_fallback, "_invoke_with_retry", side_effect=_retry),
+        patch.object(
+            type(settings),
+            "llm_fallback_chain",
+            property(lambda self: ["m-fallback-1"]),
+        ),
+    ):
+        result = await llm_fallback.invoke_with_fallback([], primary_model="m-primary")
+
+    assert result == "ok-from-fallback"
+    after = metrics.llm_stream_corruptions_total.get(labels={"model": "m-primary"})
+    assert after == before + 1
+
+
+@pytest.mark.asyncio
+async def test_non_stream_fallback_does_not_increment_stream_metric():
+    """An ordinary overloaded/timeout fallback must NOT bump the stream-corruption
+    counter - the metric is specific to malformed-stream failures."""
+    from src.metrics import metrics
+
+    before = metrics.llm_stream_corruptions_total.get(labels={"model": "m-primary"})
+
+    async def _retry(llm, messages, *, breaker=None, deadline=None):
+        model = getattr(llm, "_model_id", "unknown")
+        if model == "m-primary":
+            raise Exception("model is overloaded, please retry")
+        return "ok"
+
+    def _fake_build(model, *_a, **_k):
+        m = AsyncMock()
+        m._model_id = model
+        return m
+
+    with (
+        patch.object(llm_fallback, "_build_llm", side_effect=_fake_build),
+        patch.object(llm_fallback, "_invoke_with_retry", side_effect=_retry),
+        patch.object(
+            type(settings),
+            "llm_fallback_chain",
+            property(lambda self: ["m-fallback-1"]),
+        ),
+    ):
+        result = await llm_fallback.invoke_with_fallback([], primary_model="m-primary")
+
+    assert result == "ok"
+    after = metrics.llm_stream_corruptions_total.get(labels={"model": "m-primary"})
+    assert after == before
 
 
 @pytest.mark.asyncio

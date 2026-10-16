@@ -137,6 +137,7 @@ class MetricsRegistry:
         self.analysis_timeouts_total = Counter()
         self.tool_calls_total = Counter()
         self.llm_calls_total = Counter()
+        self.llm_stream_corruptions_total = Counter()
         self.circuit_breaker_trips = Counter()
 
         # Histograms
@@ -167,6 +168,7 @@ class MetricsRegistry:
                 "analysis_timeouts_total": self.analysis_timeouts_total.snapshot(),
                 "tool_calls_total": self.tool_calls_total.snapshot(),
                 "llm_calls_total": self.llm_calls_total.snapshot(),
+                "llm_stream_corruptions_total": self.llm_stream_corruptions_total.snapshot(),
                 "circuit_breaker_trips": self.circuit_breaker_trips.snapshot(),
             },
             "histograms": {
