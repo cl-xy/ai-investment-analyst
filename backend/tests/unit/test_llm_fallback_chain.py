@@ -467,24 +467,28 @@ def test_account_wide_throttle_detection():
     assert not llm_fallback._is_account_wide_throttle(Exception("503 service unavailable"))
 
 
-def test_upstream_passthrough_429_routes_to_fallback_not_same_model():
-    """The live CELH error - 429 'Provider returned error' - must classify as
-    FALLBACK_TO_OTHER (walk to a different model/host) with NO same-model retry.
+def test_upstream_passthrough_429_retries_same_model_then_fallback():
+    """The live CELH error - 429 'Provider returned error' - classifies as
+    RETRY_SAME_MODEL: a short deadline-gated same-model backoff clears most
+    seconds-long free-pool congestion windows, and because RETRY_SAME_MODEL is
+    still fallback-worthy, the chain is walked afterwards if it keeps failing.
 
-    Regression: this 429 previously classified as RETRY_SAME_MODEL, burning
-    2x exponential backoff on each of 5 same-account models until the ~82s turn
-    deadline tripped and the debate collapsed to insufficient_data.
+    (Panel-ratified over immediate chain-walk: all chain models share one
+    congested free pool, so a bounded wait beats thrashing every sibling against
+    the same hot upstream. Budget overrun is prevented by the deadline-gated
+    tenacity retry, not by skipping the retry.)
     """
     exc = Exception(
         "Error code: 429 - {'error': {'message': 'Provider returned error', 'code': 429}}"
     )
-    assert llm_fallback._classify_error(exc) is llm_fallback.ErrorSeverity.FALLBACK_TO_OTHER
-    # FALLBACK_TO_OTHER is not same-model-retryable, so no wasted backoff.
-    assert llm_fallback._is_retryable_error(exc) is False
-    # A bare route 429 with no provider-error marker still keeps same-model retry.
-    assert (
-        llm_fallback._is_retryable_error(Exception("Error code: 429 - too many requests")) is True
-    )
+    assert llm_fallback._classify_error(exc) is llm_fallback.ErrorSeverity.RETRY_SAME_MODEL
+    # Retryable on the same model (bounded backoff), AND fallback-worthy (walks
+    # the chain if the retry still fails).
+    assert llm_fallback._is_retryable_error(exc) is True
+    assert llm_fallback._is_fallback_worthy(exc) is True
+    # It is NOT an account-global short-circuit (that path is for the daily/RPM
+    # cap, not an upstream host blip).
+    assert llm_fallback._is_account_wide_throttle(exc) is False
 
 
 @pytest.mark.asyncio

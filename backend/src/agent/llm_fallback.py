@@ -167,15 +167,23 @@ def _classify_error(exc: BaseException) -> ErrorSeverity:
         return ErrorSeverity.FALLBACK_TO_OTHER
 
     # Upstream-provider passthrough 429 ("provider returned error"): the model's
-    # upstream host throttled, not our account. Per OpenRouter's own guidance,
-    # switch model - different models route to different hosts. Route to a
-    # different model with NO same-model backoff (a sibling may well succeed).
+    # upstream host throttled, not our account. All chain models are free-variant
+    # models on one account, so they share the same congested free pool - walking
+    # straight to a sibling is NOT reliably better, it is just as likely to 429.
+    # These congestion windows are typically seconds long, so a short same-model
+    # jittered backoff (handled by the tenacity retry on _invoke_with_retry:
+    # wait_exponential 2-10s, 2 attempts, DEADLINE-GATED so it can never overrun
+    # the per-turn budget) clears most of them. RETRY_SAME_MODEL is also
+    # fallback-worthy, so if the brief retry still fails the chain is walked after
+    # - giving a second free model a chance in case its upstream is distinct.
+    # (Panel-ratified over immediate chain-walk: the free pool is shared, so a
+    # bounded wait beats thrashing every sibling against the same hot upstream.)
     # NOTE: an account-global 429 ("rate limit exceeded" / daily cap / negative
     # balance) is handled by the chain short-circuit via _is_account_wide_throttle,
     # which runs in invoke_with_fallback before classification; it is not matched
     # here.
     if re.search(r"\b429\b", exc_str) and "provider returned error" in exc_str:
-        return ErrorSeverity.FALLBACK_TO_OTHER
+        return ErrorSeverity.RETRY_SAME_MODEL
 
     if "rate limit" in exc_str and any(term in exc_str for term in ("temporarily", "temporary")):
         return ErrorSeverity.RETRY_SAME_MODEL
