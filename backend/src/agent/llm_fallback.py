@@ -105,28 +105,45 @@ def _is_stream_corruption(exc: BaseException) -> bool:
 
 
 def _is_account_wide_throttle(exc: BaseException) -> bool:
-    """True for a 429 that applies to the whole upstream account, not one route.
+    """True only for a 429 that applies to the whole OpenRouter ACCOUNT.
 
-    OpenRouter's free tier enforces an account-wide requests/min and daily cap.
-    When it trips, EVERY model on the account returns the same opaque
-    ``Error code: 429 - {'message': 'Provider returned error', 'code': 429}``
-    at once. Walking the fallback chain is futile here: all configured models
-    share one account and one base_url, so each sibling also 429s, and the only
-    effect of trying them is to burn the per-turn wall-clock budget on repeated
-    backoff until the deadline trips and the turn collapses to insufficient_data.
+    OpenRouter distinguishes two 429s (verified against its own docs):
 
-    Detecting this lets the chain short-circuit and degrade in seconds instead.
-    Scope is narrow: a 429 whose body is the generic "provider returned error"
-    envelope, or that explicitly names an account/daily/global limit. A 429 that
-    names a single upstream provider's shared pool is handled separately (that
-    one genuinely benefits from a different provider).
+    - Account/global cap: body reads "rate limit exceeded" / "please slow down",
+      or names a free-tier daily/per-minute allowance. This is governed globally
+      per account, so EVERY model on the account 429s at once and walking the
+      chain is futile - break and degrade in seconds.
+    - Upstream passthrough: body reads "provider returned error". This is the
+      UPSTREAM model host throttling, NOT the account. Different models route to
+      different hosts, so the docs' own advice is "switch model / add a fallback
+      route". That case is NOT matched here; it classifies as FALLBACK_TO_OTHER
+      and walks the chain.
+
+    A negative-credit-balance 429 (also account-scoped) is matched via the
+    credit/insufficient markers so the chain does not thrash on an empty balance.
     """
     exc_str = str(exc).lower()
     if not re.search(r"\b429\b", exc_str):
         return False
-    return "provider returned error" in exc_str or any(
+    # Upstream passthrough is explicitly NOT an account-wide break: let it fall
+    # through to FALLBACK_TO_OTHER so a different upstream host can be tried.
+    if "provider returned error" in exc_str:
+        return False
+    return any(
         term in exc_str
-        for term in ("free-tier", "free tier", "daily limit", "per-day", "account", "global rate")
+        for term in (
+            "rate limit exceeded",
+            "please slow down",
+            "free-tier",
+            "free tier",
+            "daily limit",
+            "requests per day",
+            "per-day",
+            "insufficient credit",
+            "negative credit",
+            "negative balance",
+            "add more credits",
+        )
     )
 
 
@@ -147,6 +164,17 @@ def _classify_error(exc: BaseException) -> ErrorSeverity:
     # OpenRouter can identify a shared upstream pool limit explicitly. That
     # means another model/provider is more useful than retrying this route.
     if "upstream_provider_shared_pool" in exc_str or "shared pool" in exc_str:
+        return ErrorSeverity.FALLBACK_TO_OTHER
+
+    # Upstream-provider passthrough 429 ("provider returned error"): the model's
+    # upstream host throttled, not our account. Per OpenRouter's own guidance,
+    # switch model - different models route to different hosts. Route to a
+    # different model with NO same-model backoff (a sibling may well succeed).
+    # NOTE: an account-global 429 ("rate limit exceeded" / daily cap / negative
+    # balance) is handled by the chain short-circuit via _is_account_wide_throttle,
+    # which runs in invoke_with_fallback before classification; it is not matched
+    # here.
+    if re.search(r"\b429\b", exc_str) and "provider returned error" in exc_str:
         return ErrorSeverity.FALLBACK_TO_OTHER
 
     if "rate limit" in exc_str and any(term in exc_str for term in ("temporarily", "temporary")):
