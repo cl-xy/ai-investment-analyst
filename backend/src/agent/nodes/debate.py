@@ -278,6 +278,95 @@ def _build_data_context(ticker: str, state: InvestmentAnalystState) -> dict[str,
     }
 
 
+# Signals that the system itself (not the market) could not complete a turn.
+# Prefix on risk_flags so a human scanning the card sees the degradation and a
+# machine can match it without parsing prose. Paired with the structured
+# TickerAnalysis["debate_status"] field, which is the authoritative marker.
+_DEGRADED_FLAG = "SYSTEM_DEGRADED"
+
+
+def _degraded_analysis(
+    *,
+    ticker: str,
+    ctx: dict[str, Any],
+    status: str,
+    failed_turn: str,
+    error: BaseException,
+    bull: "BullCaseOutput | None" = None,
+    bear: "BearCaseOutput | None" = None,
+) -> TickerAnalysis:
+    """Build a single, coherent degraded TickerAnalysis for any failed turn.
+
+    Replaces three hand-written, drifted failure branches (which emitted
+    inconsistent sentiment_score constants of 0.0/0.3/0.0 and differing signals
+    for progressively-less-severe failures). The rules here are uniform:
+
+    - The card ALWAYS carries the market data that was already fetched into ctx
+      (price, fundamentals, earnings, news) so a transient LLM failure never
+      blanks a card that has real data behind it. article_count is preserved
+      from ctx for the drift scorer rather than defaulting to a false 0.
+    - sentiment_score stays 0.0. It is the MODERATOR's synthesized debate score
+      everywhere else; with no completed debate there is no such score, and
+      repurposing a different source (e.g. StockTwits bullish_ratio) into the
+      same column would silently mix populations for any consumer that averages
+      or trends it. 0.0 + the explicit status marker is honest; a fabricated
+      non-zero value is not.
+    - signal stays "insufficient_data" when the BULL turn failed (no thesis to
+      hold on), and "hold" when a later turn failed but a bull thesis exists.
+      Crucially, the authoritative "this did not complete" signal for machine
+      consumers is debate_status + the SYSTEM_DEGRADED risk flag, NOT the signal
+      enum, so existing signal-based filters (e.g. peer_compare's
+      `signal != 'insufficient_data'`) keep excluding bull failures unchanged.
+    - bull_case/bear_case carry whatever partial LLM output survived.
+    """
+    price_data: dict = ctx.get("raw_price_data", {}) or {}
+    bull_args = list(bull.key_arguments) if bull is not None else []
+    bear_args = list(bear.key_arguments) if bear is not None else []
+
+    if bull is not None:
+        # A bull thesis exists; a later turn (bear/moderator) failed. Present the
+        # surviving case as a low-confidence hold rather than zeroing it.
+        signal = "hold"
+        thesis = bull.thesis if bear is None else f"Bull: {bull.thesis} | Bear: {bear.thesis}"
+        news_summary = bull.thesis
+        citations = [e.model_dump() for e in bull.evidence]
+        if bear is not None:
+            citations += [e.model_dump() for e in bear.evidence]
+        risk_flags = list(bear.risk_flags) if bear is not None else list(bull.acknowledged_risks)
+    else:
+        # The bull turn itself failed: no thesis to synthesize a view from.
+        signal = "insufficient_data"
+        thesis = (
+            f"Debate could not run ({failed_turn} agent error: {type(error).__name__}). "
+            "Market data below was fetched successfully; the LLM debate is unavailable."
+        )
+        # ctx already holds the formatted news block (news_text); surface it so
+        # the card is not blank. ctx does not carry the raw news list.
+        news_summary = ctx.get("news_text") or "LLM debate unavailable; market data present."
+        citations = []
+        risk_flags = []
+
+    return {
+        "ticker": ticker,
+        "signal": signal,  # type: ignore[typeddict-item]
+        "confidence": "low",
+        "sentiment_score": 0.0,
+        "thesis": thesis,
+        "bull_case": bull_args,
+        "bear_case": bear_args,
+        "news_summary": news_summary,
+        "risk_flags": [f"{_DEGRADED_FLAG}: {failed_turn} agent failed", *risk_flags],
+        "citations": citations,
+        "data_gaps": [f"{failed_turn} agent failed: {str(error)[:100]}"],
+        "price_data": price_data.get("quote", {}),
+        "fundamentals": price_data.get("fundamentals", {}),
+        "earnings": ctx.get("raw_earnings", {}),
+        "sec_notes": "",
+        "article_count": ctx.get("article_count", 0),
+        "debate_status": status,  # type: ignore[typeddict-item]
+    }
+
+
 async def _run_bull_agent(ctx: dict[str, Any]) -> BullCaseOutput:
     """Run the bull analyst agent."""
     prompt = BULL_HUMAN.format(
@@ -492,6 +581,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
             "fundamentals": {},
             "earnings": {},
             "sec_notes": "",
+            "debate_status": "degraded_bull",
         }
         existing = dict(state.get("ticker_analyses", {}))
         existing[ticker] = analysis
@@ -525,24 +615,17 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
         _log.info("bull_complete", confidence=bull.confidence, duration_ms=bull_duration)
     except (CircuitBreakerOpen, Exception) as e:
         _log.warning("bull_failed", error=str(e))
-        # Fallback: create minimal analysis without debate
-        analysis: TickerAnalysis = {
-            "ticker": ticker,
-            "signal": "insufficient_data",
-            "confidence": "low",
-            "sentiment_score": 0.0,
-            "thesis": f"Debate failed: bull agent error ({type(e).__name__})",
-            "bull_case": [],
-            "bear_case": [],
-            "news_summary": "Analysis unavailable due to LLM service error",
-            "risk_flags": ["Debate incomplete"],
-            "citations": [],
-            "data_gaps": [f"Bull agent failed: {str(e)[:100]}"],
-            "price_data": price_data.get("quote", {}),
-            "fundamentals": price_data.get("fundamentals", {}),
-            "earnings": ctx.get("raw_earnings", {}),
-            "sec_notes": "",
-        }
+        # Degrade: no bull thesis exists, so this stays signal=insufficient_data
+        # (excluded by signal-based consumers), but the card still carries the
+        # market data already fetched into ctx plus a machine-readable
+        # debate_status so it is never a blank 0/0 card when real data exists.
+        analysis = _degraded_analysis(
+            ticker=ticker,
+            ctx=ctx,
+            status="degraded_bull",
+            failed_turn="bull",
+            error=e,
+        )
         existing = dict(state.get("ticker_analyses", {}))
         existing[ticker] = analysis
         return {"ticker_analyses": existing, "current_ticker": ticker}
@@ -559,24 +642,17 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
         _log.info("bear_complete", confidence=bear.confidence, duration_ms=bear_duration)
     except (CircuitBreakerOpen, Exception) as e:
         _log.warning("bear_failed", error=str(e))
-        # Degrade: use bull-only analysis
-        analysis = {
-            "ticker": ticker,
-            "signal": "hold",
-            "confidence": "low",
-            "sentiment_score": 0.3,
-            "thesis": bull.thesis,
-            "bull_case": bull.key_arguments,
-            "bear_case": [],
-            "news_summary": bull.thesis,
-            "risk_flags": bull.acknowledged_risks,
-            "citations": [e.model_dump() for e in bull.evidence],
-            "data_gaps": [f"Bear agent failed: {str(e)[:100]}"],
-            "price_data": price_data.get("quote", {}),
-            "fundamentals": price_data.get("fundamentals", {}),
-            "earnings": ctx.get("raw_earnings", {}),
-            "sec_notes": "",
-        }
+        # Degrade: bull thesis survives, so present a low-confidence hold built
+        # from the bull case, tagged degraded_bear so consumers can tell it
+        # apart from a completed debate that happened to land on hold.
+        analysis = _degraded_analysis(
+            ticker=ticker,
+            ctx=ctx,
+            status="degraded_bear",
+            failed_turn="bear",
+            error=e,
+            bull=bull,
+        )
         existing = dict(state.get("ticker_analyses", {}))
         existing[ticker] = analysis
         return {"ticker_analyses": existing, "current_ticker": ticker}
@@ -598,25 +674,18 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
         )
     except (CircuitBreakerOpen, Exception) as e:
         _log.warning("moderator_failed", error=str(e))
-        # Degrade: synthesize from bull + bear without moderator
-        analysis = {
-            "ticker": ticker,
-            "signal": "hold",
-            "confidence": "low",
-            "sentiment_score": 0.0,
-            "thesis": f"Bull: {bull.thesis} | Bear: {bear.thesis}",
-            "bull_case": bull.key_arguments,
-            "bear_case": bear.key_arguments,
-            "news_summary": bull.thesis,
-            "risk_flags": bear.risk_flags,
-            "citations": [e.model_dump() for e in bull.evidence]
-            + [e.model_dump() for e in bear.evidence],
-            "data_gaps": [f"Moderator failed: {str(e)[:100]}"],
-            "price_data": price_data.get("quote", {}),
-            "fundamentals": price_data.get("fundamentals", {}),
-            "earnings": ctx.get("raw_earnings", {}),
-            "sec_notes": "",
-        }
+        # Degrade: both bull and bear survive; synthesize a low-confidence hold
+        # from the two cases without a moderator verdict, tagged
+        # degraded_moderator.
+        analysis = _degraded_analysis(
+            ticker=ticker,
+            ctx=ctx,
+            status="degraded_moderator",
+            failed_turn="moderator",
+            error=e,
+            bull=bull,
+            bear=bear,
+        )
         existing = dict(state.get("ticker_analyses", {}))
         existing[ticker] = analysis
         return {"ticker_analyses": existing, "current_ticker": ticker}
@@ -649,6 +718,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
             "earnings": ctx.get("raw_earnings", {}),
             "sec_notes": moderator.sec_notes,
             "article_count": ctx.get("article_count", 0),
+            "debate_status": "complete",
             # Debate-specific fields for persistence
             "_debate": debate_record.model_dump(),
             "_verdict_rationale": _dedup_text(moderator.verdict_rationale),
@@ -674,6 +744,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
             "earnings": ctx.get("raw_earnings", {}),
             "sec_notes": "",
             "article_count": ctx.get("article_count", 0),
+            "debate_status": "complete",
         }
 
     existing = dict(state.get("ticker_analyses", {}))

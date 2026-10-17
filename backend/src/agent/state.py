@@ -34,6 +34,20 @@ class TickerAnalysis(TypedDict):
     # against (see alerts/drift_scorer.py news_volume_spike). Optional: older
     # rows and degraded partials may omit it.
     article_count: NotRequired[int]
+    # Machine-readable completion status of the 3-agent debate. "complete" means
+    # all three turns (bull, bear, moderator) ran and a moderator verdict was
+    # synthesized. The "degraded_*" values name the first turn that failed; the
+    # card still carries whatever market data and partial LLM output survived,
+    # but it is NOT a finished debate and consumers that compare, aggregate,
+    # alert on, or build peer baselines from analyses must be able to exclude or
+    # down-weight it WITHOUT parsing free-text thesis/data_gaps. Absent on legacy
+    # rows and on the normal success path only until it is set explicitly; treat
+    # a missing value as "complete" for backward compatibility with stored rows
+    # that predate this field. Runtime metadata (not persisted as its own DB
+    # column yet) alongside _debate.
+    debate_status: NotRequired[
+        Literal["complete", "degraded_bull", "degraded_bear", "degraded_moderator"]
+    ]
 
 
 class PortfolioPosition(TypedDict):

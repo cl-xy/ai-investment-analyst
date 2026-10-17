@@ -136,3 +136,83 @@ async def test_debate_node_returns_degraded_partial_when_chain_exhausted():
     # Degraded partial still carries the checkpointed market data.
     assert analyses["NVDA"]["price_data"] == {"price": 100.0}
     assert analyses["NVDA"]["data_gaps"]
+
+
+@pytest.mark.asyncio
+async def test_bull_failure_is_machine_markable_and_not_blank():
+    """A bull-turn failure must (1) stay signal=insufficient_data so existing
+    signal-based filters (peer_compare) keep excluding it, (2) carry a
+    structured debate_status marker + a SYSTEM_DEGRADED risk flag so consumers
+    can exclude it WITHOUT parsing prose, (3) preserve article_count for the
+    drift scorer rather than defaulting to a false 0, and (4) surface the
+    already-fetched market data instead of a blank card."""
+    state = {
+        "tickers_to_analyze": ["NVDA"],
+        "ticker_analyses": {},
+        "raw_prices": {"NVDA": {"quote": {"price": 100.0}, "fundamentals": {"pe": 30}}},
+        "raw_news": {"NVDA": [{"title": "t", "source": "s", "published_at": "2026-01-01"}]},
+        "raw_filings": {},
+        "raw_earnings": {"NVDA": {"next_earnings_date": "2026-08-15"}},
+        "raw_sentiment": {},
+        "correlation_id": "test-corr",
+    }
+
+    async def _boom(*_a, **_k):
+        raise TimeoutError("all providers down")
+
+    with patch.object(debate_mod, "_run_bull_agent", side_effect=_boom):
+        result = await debate_mod.debate_ticker_node(state)
+
+    card = result["ticker_analyses"]["NVDA"]
+    # (1) still excludable by the existing signal filter
+    assert card["signal"] == "insufficient_data"
+    # (2) structured, machine-readable degradation marker (not prose)
+    assert card["debate_status"] == "degraded_bull"
+    assert any(f.startswith("SYSTEM_DEGRADED") for f in card["risk_flags"])
+    # (3) article_count preserved from the fetched news, not a false 0
+    assert card["article_count"] == 1
+    # (4) card is not blank: real market data surfaced
+    assert card["price_data"] == {"price": 100.0}
+    assert card["fundamentals"] == {"pe": 30}
+    # sentiment_score stays the honest neutral 0.0 (no debate ran)
+    assert card["sentiment_score"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_bear_failure_degrades_to_hold_with_marker():
+    """A bear-turn failure keeps the bull thesis as a low-confidence hold but is
+    tagged degraded_bear so it is distinguishable from a completed hold."""
+    from src.agent.debate_schemas import BullCaseOutput
+
+    state = {
+        "tickers_to_analyze": ["NVDA"],
+        "ticker_analyses": {},
+        "raw_prices": {"NVDA": {"quote": {"price": 100.0}, "fundamentals": {"pe": 30}}},
+        "raw_news": {},
+        "raw_filings": {},
+        "raw_earnings": {},
+        "raw_sentiment": {},
+        "correlation_id": "test-corr",
+    }
+
+    bull = BullCaseOutput(
+        ticker="NVDA", thesis="strong growth", key_arguments=["a", "b"], confidence="medium"
+    )
+
+    async def _bull_ok(*_a, **_k):
+        return bull
+
+    async def _bear_boom(*_a, **_k):
+        raise TimeoutError("bear down")
+
+    with (
+        patch.object(debate_mod, "_run_bull_agent", side_effect=_bull_ok),
+        patch.object(debate_mod, "_run_bear_agent", side_effect=_bear_boom),
+    ):
+        result = await debate_mod.debate_ticker_node(state)
+
+    card = result["ticker_analyses"]["NVDA"]
+    assert card["signal"] == "hold"
+    assert card["debate_status"] == "degraded_bear"
+    assert any(f.startswith("SYSTEM_DEGRADED") for f in card["risk_flags"])
+    assert card["bull_case"] == ["a", "b"]

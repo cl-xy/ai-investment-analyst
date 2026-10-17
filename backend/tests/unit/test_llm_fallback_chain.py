@@ -467,6 +467,57 @@ def test_account_wide_throttle_detection():
     assert not llm_fallback._is_account_wide_throttle(Exception("503 service unavailable"))
 
 
+class _FakeResponse:
+    """Minimal stand-in for the httpx.Response the openai SDK attaches to a 429."""
+
+    def __init__(self, headers: dict):
+        self.headers = headers
+
+
+class _FakeRateLimitError(Exception):
+    """Mimics openai.APIStatusError carrying .response.headers."""
+
+    def __init__(self, message: str, headers: dict):
+        super().__init__(message)
+        self.response = _FakeResponse(headers)
+
+
+def test_ratelimit_headers_override_body_wording():
+    """x-ratelimit-remaining=0 is the authoritative account-cap signal and must
+    override the body wording. A 'provider returned error' 429 (normally treated
+    as a per-host passthrough that walks the chain) is reclassified as
+    account-wide when the headers show the account window is spent - because
+    every model on one account shares that window, so walking is futile."""
+    spent = _FakeRateLimitError(
+        "Error code: 429 - {'error': {'message': 'Provider returned error', 'code': 429}}",
+        headers={"x-ratelimit-remaining": "0", "x-ratelimit-reset": "9999999999999"},
+    )
+    assert llm_fallback._is_account_wide_throttle(spent) is True
+
+    # Same body, but headers show capacity remaining -> stays a per-host
+    # passthrough (walk the chain, do not short-circuit).
+    has_room = _FakeRateLimitError(
+        "Error code: 429 - {'error': {'message': 'Provider returned error', 'code': 429}}",
+        headers={"x-ratelimit-remaining": "17"},
+    )
+    assert llm_fallback._is_account_wide_throttle(has_room) is False
+
+    # No headers at all -> fall back to the string matcher (provider-returned
+    # error stays a passthrough).
+    no_headers = Exception(
+        "Error code: 429 - {'error': {'message': 'Provider returned error', 'code': 429}}"
+    )
+    assert llm_fallback._is_account_wide_throttle(no_headers) is False
+
+
+def test_ratelimit_headers_helpers_never_raise_on_junk():
+    """Header extraction/parsing must degrade to 'no signal' on any malformed
+    input rather than raising inside the hot LLM error path."""
+    assert llm_fallback._ratelimit_headers(Exception("plain")) == {}
+    assert llm_fallback._headers_show_account_cap({}) is False
+    assert llm_fallback._headers_show_account_cap({"x-ratelimit-remaining": "notanumber"}) is False
+
+
 def test_upstream_passthrough_429_retries_same_model_then_fallback():
     """The live CELH error - 429 'Provider returned error' - classifies as
     RETRY_SAME_MODEL: a short deadline-gated same-model backoff clears most

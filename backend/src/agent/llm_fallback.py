@@ -104,6 +104,55 @@ def _is_stream_corruption(exc: BaseException) -> bool:
     return "json" in exc_str and any(t in exc_str for t in decode_terms)
 
 
+def _ratelimit_headers(exc: BaseException) -> dict[str, str]:
+    """Pull OpenRouter's rate-limit headers off an openai SDK error, if present.
+
+    openai.APIStatusError (the base of RateLimitError/APIError raised on a 429)
+    carries the raw httpx response at exc.response, whose headers include
+    OpenRouter's x-ratelimit-* and retry-after. These are the ONLY authoritative
+    account-vs-host signal: the JSON body wording ("provider returned error" vs
+    "rate limit exceeded") is unreliable, but x-ratelimit-remaining=0 with a
+    reset far in the future is an unambiguous account-level daily/minute cap.
+
+    Returns a lowercased-key dict (possibly empty) and never raises: a missing
+    response, a non-mapping headers object, or any attribute error just yields
+    {} so classification falls back to the string matcher. LangChain may also
+    wrap the SDK error; we unwrap one level via __cause__/__context__.
+    """
+    for candidate in (exc, getattr(exc, "__cause__", None), getattr(exc, "__context__", None)):
+        if candidate is None:
+            continue
+        response = getattr(candidate, "response", None)
+        headers = getattr(response, "headers", None)
+        if headers is None:
+            continue
+        try:
+            return {str(k).lower(): str(v) for k, v in dict(headers).items()}
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            continue
+    return {}
+
+
+def _headers_show_account_cap(headers: dict[str, str]) -> bool:
+    """True when rate-limit headers indicate the account-level allowance is spent.
+
+    OpenRouter sends x-ratelimit-remaining (requests left in the current window)
+    and x-ratelimit-reset (epoch-ms when it refills). remaining<=0 means the
+    per-account free-tier window (e.g. the 50/day or 20/min cap) is exhausted, so
+    every model on the account will 429 and walking the chain is futile. We do
+    NOT gate on how far away the reset is: a spent window is spent regardless of
+    whether it refills in seconds or hours, and the caller degrades either way.
+    Absent/malformed headers return False so the string matcher still applies.
+    """
+    remaining = headers.get("x-ratelimit-remaining")
+    if remaining is None:
+        return False
+    try:
+        return float(remaining) <= 0
+    except (TypeError, ValueError):
+        return False
+
+
 def _is_account_wide_throttle(exc: BaseException) -> bool:
     """True only for a 429 that applies to the whole OpenRouter ACCOUNT.
 
@@ -125,6 +174,13 @@ def _is_account_wide_throttle(exc: BaseException) -> bool:
     exc_str = str(exc).lower()
     if not re.search(r"\b429\b", exc_str):
         return False
+    # Authoritative signal first: if OpenRouter's own rate-limit headers say the
+    # account window is spent (x-ratelimit-remaining<=0), it is account-wide no
+    # matter what the body text says - including the "provider returned error"
+    # wording that would otherwise be treated as a per-host passthrough. The body
+    # string is unreliable; the header is not.
+    if _headers_show_account_cap(_ratelimit_headers(exc)):
+        return True
     # Upstream passthrough is explicitly NOT an account-wide break: let it fall
     # through to FALLBACK_TO_OTHER so a different upstream host can be tried.
     if "provider returned error" in exc_str:
