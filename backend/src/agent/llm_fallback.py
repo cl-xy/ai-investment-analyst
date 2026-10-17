@@ -104,6 +104,32 @@ def _is_stream_corruption(exc: BaseException) -> bool:
     return "json" in exc_str and any(t in exc_str for t in decode_terms)
 
 
+def _is_account_wide_throttle(exc: BaseException) -> bool:
+    """True for a 429 that applies to the whole upstream account, not one route.
+
+    OpenRouter's free tier enforces an account-wide requests/min and daily cap.
+    When it trips, EVERY model on the account returns the same opaque
+    ``Error code: 429 - {'message': 'Provider returned error', 'code': 429}``
+    at once. Walking the fallback chain is futile here: all configured models
+    share one account and one base_url, so each sibling also 429s, and the only
+    effect of trying them is to burn the per-turn wall-clock budget on repeated
+    backoff until the deadline trips and the turn collapses to insufficient_data.
+
+    Detecting this lets the chain short-circuit and degrade in seconds instead.
+    Scope is narrow: a 429 whose body is the generic "provider returned error"
+    envelope, or that explicitly names an account/daily/global limit. A 429 that
+    names a single upstream provider's shared pool is handled separately (that
+    one genuinely benefits from a different provider).
+    """
+    exc_str = str(exc).lower()
+    if not re.search(r"\b429\b", exc_str):
+        return False
+    return "provider returned error" in exc_str or any(
+        term in exc_str
+        for term in ("free-tier", "free tier", "daily limit", "per-day", "account", "global rate")
+    )
+
+
 def _classify_error(exc: BaseException) -> ErrorSeverity:
     """Classify an exception to determine retry/fallback strategy."""
     # Circuit breaker open means primary is failing repeatedly
@@ -179,7 +205,15 @@ def _is_retryable_error(exc: BaseException) -> bool:
     FALLBACK_TO_OTHER errors (CircuitBreakerOpen, ResourceExhausted) are NOT
     retried here — retrying the same broken model wastes time. They bubble up
     to invoke_with_fallback which routes to a different model.
+
+    An account-wide upstream throttle (see _is_account_wide_throttle) is also
+    excluded: a bare 429 normally classifies as RETRY_SAME_MODEL, but when the
+    429 is the account-wide free-tier throttle, even one same-model retry just
+    burns backoff time on a limit that a few seconds will not clear. It bubbles
+    straight to the chain handler, which short-circuits.
     """
+    if _is_account_wide_throttle(exc):
+        return False
     return _classify_error(exc) == ErrorSeverity.RETRY_SAME_MODEL
 
 
@@ -344,6 +378,27 @@ async def invoke_with_fallback(
             return result
         except Exception as exc:
             last_exc = exc
+            # Account-wide upstream throttle: every model on the chain shares one
+            # account/base_url, so a free-tier account 429 hits them all at once.
+            # Walking the chain here only burns the per-turn budget on repeated
+            # backoff until the deadline trips. Short-circuit so the turn degrades
+            # in seconds. Counted on the ops dashboard
+            # (/ops/metrics -> counters.llm_account_throttles_total).
+            if _is_account_wide_throttle(exc):
+                try:
+                    from src.metrics import metrics as _metrics
+
+                    _metrics.inc("llm_account_throttles_total", labels={"model": model})
+                except Exception:  # pragma: no cover - defensive
+                    pass
+                log.warning(
+                    "llm_account_throttle model=%s position=%d error=%s - "
+                    "short-circuiting chain (all models share one throttled account)",
+                    model,
+                    index,
+                    str(exc)[:100],
+                )
+                break
             # Observability: count malformed/truncated SSE-stream decode failures
             # so they surface on the ops dashboard (/ops/metrics ->
             # counters.llm_stream_corruptions_total, labelled by model). This is

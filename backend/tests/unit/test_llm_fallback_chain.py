@@ -438,3 +438,73 @@ async def test_invoke_with_retry_caps_attempt_to_remaining_budget(monkeypatch):
 
     elapsed = _time.monotonic() - t0
     assert elapsed < 2.0  # capped by remaining budget, not the 45s default
+
+
+def test_account_wide_throttle_detection():
+    """OpenRouter's generic account 429 is detected; a route-specific 429 is not.
+
+    Regression: a live CELH debate failed with
+    'Error code: 429 - {"message": "Provider returned error", "code": 429}'.
+    Every :free model in the chain shares one account, so this throttle hits them
+    all; the chain must recognise it rather than walk 5 doomed models.
+    """
+    assert llm_fallback._is_account_wide_throttle(
+        Exception(
+            "Error code: 429 - {'error': {'message': 'Provider returned error', 'code': 429}}"
+        )
+    )
+    assert llm_fallback._is_account_wide_throttle(Exception("429 free-tier daily limit reached"))
+    # Not account-wide: a route-specific 429 with no account/provider-error marker
+    assert not llm_fallback._is_account_wide_throttle(Exception("Error code: 429 - slow down"))
+    # Not a 429 at all
+    assert not llm_fallback._is_account_wide_throttle(Exception("503 service unavailable"))
+
+
+def test_account_throttle_not_retried_same_model():
+    """A bare 429 normally retries same-model, but the account-wide throttle must
+    NOT - one same-model retry just burns backoff on an account-level limit."""
+    route_429 = Exception("Error code: 429 - too many requests")
+    account_429 = Exception("Error code: 429 - Provider returned error, code 429")
+    # Route-specific 429 keeps same-model retry.
+    assert llm_fallback._is_retryable_error(route_429) is True
+    # Account-wide 429 is excluded from same-model retry.
+    assert llm_fallback._is_retryable_error(account_429) is False
+
+
+@pytest.mark.asyncio
+async def test_account_throttle_short_circuits_chain():
+    """On an account-wide 429 the chain must NOT walk every sibling model (they
+    all share the throttled account); it short-circuits after the first model and
+    raises, so the turn degrades in seconds. The ops counter is incremented."""
+    from src.metrics import metrics
+
+    before = metrics.llm_account_throttles_total.get(labels={"model": "m-primary"})
+    attempted: list[str] = []
+
+    async def _retry(llm, messages, *, breaker=None, deadline=None):
+        model = getattr(llm, "_model_id", "unknown")
+        attempted.append(model)
+        raise Exception("Error code: 429 - Provider returned error, code 429")
+
+    def _fake_build(model, *_a, **_k):
+        m = AsyncMock()
+        m._model_id = model
+        return m
+
+    with (
+        patch.object(llm_fallback, "_build_llm", side_effect=_fake_build),
+        patch.object(llm_fallback, "_invoke_with_retry", side_effect=_retry),
+        patch.object(
+            type(settings),
+            "llm_fallback_chain",
+            property(lambda self: ["m-a", "m-b", "m-c", "m-d"]),
+        ),
+    ):
+        with pytest.raises(Exception, match="429"):
+            await llm_fallback.invoke_with_fallback([], primary_model="m-primary")
+
+    # Only the primary was tried; the chain short-circuited instead of walking
+    # all 5 same-account models.
+    assert attempted == ["m-primary"]
+    after = metrics.llm_account_throttles_total.get(labels={"model": "m-primary"})
+    assert after == before + 1

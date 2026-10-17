@@ -138,6 +138,7 @@ class MetricsRegistry:
         self.tool_calls_total = Counter()
         self.llm_calls_total = Counter()
         self.llm_stream_corruptions_total = Counter()
+        self.llm_account_throttles_total = Counter()
         self.circuit_breaker_trips = Counter()
 
         # Histograms
@@ -169,6 +170,7 @@ class MetricsRegistry:
                 "tool_calls_total": self.tool_calls_total.snapshot(),
                 "llm_calls_total": self.llm_calls_total.snapshot(),
                 "llm_stream_corruptions_total": self.llm_stream_corruptions_total.snapshot(),
+                "llm_account_throttles_total": self.llm_account_throttles_total.snapshot(),
                 "circuit_breaker_trips": self.circuit_breaker_trips.snapshot(),
             },
             "histograms": {
