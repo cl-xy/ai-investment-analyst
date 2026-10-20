@@ -697,6 +697,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
             bull=bull,
             bear=bear,
             moderator=moderator,
+            model_name=_settings.llm_model,
         )
 
         # Convert moderator output to the standard TickerAnalysis format

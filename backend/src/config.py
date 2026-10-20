@@ -11,7 +11,7 @@ class Settings(BaseSettings):
 
     # LLM models
     llm_base_url: str = "https://openrouter.ai/api/v1"
-    llm_model: str = "nvidia/nemotron-3-super-120b-a12b:free"
+    llm_model: str = "nvidia/nemotron-3-ultra-550b-a55b:free"
     # Keep fallbacks on a different upstream provider so an Nvidia worker
     # exhaustion does not also take down the recovery path.
     llm_model_fallback: str = "google/gemma-4-31b-it:free"
@@ -22,9 +22,9 @@ class Settings(BaseSettings):
     # here support response_format=json_object (required for the debate's JSON mode).
     # Comma-separated; override via LLM_FALLBACK_MODELS env var.
     llm_fallback_models: str = (
+        "nvidia/nemotron-3.5-super-vl:free,"
+        "minimax/minimax-m3.1-flash:free,"
         "google/gemma-4-31b-it:free,"
-        "qwen/qwen3.8-27b:free,"
-        "dots-studio/dots-3-note-preview:free,"
         "google/gemma-4-26b-a4b-it:free"
     )
     llm_router_model: str = "nvidia/nemotron-3.5-lightning:free"

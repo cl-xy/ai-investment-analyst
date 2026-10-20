@@ -217,6 +217,13 @@ def _classify_error(exc: BaseException) -> ErrorSeverity:
     ):
         return ErrorSeverity.NOT_RETRYABLE
 
+    # 404 from the upstream host ("Function ... Not found for account", or a
+    # free variant that was withdrawn) is specific to this model route. Another
+    # model in the chain can still serve the request, so walk on instead of
+    # failing the whole turn on a dead primary.
+    if re.search(r"\b404\b", exc_str):
+        return ErrorSeverity.FALLBACK_TO_OTHER
+
     # OpenRouter can identify a shared upstream pool limit explicitly. That
     # means another model/provider is more useful than retrying this route.
     if "upstream_provider_shared_pool" in exc_str or "shared pool" in exc_str:

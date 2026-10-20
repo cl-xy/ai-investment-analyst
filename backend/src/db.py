@@ -190,7 +190,7 @@ CREATE TABLE IF NOT EXISTS runs (
     completed_at      TIMESTAMPTZ,
     duration_ms       INTEGER NOT NULL DEFAULT 0,
     router_model      TEXT NOT NULL DEFAULT 'openai/gpt-oss-20b:free',
-    analysis_model    TEXT NOT NULL DEFAULT 'nvidia/nemotron-3-super-120b-a12b:free',
+    analysis_model    TEXT NOT NULL DEFAULT 'nvidia/nemotron-3-ultra-550b-a55b:free',
     prompt_tokens     INTEGER NOT NULL DEFAULT 0,
     completion_tokens INTEGER NOT NULL DEFAULT 0,
     total_tokens      INTEGER NOT NULL DEFAULT 0,

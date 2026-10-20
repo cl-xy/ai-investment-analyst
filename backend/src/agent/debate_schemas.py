@@ -147,7 +147,7 @@ class DebateRecord(BaseModel):
     bull: BullCaseOutput
     bear: BearCaseOutput
     moderator: ModeratorOutput
-    model_name: str = "nvidia/nemotron-3-super-120b-a12b:free"
+    model_name: str = "nvidia/nemotron-3-ultra-550b-a55b:free"
     prompt_version: str = "v1"
 
     @model_validator(mode="after")

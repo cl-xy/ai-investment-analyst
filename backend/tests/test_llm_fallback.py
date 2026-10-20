@@ -43,6 +43,17 @@ class TestClassifyError:
         """Sustained overload should route to the fallback model, not just retry the same one."""
         assert _classify_error(RuntimeError(message)) == ErrorSeverity.FALLBACK_TO_OTHER
 
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Error code: 404 - {'error': {'message': 'Provider returned error', 'code': 404}}",
+            "Error code: 404 - This model is unavailable for free.",
+        ],
+    )
+    def test_404_falls_back_to_other_model(self, message):
+        """A dead model route (404) must walk the chain, not fail the turn."""
+        assert _classify_error(RuntimeError(message)) == ErrorSeverity.FALLBACK_TO_OTHER
+
     def test_circuit_breaker_open_falls_back(self):
         assert (
             _classify_error(CircuitBreakerOpen(retry_after=1.0)) == ErrorSeverity.FALLBACK_TO_OTHER
