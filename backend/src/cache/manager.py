@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import partial
 from typing import Any, Awaitable, Callable
@@ -39,10 +40,33 @@ TTL_CONFIG: dict[str, dict[str, int]] = {
 
 DEFAULT_TTL = {"fresh": 3600, "stale": 7200, "expire": 86400}
 
+# How long past hard expiry the last good value may still be served when a
+# refresh fails (stale-if-error). Anything not listed is never served past
+# expiry. The caller is told the value is stale and how old it is, so the
+# report can say so instead of passing it off as current.
+_DAY = 86400
+MAX_STALE_ON_ERROR: dict[str, int] = {
+    "yfinance:get_quote": 2 * _DAY,
+    "yfinance:get_technical_indicators": 2 * _DAY,
+    "yfinance:get_fundamentals": 30 * _DAY,
+    "yfinance:get_earnings_calendar": 14 * _DAY,
+    "newsapi:get_ticker_news": 3 * _DAY,
+}
+
 
 def _get_ttl(provider: str, tool: str) -> dict[str, int]:
     key = f"{provider}:{tool}"
     return TTL_CONFIG.get(key, TTL_CONFIG.get(f"{provider}:default", DEFAULT_TTL))
+
+
+@dataclass
+class FetchMeta:
+    """How a get_or_fetch result was produced."""
+
+    cached: bool
+    # True when a refresh failed and the last good value was served instead.
+    stale_on_error: bool = False
+    age_seconds: int | None = None
 
 
 def _normalize(data: Any) -> Any:
@@ -101,6 +125,37 @@ class CacheManager:
         Get cached data or fetch fresh. Returns (data, source_id, was_cached).
         Never caches error responses.
         """
+        data, source_id, meta = await self.get_or_fetch_with_meta(provider, tool, ticker, fetch_fn)
+        return data, source_id, meta.cached
+
+    async def _last_good(
+        self, key: str, provider: str, tool: str, now: datetime
+    ) -> tuple[Any, str, int] | None:
+        """Last good value for stale-if-error, or None if none is allowed/available."""
+        limit = MAX_STALE_ON_ERROR.get(f"{provider}:{tool}", 0)
+        if limit <= 0:
+            return None
+        row = await fetchrow("SELECT data, source_id, fetched_at FROM cache WHERE key = $1", key)
+        if row is None or row["fetched_at"] is None:
+            return None
+        data = _normalize(row["data"])
+        if (isinstance(data, dict) and "error" in data) or data in ({}, [], "", None):
+            return None
+        age = int((now - row["fetched_at"]).total_seconds())
+        # The row is only out of the normal window once hard-expired; allow it up
+        # to the per-tool limit beyond that point.
+        if age > _get_ttl(provider, tool)["expire"] + limit:
+            return None
+        return data, row["source_id"], max(age, 0)
+
+    async def get_or_fetch_with_meta(
+        self,
+        provider: str,
+        tool: str,
+        ticker: str,
+        fetch_fn: Callable[[], Awaitable[Any]],
+    ) -> tuple[Any, str, FetchMeta]:
+        """get_or_fetch plus how the value was obtained (fresh, cached, or stale-on-error)."""
         key = f"{provider}:{tool}:{ticker}"
         ttl = _get_ttl(provider, tool)
         now = datetime.now(timezone.utc)
@@ -125,7 +180,7 @@ class CacheManager:
                     source_id = row["source_id"]
 
                     if stale_at and now < stale_at:
-                        return data, source_id, True
+                        return data, source_id, FetchMeta(cached=True)
 
                     # Stale: serve immediately, refresh in background (deduplicated)
                     if key not in self._pending_refreshes:
@@ -135,7 +190,7 @@ class CacheManager:
                         self._pending_refreshes[key] = task
                         self._refresh_tasks.add(task)
                         task.add_done_callback(partial(self._task_cleanup, key=key))
-                    return data, source_id, True
+                    return data, source_id, FetchMeta(cached=True)
 
         # Cache miss: use per-key lock to prevent stampede (singleflight).
         # Only one caller fetches; others wait and re-check cache after lock release.
@@ -154,15 +209,27 @@ class CacheManager:
                         "",
                         None,
                     ):
-                        return data, row["source_id"], True
+                        return data, row["source_id"], FetchMeta(cached=True)
 
-            data = _normalize(await fetch_fn())
-            # Never cache error responses
-            if isinstance(data, dict) and "error" in data:
-                raise RuntimeError(f"Tool returned error: {data.get('error')}")
-            # Never cache empty responses (transient failures that returned no data)
-            if data in ({}, [], "", None):
-                raise RuntimeError(f"Tool returned empty data for {key}")
+            try:
+                data = _normalize(await fetch_fn())
+                # Never cache error responses
+                if isinstance(data, dict) and "error" in data:
+                    raise RuntimeError(f"Tool returned error: {data.get('error')}")
+                # Never cache empty responses (transient failures that returned no data)
+                if data in ({}, [], "", None):
+                    raise RuntimeError(f"Tool returned empty data for {key}")
+            except Exception as exc:
+                last = await self._last_good(key, provider, tool, datetime.now(timezone.utc))
+                if last is None:
+                    raise
+                stale_data, stale_source_id, age = last
+                _log.warning("serving_stale_on_error key=%s age_seconds=%d error=%s", key, age, exc)
+                return (
+                    stale_data,
+                    stale_source_id,
+                    FetchMeta(cached=True, stale_on_error=True, age_seconds=age),
+                )
             store_now = datetime.now(timezone.utc)
             source_id = f"{provider}:{tool}:{ticker}:{int(time.time())}"
             await self._store(key, data, source_id, provider, ttl, store_now)
@@ -182,7 +249,7 @@ class CacheManager:
             for k in to_remove[: len(to_remove) // 2]:
                 self._inflight_locks.pop(k, None)
 
-        return data, source_id, False
+        return data, source_id, FetchMeta(cached=False)
 
     async def _refresh(
         self,

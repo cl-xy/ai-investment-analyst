@@ -141,7 +141,7 @@ Rules:
 1. You must NOT simply average or compromise. Take a clear position.
 2. Weight evidence quality: cited claims beat unsupported assertions.
 3. If both sides have strong evidence, favor the side with better data recency.
-4. If key data is missing, lower confidence accordingly.
+4. If key data is missing, lower confidence accordingly. The DATA AVAILABILITY block is the system's record of what was fetched: trust it over your own inference about what is missing. Leave data_gaps for caveats about the analysis itself (for example thin coverage or conflicting sources). The system adds the unavailable-source notices itself, so do not repeat them.
 5. Your bull_case should contain only the bull arguments that survived scrutiny.
 6. Your bear_case should contain only the bear arguments that survived scrutiny.
 7. Cap confidence at "medium" if the two sides agree on facts but disagree on interpretation.
@@ -177,6 +177,9 @@ Evidence: {bear_evidence}
 Conceded strengths: {bear_concessions}
 
 ---
+
+DATA AVAILABILITY (recorded by the system, authoritative):
+{data_availability}
 
 RAW DATA (verify claims against this):
 

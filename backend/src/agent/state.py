@@ -86,6 +86,10 @@ class InvestmentAnalystState(TypedDict):
     # Graceful degradation: tracks what data was unavailable (set by fetch_data)
     data_gaps: NotRequired[list[str]]
 
+    # Per-ticker, per-tool outcome of the fetch (see agent/data_ledger.py).
+    # The user-facing "partial data" banner is built from this, not from LLM prose.
+    source_status: NotRequired[dict[str, dict[str, dict]]]
+
     # Evidence Integrity Ledger: immutable artifact registry for this run
     run_evidence: NotRequired[RunEvidence | None]
 

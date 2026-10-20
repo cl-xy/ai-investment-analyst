@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from langchain_core.messages import HumanMessage
 
+from src.cache.manager import FetchMeta
+
 
 def _text_block(data) -> list[dict]:
     return [{"type": "text", "text": json.dumps(data)}]
@@ -37,11 +39,11 @@ def _make_tool(return_value):
 
 
 def _mock_cache_passthrough():
-    """Mock cache_manager.get_or_fetch to always call the fetch function directly."""
+    """Mock cache_manager.get_or_fetch_with_meta to always call the fetch function directly."""
 
     async def _passthrough(provider, tool, ticker, fetch_fn):
         data = await fetch_fn()
-        return data, f"{provider}:{ticker}:mock", False
+        return data, f"{provider}:{ticker}:mock", FetchMeta(cached=False)
 
     return _passthrough
 
@@ -51,7 +53,7 @@ def _mock_cache_passthrough():
 @patch("src.cache.budget.check_budget", new_callable=AsyncMock, return_value=True)
 @patch("src.cache.budget.use_budget", new_callable=AsyncMock, return_value=True)
 async def test_fetch_data_populates_all_fields(mock_use, mock_check, mock_cache, base_state):
-    mock_cache.get_or_fetch = AsyncMock(side_effect=_mock_cache_passthrough())
+    mock_cache.get_or_fetch_with_meta = AsyncMock(side_effect=_mock_cache_passthrough())
 
     from src.agent.nodes.fetch_data import fetch_data_node
 
@@ -109,7 +111,7 @@ async def test_fetch_data_missing_earnings_tool_is_not_a_data_gap(
 ):
     """Most tickers have no confirmed upcoming earnings date - that's not
     a failure worth surfacing to the user as a data gap."""
-    mock_cache.get_or_fetch = AsyncMock(side_effect=_mock_cache_passthrough())
+    mock_cache.get_or_fetch_with_meta = AsyncMock(side_effect=_mock_cache_passthrough())
 
     from src.agent.nodes.fetch_data import fetch_data_node
 
@@ -146,9 +148,9 @@ async def test_fetch_data_sentiment_budget_exhausted_is_a_data_gap(
             return_value=(provider != "stocktwits"),
         ):
             data = await fetch_fn()
-        return data, f"{provider}:{ticker}:mock", False
+        return data, f"{provider}:{ticker}:mock", FetchMeta(cached=False)
 
-    mock_cache.get_or_fetch = AsyncMock(side_effect=_passthrough_except_stocktwits)
+    mock_cache.get_or_fetch_with_meta = AsyncMock(side_effect=_passthrough_except_stocktwits)
 
     from src.agent.nodes.fetch_data import fetch_data_node
 
@@ -179,11 +181,11 @@ async def test_fetch_data_handles_tool_errors_gracefully(
     async def _failing_passthrough(provider, tool, ticker, fetch_fn):
         try:
             data = await fetch_fn()
-            return data, f"{provider}:{ticker}:mock", False
+            return data, f"{provider}:{ticker}:mock", FetchMeta(cached=False)
         except Exception:
             raise
 
-    mock_cache.get_or_fetch = AsyncMock(side_effect=_failing_passthrough)
+    mock_cache.get_or_fetch_with_meta = AsyncMock(side_effect=_failing_passthrough)
 
     from src.agent.nodes.fetch_data import fetch_data_node
 
@@ -222,7 +224,7 @@ async def test_fetch_data_returns_empty_for_no_tickers(base_state):
 async def test_fetch_data_fetches_multiple_tickers_in_parallel(
     mock_use, mock_check, mock_cache, base_state
 ):
-    mock_cache.get_or_fetch = AsyncMock(side_effect=_mock_cache_passthrough())
+    mock_cache.get_or_fetch_with_meta = AsyncMock(side_effect=_mock_cache_passthrough())
 
     from src.agent.nodes.fetch_data import fetch_data_node
 
@@ -250,3 +252,110 @@ async def test_fetch_data_fetches_multiple_tickers_in_parallel(
     assert "NVDA" in result["raw_prices"]
     assert "AAPL" in result["raw_prices"]
     assert call_counts["count"] == 2
+
+
+def _passthrough_with_failures(failing_tools: dict[str, str]):
+    """Cache mock whose fetch_fn is bypassed for the named tools, which raise instead."""
+
+    async def _impl(provider, tool, ticker, fetch_fn):
+        if tool in failing_tools:
+            raise RuntimeError(failing_tools[tool])
+        data = await fetch_fn()
+        return data, f"{provider}:{ticker}:mock", FetchMeta(cached=False)
+
+    return _impl
+
+
+def _all_tools(**overrides):
+    tools = {
+        "get_ticker_news": _make_tool(_text_block([{"title": "x"}])),
+        "get_quote": _make_tool(_text_block({"current_price": 100})),
+        "get_fundamentals": _make_tool(_text_block({"revenue": 1})),
+        "get_latest_filing_summary": _make_tool(_text_block({"text_excerpt": "Item 1. Business"})),
+        "get_technical_indicators": _make_tool(_text_block({"rsi_14": 50})),
+        "get_earnings_calendar": _make_tool(_text_block({"next_earnings_date": "2026-11-01"})),
+        "get_ticker_sentiment": _make_tool(_text_block({"message_count": 3})),
+    }
+    tools.update(overrides)
+    return tools
+
+
+@pytest.mark.asyncio
+@patch("src.agent.nodes.fetch_data.cache_manager")
+@patch("src.cache.budget.check_budget", new_callable=AsyncMock, return_value=True)
+@patch("src.cache.budget.use_budget", new_callable=AsyncMock, return_value=True)
+async def test_source_status_records_why_each_source_failed(
+    mock_use, mock_check, mock_cache, base_state
+):
+    mock_cache.get_or_fetch_with_meta = AsyncMock(
+        side_effect=_passthrough_with_failures(
+            {
+                "get_fundamentals": "Tool get_fundamentals failed: Too Many Requests",
+                "get_ticker_sentiment": "Tool get_ticker_sentiment failed: 403 challenge",
+            }
+        )
+    )
+    from src.agent import data_ledger as ledger
+    from src.agent.nodes.fetch_data import fetch_data_node
+
+    result = await fetch_data_node(base_state, mcp_tools=_all_tools())
+
+    status = result["source_status"]["NVDA"]
+    assert status["get_fundamentals"]["status"] == ledger.RATE_LIMITED
+    assert status["get_ticker_sentiment"]["status"] == ledger.BLOCKED
+    assert status["get_quote"]["status"] == ledger.OK
+    assert "Fundamentals unavailable for NVDA" in result["data_gaps"]
+    assert ledger.gap_lines(status) == ["Fundamentals: provider rate limited the request"]
+
+
+@pytest.mark.asyncio
+@patch("src.agent.nodes.fetch_data.cache_manager")
+@patch("src.cache.budget.check_budget", new_callable=AsyncMock, return_value=True)
+@patch("src.cache.budget.use_budget", new_callable=AsyncMock, return_value=True)
+async def test_stale_on_error_is_reported_and_data_is_still_used(
+    mock_use, mock_check, mock_cache, base_state
+):
+    async def _impl(provider, tool, ticker, fetch_fn):
+        if tool == "get_fundamentals":
+            return (
+                {"revenue": 42},
+                "yfinance:get_fundamentals:NVDA:old",
+                FetchMeta(cached=True, stale_on_error=True, age_seconds=3 * 86400),
+            )
+        data = await fetch_fn()
+        return data, f"{provider}:{ticker}:mock", FetchMeta(cached=False)
+
+    mock_cache.get_or_fetch_with_meta = AsyncMock(side_effect=_impl)
+    from src.agent import data_ledger as ledger
+    from src.agent.nodes.fetch_data import fetch_data_node
+
+    result = await fetch_data_node(base_state, mcp_tools=_all_tools())
+
+    assert result["raw_prices"]["NVDA"]["fundamentals"] == {"revenue": 42}
+    status = result["source_status"]["NVDA"]
+    assert status["get_fundamentals"]["status"] == ledger.STALE
+    assert ledger.gap_lines(status) == [
+        "Fundamentals: showing cached data 3d old (provider unavailable)"
+    ]
+    # Stale data is used, so it is not listed as unavailable.
+    assert not any("Fundamentals" in g for g in result["data_gaps"])
+
+
+@pytest.mark.asyncio
+@patch("src.agent.nodes.fetch_data.cache_manager")
+@patch("src.cache.budget.check_budget", new_callable=AsyncMock, return_value=True)
+@patch("src.cache.budget.use_budget", new_callable=AsyncMock, return_value=True)
+async def test_filing_without_text_counts_as_unavailable(
+    mock_use, mock_check, mock_cache, base_state
+):
+    mock_cache.get_or_fetch_with_meta = AsyncMock(side_effect=_mock_cache_passthrough())
+    from src.agent import data_ledger as ledger
+    from src.agent.nodes.fetch_data import fetch_data_node
+
+    tools = _all_tools(
+        get_latest_filing_summary=_make_tool(_text_block({"filed_date": "2026-02-25"}))
+    )
+    result = await fetch_data_node(base_state, mcp_tools=tools)
+
+    assert result["source_status"]["NVDA"]["get_latest_filing_summary"]["status"] == ledger.EMPTY
+    assert "SEC filing unavailable for NVDA" in result["data_gaps"]

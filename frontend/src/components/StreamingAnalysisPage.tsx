@@ -648,9 +648,11 @@ function StreamAnalysisCard({ analysis, onCitationClick }: { analysis: AnalysisO
               <p className="text-xs font-medium text-[var(--text-secondary)]">
                 Based on partial data
               </p>
-              <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                Unavailable: {analysis.data_gaps.join(', ')}
-              </p>
+              <ul className="text-xs text-[var(--text-muted)] mt-0.5 list-disc pl-4 space-y-0.5">
+                {analysis.data_gaps.map((gap, i) => (
+                  <li key={i}>{gap}</li>
+                ))}
+              </ul>
               <p className="text-xs text-[var(--text-muted)] mt-1">
                 Some data sources returned incomplete results. Re-running may
                 pull fresh data if a provider was temporarily rate limited.

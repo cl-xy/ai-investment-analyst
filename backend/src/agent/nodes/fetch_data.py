@@ -13,6 +13,7 @@ import time
 from src.cache.manager import cache_manager
 from src.logging_config import get_logger
 
+from .. import data_ledger as ledger
 from ..state import InvestmentAnalystState
 
 log = get_logger(__name__)
@@ -83,10 +84,10 @@ async def _call_tool_raw(tools: dict, name: str, **kwargs) -> tuple[dict | list,
 
 async def _call_tool_cached(
     tools: dict, provider: str, tool_name: str, ticker: str, tool_kwargs: dict
-) -> tuple[dict | list, bool, int, bool]:
+) -> tuple[dict | list, bool, int, bool, ledger.SourceStatus]:
     """
     Call a tool through the cache layer.
-    Returns (result, success, duration_ms, was_cached).
+    Returns (result, success, duration_ms, was_cached, status).
     """
     start = time.monotonic()
 
@@ -101,23 +102,36 @@ async def _call_tool_cached(
 
         data, success, _ = await _call_tool_raw(tools, tool_name, **tool_kwargs)
         if not success:
-            raise RuntimeError(f"Tool {tool_name} failed")
+            # Keep the underlying reason so the failure can be classified
+            # (rate limited, blocked, timeout) instead of just "failed".
+            detail = data.get("error") if isinstance(data, dict) else None
+            raise RuntimeError(
+                f"Tool {tool_name} failed: {detail}" if detail else f"Tool {tool_name} failed"
+            )
         return data
 
     try:
-        data, source_id, was_cached = await cache_manager.get_or_fetch(
+        data, source_id, meta = await cache_manager.get_or_fetch_with_meta(
             provider=provider,
             tool=tool_name,
             ticker=ticker,
             fetch_fn=_fetch,
         )
         duration_ms = int((time.monotonic() - start) * 1000)
-        return data, True, duration_ms, was_cached
+        if meta.stale_on_error:
+            status = ledger.make_status(ledger.STALE, age_seconds=meta.age_seconds)
+        elif meta.cached:
+            status = ledger.make_status(ledger.CACHED)
+        else:
+            status = ledger.make_status(ledger.OK)
+        return data, True, duration_ms, meta.cached, status
     except Exception as e:
         # Cache miss + fetch failure: don't retry raw call (budget already consumed
         # inside _fetch). Return the error as a failed result.
         duration_ms = int((time.monotonic() - start) * 1000)
-        return {"error": str(e)}, False, duration_ms, False
+        message = str(e)
+        status = ledger.make_status(ledger.classify_failure(message), message)
+        return {"error": message}, False, duration_ms, False, status
 
 
 async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> dict:
@@ -152,13 +166,14 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
     # Bound concurrent tool calls across all tickers (global limit across analyses)
     async def _bounded_tool_cached(
         tools: dict, provider: str, tool_name: str, ticker: str, tool_kwargs: dict
-    ) -> tuple[dict | list, bool, int, bool]:
+    ) -> tuple[dict | list, bool, int, bool, ledger.SourceStatus]:
         async with _GLOBAL_TOOL_SEMAPHORE:
             return await _call_tool_cached(tools, provider, tool_name, ticker, tool_kwargs)
 
-    async def fetch_one(ticker: str) -> tuple[str, list, dict, str, dict, dict, list[str]]:
+    async def fetch_one(
+        ticker: str,
+    ) -> tuple[str, list, dict, str, dict, dict, list[str], dict[str, ledger.SourceStatus]]:
         """Fetch all data for one ticker with caching. Returns per-ticker results + gaps."""
-        gaps: list[str] = []
         from src.cache.manager import cache_manager as cm
 
         # Define tool calls with their provider mapping
@@ -197,62 +212,45 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
         live_results: list = list(live_results_raw) if live_coros else []
 
         # Merge results back in original order
-        results: list[tuple[dict | list, bool, int, bool]] = [({}, False, 0, False)] * len(
-            tool_calls
-        )
-        # Track which indices already have budget-exhausted gaps to avoid duplicates
-        budget_gap_indices: set[int] = set()
-        for idx, (i, (provider, tool_name, _kwargs)) in enumerate(
-            zip(indices_cache, [tool_calls[j] for j in indices_cache])
-        ):
-            data, source_id, hit = cache_results[idx]
+        results: list[tuple[dict | list, bool, int, bool, ledger.SourceStatus]] = [
+            ({}, False, 0, False, ledger.make_status(ledger.ERROR))
+        ] * len(tool_calls)
+        for idx, i in enumerate(indices_cache):
+            data, _source_id, hit = cache_results[idx]
             if hit:
-                results[i] = (data, True, 0, True)
+                results[i] = (data, True, 0, True, ledger.make_status(ledger.CACHED))
             else:
-                gaps.append(f"{tool_name} unavailable for {ticker} (budget exhausted)")
-                budget_gap_indices.add(i)
-                results[i] = ({} if "news" not in tool_name else [], False, 0, False)
+                results[i] = (
+                    {} if "news" not in tool_calls[i][1] else [],
+                    False,
+                    0,
+                    False,
+                    ledger.make_status(ledger.BUDGET, "daily budget used up, nothing cached"),
+                )
 
         for idx, i in enumerate(indices_live):
             results[i] = live_results[idx]
 
-        news_data, news_ok, _, _ = results[0]
-        quote_data, quote_ok, _, _ = results[1]
-        fundamentals_data, fundamentals_ok, _, _ = results[2]
-        filing_data, filing_ok, _, _ = results[3]
-        indicators_data, indicators_ok, _, _ = results[4]
-        earnings_data, earnings_ok, _, _ = results[5]
-        sentiment_data, sentiment_ok, _, _ = results[6]
+        statuses = {tool_calls[i][1]: results[i][4] for i in range(len(tool_calls))}
+        gaps = ledger.failure_gap_texts(ticker, statuses)
+        if any(entry["status"] == ledger.STALE for entry in statuses.values()):
+            log.info(
+                "fetch_one_served_stale ticker=%s tools=%s",
+                ticker,
+                [t for t, e in statuses.items() if e["status"] == ledger.STALE],
+            )
 
-        # Track gaps for failed sources (skip if already recorded by budget-exhausted path)
-        if not news_ok:
-            if 0 not in budget_gap_indices:
-                gaps.append(f"News data unavailable for {ticker}")
-            news_data = []
-        if not quote_ok:
-            if 1 not in budget_gap_indices:
-                gaps.append(f"Price quote unavailable for {ticker}")
-            quote_data = {}
-        if not fundamentals_ok:
-            if 2 not in budget_gap_indices:
-                gaps.append(f"Fundamentals unavailable for {ticker}")
-            fundamentals_data = {}
-        if not filing_ok:
-            if 3 not in budget_gap_indices:
-                gaps.append(f"SEC filing unavailable for {ticker}")
-            filing_data = {}
-        if not indicators_ok:
-            if 4 not in budget_gap_indices:
-                gaps.append(f"Technical indicators unavailable for {ticker}")
-            indicators_data = {}
-        if not earnings_ok:
-            # Not a real gap worth surfacing to the user — many tickers simply
-            # have no confirmed upcoming earnings date. Just default to empty.
-            earnings_data = {}
-        if not sentiment_ok:
-            if 6 not in budget_gap_indices:
-                gaps.append(f"Retail sentiment unavailable for {ticker}")
-            sentiment_data = {}
+        def _data(i: int, empty):
+            data, ok = results[i][0], results[i][1]
+            return data if ok else empty
+
+        news_data = _data(0, [])
+        quote_data = _data(1, {})
+        fundamentals_data = _data(2, {})
+        filing_data = _data(3, {})
+        indicators_data = _data(4, {})
+        earnings_data = _data(5, {})
+        sentiment_data = _data(6, {})
 
         news = news_data if isinstance(news_data, list) else []
         prices = {
@@ -264,7 +262,14 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
         earnings = earnings_data if isinstance(earnings_data, dict) else {}
         sentiment = sentiment_data if isinstance(sentiment_data, dict) else {}
 
-        return ticker, news, prices, filing_text, earnings, sentiment, gaps
+        # A filing record with no text is not usable evidence for the debate.
+        if statuses["get_latest_filing_summary"]["status"] in ledger.USABLE and not filing_text:
+            statuses["get_latest_filing_summary"] = ledger.make_status(
+                ledger.EMPTY, "filing found but no text could be extracted"
+            )
+            gaps.append(f"SEC filing unavailable for {ticker}")
+
+        return ticker, news, prices, filing_text, earnings, sentiment, gaps, statuses
 
     all_results = await asyncio.gather(*[fetch_one(t) for t in tickers], return_exceptions=True)
 
@@ -274,6 +279,7 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
     raw_earnings: dict[str, dict] = {}
     raw_sentiment: dict[str, dict] = {}
     all_gaps: list[str] = []
+    source_status: dict[str, dict[str, ledger.SourceStatus]] = {}
 
     # Evidence Integrity Ledger: register all retrieved data as immutable artifacts
     from src.evidence.registry import RunEvidence
@@ -291,8 +297,12 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
             raw_filings[ticker] = ""
             raw_earnings[ticker] = {}
             raw_sentiment[ticker] = {}
+            source_status[ticker] = {
+                tool: ledger.make_status(ledger.ERROR, "fetch error") for tool in ledger.SOURCES
+            }
             continue
-        _, news, prices, filing_text, earnings, sentiment, gaps = result
+        _, news, prices, filing_text, earnings, sentiment, gaps, statuses = result
+        source_status[ticker] = statuses
         raw_news[ticker] = news
         raw_prices[ticker] = prices
         raw_filings[ticker] = filing_text
@@ -325,5 +335,6 @@ async def fetch_data_node(state: InvestmentAnalystState, *, mcp_tools: dict) -> 
         "raw_earnings": raw_earnings,
         "raw_sentiment": raw_sentiment,
         "data_gaps": all_gaps,
+        "source_status": source_status,
         "run_evidence": run_evidence,
     }

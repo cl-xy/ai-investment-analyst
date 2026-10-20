@@ -20,6 +20,7 @@ from pydantic import ValidationError
 from src.logging_config import get_logger
 from src.numeric import safe_float as _safe_float
 
+from .. import data_ledger as ledger
 from ..circuit_breaker import CircuitBreakerOpen
 from ..debate_schemas import (
     BearCaseOutput,
@@ -247,6 +248,7 @@ def _build_data_context(ticker: str, state: InvestmentAnalystState) -> dict[str,
     sec_text = state.get("raw_filings", {}).get(ticker) or "Not available."
     earnings = state.get("raw_earnings", {}).get(ticker) or {}
     sentiment = state.get("raw_sentiment", {}).get(ticker) or {}
+    statuses = (state.get("source_status") or {}).get(ticker) or {}
 
     return {
         "ticker": ticker,
@@ -272,9 +274,11 @@ def _build_data_context(ticker: str, state: InvestmentAnalystState) -> dict[str,
         ),
         "sec_notes": sec_text[:1500],
         "sec_source_id": _get_artifact_id(state, "sec_edgar", "get_latest_filing_summary", ticker),
+        "data_availability": ledger.format_for_prompt(statuses),
         "raw_price_data": price_data,
         "raw_earnings": earnings,
         "raw_sentiment": sentiment,
+        "raw_source_status": statuses,
     }
 
 
@@ -283,6 +287,25 @@ def _build_data_context(ticker: str, state: InvestmentAnalystState) -> dict[str,
 # machine can match it without parsing prose. Paired with the structured
 # TickerAnalysis["debate_status"] field, which is the authoritative marker.
 _DEGRADED_FLAG = "SYSTEM_DEGRADED"
+
+# ctx entries that are raw structures for the node's own use, not prompt fields.
+_NON_PROMPT_CTX_KEYS = ("raw_price_data", "raw_earnings", "raw_sentiment", "raw_source_status")
+
+
+def _merge_gaps(statuses: dict, moderator_gaps: list[str]) -> list[str]:
+    """Banner lines: fetch-layer facts first, then extra caveats the moderator raised.
+
+    The moderator used to be the only author of data_gaps, so it could name gaps the
+    data layer never recorded and miss ones it had. Fetch facts now come from the
+    ledger, which is authoritative for every source it tracks. Moderator lines are
+    kept only when they are about something else (for example, thin analyst coverage).
+    """
+    lines = ledger.gap_lines(statuses)
+    for gap in moderator_gaps:
+        if ledger.tracked_source_mentioned(gap):
+            continue
+        lines.append(gap)
+    return lines
 
 
 def _degraded_analysis(
@@ -357,7 +380,10 @@ def _degraded_analysis(
         "news_summary": news_summary,
         "risk_flags": [f"{_DEGRADED_FLAG}: {failed_turn} agent failed", *risk_flags],
         "citations": citations,
-        "data_gaps": [f"{failed_turn} agent failed: {str(error)[:100]}"],
+        "data_gaps": [
+            *ledger.gap_lines(ctx.get("raw_source_status") or {}),
+            f"{failed_turn} agent failed: {str(error)[:100]}",
+        ],
         "price_data": price_data.get("quote", {}),
         "fundamentals": price_data.get("fundamentals", {}),
         "earnings": ctx.get("raw_earnings", {}),
@@ -369,13 +395,7 @@ def _degraded_analysis(
 
 async def _run_bull_agent(ctx: dict[str, Any]) -> BullCaseOutput:
     """Run the bull analyst agent."""
-    prompt = BULL_HUMAN.format(
-        **{
-            k: v
-            for k, v in ctx.items()
-            if k not in ("raw_price_data", "raw_earnings", "raw_sentiment")
-        }
-    )
+    prompt = BULL_HUMAN.format(**{k: v for k, v in ctx.items() if k not in _NON_PROMPT_CTX_KEYS})
     messages = [SystemMessage(content=BULL_SYSTEM), HumanMessage(content=prompt)]
 
     try:
@@ -424,11 +444,7 @@ async def _run_bear_agent(ctx: dict[str, Any], bull: BullCaseOutput) -> BearCase
     prompt = BEAR_HUMAN.format(
         bull_thesis=bull.thesis,
         bull_arguments=json.dumps(bull.key_arguments, indent=2),
-        **{
-            k: v
-            for k, v in ctx.items()
-            if k not in ("raw_price_data", "raw_earnings", "raw_sentiment")
-        },
+        **{k: v for k, v in ctx.items() if k not in _NON_PROMPT_CTX_KEYS},
     )
     messages = [SystemMessage(content=BEAR_SYSTEM), HumanMessage(content=prompt)]
 
@@ -486,11 +502,7 @@ async def _run_moderator(
         bear_risk_flags=json.dumps(bear.risk_flags, indent=2),
         bear_evidence=json.dumps([e.model_dump() for e in bear.evidence], indent=2),
         bear_concessions=json.dumps(bear.conceded_strengths, indent=2),
-        **{
-            k: v
-            for k, v in ctx.items()
-            if k not in ("raw_price_data", "raw_earnings", "raw_sentiment")
-        },
+        **{k: v for k, v in ctx.items() if k not in _NON_PROMPT_CTX_KEYS},
     )
     messages = [SystemMessage(content=MODERATOR_SYSTEM), HumanMessage(content=prompt)]
 
@@ -713,7 +725,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
             "news_summary": _dedup_text(moderator.news_summary or moderator.thesis),
             "risk_flags": moderator.risk_flags,
             "citations": [c.model_dump() for c in moderator.citations],
-            "data_gaps": moderator.data_gaps,
+            "data_gaps": _merge_gaps(ctx.get("raw_source_status") or {}, moderator.data_gaps),
             "price_data": price_data.get("quote", {}),
             "fundamentals": price_data.get("fundamentals", {}),
             "earnings": ctx.get("raw_earnings", {}),
