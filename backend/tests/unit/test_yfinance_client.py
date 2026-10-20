@@ -75,3 +75,76 @@ def test_get_earnings_calendar_handles_single_date_not_in_list():
 
     assert result["next_earnings_date"] == str(single_date)
     assert result["days_until_earnings"] == 5
+
+
+# --- rate limit retry ---
+
+
+def test_retry_on_rate_limit_recovers_after_429():
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise client.YFRateLimitError()
+        return "ok"
+
+    with patch.object(client.time, "sleep") as sleep:
+        assert client._retry_on_rate_limit(flaky, label="t") == "ok"
+
+    assert calls["n"] == 3
+    assert sleep.call_count == 2
+
+
+def test_retry_on_rate_limit_gives_up_after_max_retries():
+    def always_limited():
+        raise Exception("Too Many Requests. Rate limited. Try after a while.")
+
+    with patch.object(client.time, "sleep"):
+        try:
+            client._retry_on_rate_limit(always_limited, label="t")
+        except Exception as e:
+            assert "Too Many Requests" in str(e)
+        else:
+            raise AssertionError("expected the rate limit error to propagate")
+
+
+def test_retry_on_rate_limit_does_not_retry_other_errors():
+    calls = {"n": 0}
+
+    def broken():
+        calls["n"] += 1
+        raise ValueError("bad ticker")
+
+    with patch.object(client.time, "sleep") as sleep:
+        try:
+            client._retry_on_rate_limit(broken, label="t")
+        except ValueError:
+            pass
+
+    assert calls["n"] == 1
+    sleep.assert_not_called()
+
+
+def test_get_quote_fills_pe_and_market_cap_after_info_rate_limit():
+    calls = {"n": 0}
+
+    class FakeTicker:
+        fast_info = MagicMock(last_price=100.0, previous_close=98.0, year_high=120.0, year_low=80.0)
+        fast_info.market_cap = None
+
+        @property
+        def info(self):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise client.YFRateLimitError()
+            return {"trailingPE": 31.5, "marketCap": 3_000_000_000_000, "currency": "USD"}
+
+    with (
+        patch.object(client.yf, "Ticker", return_value=FakeTicker()),
+        patch.object(client.time, "sleep"),
+    ):
+        result = client.get_quote("NVDA")
+
+    assert result["pe_ratio"] == 31.5
+    assert result["market_cap"] == 3_000_000_000_000

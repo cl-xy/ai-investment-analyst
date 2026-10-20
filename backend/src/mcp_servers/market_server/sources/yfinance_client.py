@@ -1,10 +1,13 @@
 import logging
 import math
+import random
 import threading
+import time
 from datetime import date as _date
 
 import requests
 import yfinance as yf
+from yfinance.exceptions import YFRateLimitError
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +30,32 @@ def _get_session() -> requests.Session:
 def _ticker(symbol: str) -> yf.Ticker:
     """Create a Ticker with a timeout-enforcing session."""
     return yf.Ticker(symbol, session=_get_session())
+
+
+# Yahoo throttles the shared Fly.io IP in bursts. A short backoff usually clears
+# it, so retry a couple of times before giving up. Keep the total sleep small:
+# the caller's 30s deadline covers the whole fallback chain.
+_RATE_LIMIT_RETRIES = 2
+_RATE_LIMIT_BASE_DELAY = 1.5
+
+
+def _is_rate_limited(exc: Exception) -> bool:
+    return isinstance(exc, YFRateLimitError) or "too many requests" in str(exc).lower()
+
+
+def _retry_on_rate_limit(fn, *, label: str):
+    """Call fn(), retrying with jittered backoff only when Yahoo rate limits us."""
+    for attempt in range(_RATE_LIMIT_RETRIES + 1):
+        try:
+            return fn()
+        except Exception as e:
+            if not _is_rate_limited(e) or attempt == _RATE_LIMIT_RETRIES:
+                raise
+            delay = _RATE_LIMIT_BASE_DELAY * (attempt + 1) + random.uniform(0, 0.5)
+            log.warning(
+                "yfinance_rate_limited %s attempt=%d retry_in=%.1fs", label, attempt + 1, delay
+            )
+            time.sleep(delay)
 
 
 def _download_fallback(ticker: str) -> dict:
@@ -81,15 +110,17 @@ def get_quote(ticker: str) -> dict:
     full: dict = {}
 
     # Primary path: fast_info (lightweight) then info (heavier quoteSummary)
+    def _read_fast_info():
+        fi = t.fast_info
+        return fi, getattr(fi, "last_price", None), getattr(fi, "previous_close", None)
+
     try:
-        info = t.fast_info
-        price = getattr(info, "last_price", None)
-        prev_close = getattr(info, "previous_close", None)
+        info, price, prev_close = _retry_on_rate_limit(_read_fast_info, label=f"fast_info:{ticker}")
     except Exception as e:
         log.warning("yfinance_fast_info_failed ticker=%s error=%s", ticker, e)
 
     try:
-        full = t.info
+        full = _retry_on_rate_limit(lambda: t.info, label=f"info:{ticker}")
         if price is None:
             price = full.get("currentPrice") or full.get("regularMarketPrice")
     except Exception as e:
@@ -155,7 +186,7 @@ def get_quote(ticker: str) -> dict:
 
 def get_fundamentals(ticker: str) -> dict:
     t = _ticker(ticker)
-    info = t.info
+    info = _retry_on_rate_limit(lambda: t.info, label=f"fundamentals:{ticker}")
 
     result = {
         "ticker": ticker.upper(),
@@ -219,7 +250,7 @@ def get_earnings_calendar(ticker: str) -> dict:
 
 def get_price_history(ticker: str, period: str = "3mo") -> list[dict]:
     t = _ticker(ticker)
-    hist = t.history(period=period)
+    hist = _retry_on_rate_limit(lambda: t.history(period=period), label=f"history:{ticker}")
     records = []
     for date, row in hist.iterrows():
         vol = row["Volume"]
