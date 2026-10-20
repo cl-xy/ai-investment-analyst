@@ -8,8 +8,16 @@ malformed responses) since there's no auth failure mode to test instead.
 from unittest.mock import MagicMock, patch
 
 import httpx
+import pytest
 
 from src.mcp_servers.sentiment_server.sources import stocktwits
+
+
+@pytest.fixture(autouse=True)
+def _reset_block_cooldown():
+    stocktwits._blocked_until = 0.0
+    yield
+    stocktwits._blocked_until = 0.0
 
 
 def _mock_response(json_data=None, status_code=200, raise_for_status_exc=None):
@@ -106,3 +114,29 @@ def test_all_unlabeled_gives_none_bullish_ratio():
         result = stocktwits.get_ticker_sentiment("AAPL")
 
     assert result["bullish_ratio"] is None
+
+
+def test_block_starts_cooldown_and_skips_next_request():
+    resp = _mock_response(
+        raise_for_status_exc=httpx.HTTPStatusError(
+            "403 Forbidden", request=MagicMock(), response=MagicMock(status_code=403)
+        )
+    )
+    with patch.object(stocktwits._client, "get", return_value=resp) as get:
+        assert stocktwits.get_ticker_sentiment("NVDA") == {}
+        assert stocktwits.get_ticker_sentiment("AAPL") == {}
+
+    assert get.call_count == 1  # second call short-circuited by the cooldown
+
+
+def test_non_block_http_error_does_not_start_cooldown():
+    resp = _mock_response(
+        raise_for_status_exc=httpx.HTTPStatusError(
+            "500 Server Error", request=MagicMock(), response=MagicMock(status_code=500)
+        )
+    )
+    with patch.object(stocktwits._client, "get", return_value=resp) as get:
+        stocktwits.get_ticker_sentiment("NVDA")
+        stocktwits.get_ticker_sentiment("AAPL")
+
+    assert get.call_count == 2

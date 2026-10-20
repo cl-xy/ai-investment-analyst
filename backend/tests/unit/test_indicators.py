@@ -83,3 +83,16 @@ class TestComputeIndicators:
         assert result["sma_50"] is not None
         assert result["sma_200"] is not None
         assert result["macd"] is not None
+
+
+def test_technical_indicators_tool_errors_when_there_is_no_history():
+    """All-None indicators used to be returned (and cached) as a success."""
+    from unittest.mock import patch
+
+    from src.mcp_servers.market_server import server
+
+    fn = getattr(server.get_technical_indicators, "fn", server.get_technical_indicators)
+    with patch.object(server, "_get_history_cached", return_value=[]):
+        result = fn("NVDA")
+
+    assert "error" in result

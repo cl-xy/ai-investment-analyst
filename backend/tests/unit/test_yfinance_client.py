@@ -148,3 +148,38 @@ def test_get_quote_fills_pe_and_market_cap_after_info_rate_limit():
 
     assert result["pe_ratio"] == 31.5
     assert result["market_cap"] == 3_000_000_000_000
+
+
+def test_ticker_uses_yfinance_default_session():
+    """A custom requests.Session bypasses yfinance's curl_cffi session, which is
+    what Yahoo was rejecting with 429 from the production IP."""
+    with patch.object(client.yf, "Ticker") as ticker_cls:
+        client._ticker("NVDA")
+
+    ticker_cls.assert_called_once_with("NVDA")
+
+
+def test_get_quote_survives_info_returning_none():
+    class FakeTicker:
+        fast_info = MagicMock(last_price=100.0, previous_close=98.0, year_high=120.0, year_low=80.0)
+        fast_info.market_cap = None
+        info = None
+
+    with patch.object(client.yf, "Ticker", return_value=FakeTicker()):
+        result = client.get_quote("NVDA")
+
+    assert result["current_price"] == 100.0
+    assert result["pe_ratio"] is None
+
+
+def test_get_fundamentals_raises_when_info_is_none():
+    class FakeTicker:
+        info = None
+
+    with patch.object(client.yf, "Ticker", return_value=FakeTicker()):
+        try:
+            client.get_fundamentals("NVDA")
+        except ValueError as e:
+            assert "no fundamental data" in str(e)
+        else:
+            raise AssertionError("expected ValueError")

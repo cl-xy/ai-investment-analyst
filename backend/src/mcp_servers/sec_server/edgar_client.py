@@ -1,13 +1,18 @@
 import logging
+import os
 import re
 import threading
 import time
+from html import unescape
 
 import httpx
 
 log = logging.getLogger(__name__)
 
-HEADERS = {"User-Agent": "mcp-investment-analyst contact@example.com"}
+# SEC fair-access policy asks for a real contact in the User-Agent.
+HEADERS = {
+    "User-Agent": os.environ.get("SEC_USER_AGENT", "ai-investment-analyst xinyilu2000@gmail.com")
+}
 SUBMISSIONS_BASE = "https://data.sec.gov/submissions"
 COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 
@@ -79,8 +84,9 @@ def search_filings(ticker: str, form_type: str = "10-K", count: int = 3) -> list
         forms = filings.get("form", [])
         dates = filings.get("filingDate", [])
         accessions = filings.get("accessionNumber", [])
+        primary_docs = filings.get("primaryDocument", [])
         results = []
-        for form, date, acc in zip(forms, dates, accessions):
+        for i, (form, date, acc) in enumerate(zip(forms, dates, accessions)):
             if form == form_type:
                 acc_clean = acc.replace("-", "")
                 results.append(
@@ -88,6 +94,7 @@ def search_filings(ticker: str, form_type: str = "10-K", count: int = 3) -> list
                         "form_type": form,
                         "filed_date": date,
                         "accession_number": acc,
+                        "primary_document": primary_docs[i] if i < len(primary_docs) else "",
                         "url": f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc_clean}/{acc}-index.htm",
                     }
                 )
@@ -99,24 +106,68 @@ def search_filings(ticker: str, form_type: str = "10-K", count: int = 3) -> list
         return []
 
 
-def get_filing_text_snippet(accession_number: str, cik: str, max_chars: int = 3000) -> str:
+# Exhibits (EX-19, EX-21, EX-23, EX-31, EX-32 ...) sort ahead of the main document
+# on the filing index page, so they must never win the fallback pick.
+_EXHIBIT_NAME_RE = re.compile(r"(ex[-_]?\d|exhibit|consent|subsidiar|certif)", re.IGNORECASE)
+_BUSINESS_HEADING_RE = re.compile(r"item\s*1\.?\s*business", re.IGNORECASE)
+
+
+def _html_to_text(html: str) -> str:
+    # Inline XBRL filings start with a hidden <ix:header> block of facts and
+    # contexts that would otherwise fill the excerpt with noise.
+    html = re.sub(r"<ix:header>.*?</ix:header>", " ", html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", html)
+    # Decode entities (&#160; and friends) so the heading regex sees real spaces.
+    return re.sub(r"\s+", " ", unescape(text)).strip()
+
+
+_NEXT_ITEM_RE = re.compile(r"item\s*1a", re.IGNORECASE)
+
+
+def _excerpt(text: str, max_chars: int) -> str:
+    """Start at the body of Item 1 rather than the cover page and table of contents.
+
+    A table of contents entry is followed almost immediately by "Item 1A", while
+    the real heading is followed by pages of business description first.
+    """
+    for m in _BUSINESS_HEADING_RE.finditer(text):
+        window = text[m.end() : m.end() + 800]
+        if not _NEXT_ITEM_RE.search(window):
+            return text[m.start() : m.start() + max_chars]
+    return text[:max_chars]
+
+
+def _pick_primary_document(index_html: str) -> str:
+    links = re.findall(r'href="(/Archives/edgar/data/[^"]+\.htm)"', index_html, re.IGNORECASE)
+    for link in links:
+        if not _EXHIBIT_NAME_RE.search(link.rsplit("/", 1)[-1]):
+            return link
+    return ""
+
+
+def get_filing_text_snippet(
+    accession_number: str,
+    cik: str,
+    max_chars: int = 3000,
+    primary_document: str = "",
+) -> str:
     try:
         acc_clean = accession_number.replace("-", "")
         cik_int = int(cik)
-        index_url = f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{acc_clean}/{accession_number}-index.htm"
-        r = _client.get(index_url)
-        r.raise_for_status()
-        # Extract the primary document link from the index page
-        matches = re.findall(r'href="(/Archives/edgar/data/[^"]+\.htm)"', r.text, re.IGNORECASE)
-        if not matches:
-            return ""
-        doc_url = "https://www.sec.gov" + matches[0]
+        base = f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{acc_clean}"
+        if primary_document:
+            doc_url = f"{base}/{primary_document}"
+        else:
+            r = _client.get(f"{base}/{accession_number}-index.htm")
+            r.raise_for_status()
+            path = _pick_primary_document(r.text)
+            if not path:
+                return ""
+            doc_url = "https://www.sec.gov" + path
         r2 = _client.get(doc_url, timeout=30)
         r2.raise_for_status()
-        # Strip HTML tags for a rough text extraction
-        text = re.sub(r"<[^>]+>", " ", r2.text)
-        text = re.sub(r"\s+", " ", text).strip()
-        return text[:max_chars]
+        return _excerpt(_html_to_text(r2.text), max_chars)
     except Exception as exc:
         log.warning("Failed to get filing snippet for %s (CIK %s): %s", accession_number, cik, exc)
         return ""

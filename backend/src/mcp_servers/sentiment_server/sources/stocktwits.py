@@ -9,6 +9,7 @@ meant as a minor corroborating/contrarian signal, not a primary driver.
 
 import logging
 import re
+import time
 
 import httpx
 
@@ -21,6 +22,13 @@ _HEADERS = {"User-Agent": "ai-investment-analyst/1.0 (github.com/cl-xy/ai-invest
 # Module-level client for connection pooling. httpx.Client is thread-safe for
 # concurrent reads and the cache lock already serializes writes.
 _client = httpx.Client(headers=_HEADERS, timeout=_TIMEOUT)
+
+# StockTwits sits behind a Cloudflare managed challenge that rejects server
+# traffic (HTTP 403, cf-mitigated: challenge). Retrying every analysis only adds
+# noise, so after a block or rate limit I back off for a while and log it once
+# at warning level instead of burying it at debug.
+_BLOCK_COOLDOWN_SECONDS = 600
+_blocked_until: float = 0.0
 
 # Strict ticker validation: letters, digits, dots, hyphens, 1-12 chars.
 # Covers standard symbols (AAPL), class shares (BRK.B), and crypto (BTC.X).
@@ -38,6 +46,7 @@ def get_ticker_sentiment(ticker: str, max_messages: int = 30) -> dict:
     This is a blocking (synchronous) function. Callers in async contexts
     should dispatch via asyncio.to_thread or a threadpool executor.
     """
+    global _blocked_until
     try:
         # Validate inputs
         if not isinstance(ticker, str) or not ticker.strip():
@@ -47,6 +56,9 @@ def get_ticker_sentiment(ticker: str, max_messages: int = 30) -> dict:
             return {}
 
         max_messages = max(1, int(max_messages))
+
+        if time.monotonic() < _blocked_until:
+            return {}
 
         url = f"{_BASE_URL}/{symbol}.json"
 
@@ -97,6 +109,19 @@ def get_ticker_sentiment(ticker: str, max_messages: int = 30) -> dict:
             "bullish_ratio": bullish_ratio,
             "sample_messages": samples,
         }
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        if status in (403, 429):
+            _blocked_until = time.monotonic() + _BLOCK_COOLDOWN_SECONDS
+            logger.warning(
+                "stocktwits_blocked status=%s ticker=%r cooldown=%ds",
+                status,
+                ticker,
+                _BLOCK_COOLDOWN_SECONDS,
+            )
+        else:
+            logger.warning("stocktwits_http_error status=%s ticker=%r", status, ticker)
+        return {}
     except Exception:
-        logger.debug("StockTwits fetch failed for ticker=%r", ticker, exc_info=True)
+        logger.warning("StockTwits fetch failed for ticker=%r", ticker, exc_info=True)
         return {}

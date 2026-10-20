@@ -324,7 +324,12 @@ def get_technical_indicators(ticker: str) -> dict:
         history = _get_history_cached(ticker, "1y")
     except ValueError as e:
         return {"error": str(e)}
-    return compute_indicators(history)
+    indicators = compute_indicators(history)
+    # With no usable history every field is None. That is a failed fetch, not a
+    # result: returning it as data would get it cached and hide the gap.
+    if all(v is None for v in indicators.values()):
+        return {"error": f"No price history available to compute indicators for {ticker}"}
+    return indicators
 
 
 if __name__ == "__main__":

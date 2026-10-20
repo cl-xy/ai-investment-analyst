@@ -111,7 +111,11 @@ def get_latest_filing_summary(ticker: str, form_type: str = "10-K") -> dict:
         try:
             cik = get_cik(normalized)
             if cik:
-                text_excerpt = get_filing_text_snippet(accession_number, cik)
+                text_excerpt = get_filing_text_snippet(
+                    accession_number,
+                    cik,
+                    primary_document=latest.get("primary_document", ""),
+                )
                 if not isinstance(text_excerpt, str):
                     text_excerpt = ""
                     data_gaps.append("text_extraction_invalid_type")

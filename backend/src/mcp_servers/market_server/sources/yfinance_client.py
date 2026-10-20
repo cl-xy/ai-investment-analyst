@@ -1,35 +1,25 @@
 import logging
 import math
 import random
-import threading
 import time
 from datetime import date as _date
 
-import requests
 import yfinance as yf
 from yfinance.exceptions import YFRateLimitError
 
 log = logging.getLogger(__name__)
 
-# Thread-local storage for requests sessions. requests.Session is not
-# thread-safe, and this module is called from FastAPI's thread pool.
-_LOCAL = threading.local()
-
-
-def _get_session() -> requests.Session:
-    """Return a per-thread requests.Session with a default timeout."""
-    if not hasattr(_LOCAL, "session"):
-        s = requests.Session()
-        s.request = lambda *args, **kwargs: requests.Session.request(  # type: ignore[method-assign, misc]
-            s, *args, timeout=kwargs.pop("timeout", 20), **kwargs
-        )
-        _LOCAL.session = s
-    return _LOCAL.session
-
 
 def _ticker(symbol: str) -> yf.Ticker:
-    """Create a Ticker with a timeout-enforcing session."""
-    return yf.Ticker(symbol, session=_get_session())
+    """Create a Ticker on yfinance's own session.
+
+    I used to pass a plain requests.Session here to enforce a timeout. That
+    bypassed yfinance's curl_cffi browser-impersonating session, and Yahoo
+    started answering every call (crumb included) with 429 from the Fly IP.
+    On the same machine the default session returned data. The overall time
+    budget is still enforced by the thread timeout in server.py.
+    """
+    return yf.Ticker(symbol)
 
 
 # Yahoo throttles the shared Fly.io IP in bursts. A short backoff usually clears
@@ -120,7 +110,9 @@ def get_quote(ticker: str) -> dict:
         log.warning("yfinance_fast_info_failed ticker=%s error=%s", ticker, e)
 
     try:
-        full = _retry_on_rate_limit(lambda: t.info, label=f"info:{ticker}")
+        # t.info can come back None rather than raising when Yahoo refuses the
+        # quoteSummary call, so normalise it before the .get calls below.
+        full = _retry_on_rate_limit(lambda: t.info, label=f"info:{ticker}") or {}
         if price is None:
             price = full.get("currentPrice") or full.get("regularMarketPrice")
     except Exception as e:
@@ -187,6 +179,8 @@ def get_quote(ticker: str) -> dict:
 def get_fundamentals(ticker: str) -> dict:
     t = _ticker(ticker)
     info = _retry_on_rate_limit(lambda: t.info, label=f"fundamentals:{ticker}")
+    if not info:
+        raise ValueError(f"yfinance returned no fundamental data for {ticker}")
 
     result = {
         "ticker": ticker.upper(),
