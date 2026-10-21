@@ -149,9 +149,102 @@ async def test_answered_model_names_the_fallback_that_responded():
     assert llm_fallback.answered_model.get() == "m-fallback"
 
 
-def test_second_model_in_the_chain_is_not_from_the_primarys_provider():
-    """One slow Nvidia pool must not be able to take out both the primary and the
-    first fallback."""
+def test_chain_reaches_a_different_provider_within_two_fallbacks():
+    """One slow Nvidia pool must not be able to take out every early attempt: a
+    non-primary-provider model has to appear within the first two fallbacks."""
     primary_provider = settings.llm_model.split("/")[0]
-    first_fallback = settings.llm_fallback_chain[0]
-    assert first_fallback.split("/")[0] != primary_provider
+    first_two = settings.llm_fallback_chain[:2]
+    assert any(m.split("/")[0] != primary_provider for m in first_two)
+
+
+def test_reasoning_off_is_only_listed_for_models_that_accept_it():
+    """MiniMax rejects reasoning={"enabled": false} (HTTP 400), so it must never be
+    listed; every listed model must also be in play (primary or in the chain)."""
+    optional = settings.llm_reasoning_optional_set
+    assert not any("minimax" in m for m in optional)
+    in_play = {settings.llm_model, *settings.llm_fallback_chain}
+    assert optional <= in_play
+
+
+def _recording_build():
+    calls: list[tuple[str, bool]] = []
+
+    def _fake(model, temperature, max_tokens, request_timeout, json_mode=True, reasoning_off=False):
+        calls.append((model, reasoning_off))
+        m = AsyncMock()
+        m._id = model
+        return m
+
+    return calls, _fake
+
+
+async def _fail_primary_then_succeed(llm, messages, *, breaker=None, deadline=None):
+    if llm._id == "m-primary":
+        raise TimeoutError("LLM attempt exceeded 45s wall-clock timeout (model=m-primary)")
+    return "ok"
+
+
+@pytest.mark.asyncio
+async def test_rescue_attempt_runs_with_reasoning_off_but_primary_keeps_it():
+    calls, fake = _recording_build()
+    with (
+        patch.object(llm_fallback, "_build_llm", side_effect=fake),
+        patch.object(llm_fallback, "_invoke_with_retry", side_effect=_fail_primary_then_succeed),
+        patch.object(type(settings), "llm_fallback_chain", property(lambda self: ["m-rescue"])),
+        patch.object(
+            type(settings),
+            "llm_reasoning_optional_set",
+            property(lambda self: frozenset({"m-primary", "m-rescue"})),
+        ),
+    ):
+        await llm_fallback.invoke_with_fallback(
+            [], primary_model="m-primary", reasoning_off_on_fallback=True
+        )
+
+    assert calls == [("m-primary", False), ("m-rescue", True)]
+
+
+@pytest.mark.asyncio
+async def test_reasoning_stays_on_when_the_caller_does_not_ask_for_the_rescue_mode():
+    calls, fake = _recording_build()
+    with (
+        patch.object(llm_fallback, "_build_llm", side_effect=fake),
+        patch.object(llm_fallback, "_invoke_with_retry", side_effect=_fail_primary_then_succeed),
+        patch.object(type(settings), "llm_fallback_chain", property(lambda self: ["m-rescue"])),
+        patch.object(
+            type(settings),
+            "llm_reasoning_optional_set",
+            property(lambda self: frozenset({"m-primary", "m-rescue"})),
+        ),
+    ):
+        await llm_fallback.invoke_with_fallback([], primary_model="m-primary")
+
+    assert calls == [("m-primary", False), ("m-rescue", False)]
+
+
+@pytest.mark.asyncio
+async def test_models_not_allowed_to_disable_reasoning_are_left_alone():
+    calls, fake = _recording_build()
+    with (
+        patch.object(llm_fallback, "_build_llm", side_effect=fake),
+        patch.object(llm_fallback, "_invoke_with_retry", side_effect=_fail_primary_then_succeed),
+        patch.object(type(settings), "llm_fallback_chain", property(lambda self: ["m-rescue"])),
+        patch.object(
+            type(settings), "llm_reasoning_optional_set", property(lambda self: frozenset())
+        ),
+    ):
+        await llm_fallback.invoke_with_fallback(
+            [], primary_model="m-primary", reasoning_off_on_fallback=True
+        )
+
+    assert calls == [("m-primary", False), ("m-rescue", False)]
+
+
+def test_build_llm_sends_the_reasoning_switch_only_when_asked(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")  # pragma: allowlist secret
+    llm_fallback._build_llm.cache_clear()
+    off = llm_fallback._build_llm("m", 0.5, 100, 30, True, True)
+    on = llm_fallback._build_llm("m", 0.5, 100, 30, True, False)
+    assert off.extra_body == {"reasoning": {"enabled": False}}
+    assert not on.extra_body
+    llm_fallback._build_llm.cache_clear()

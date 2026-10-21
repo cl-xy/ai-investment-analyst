@@ -22,13 +22,28 @@ class Settings(BaseSettings):
     # here support response_format=json_object (required for the debate's JSON mode).
     # Comma-separated; override via LLM_FALLBACK_MODELS env var.
     llm_fallback_models: str = (
-        "minimax/minimax-m3.1-flash:free,"
         "nvidia/nemotron-3.5-super-vl:free,"
+        "minimax/minimax-m3.1-flash:free,"
         "google/gemma-4-31b-it:free,"
         "google/gemma-4-26b-a4b-it:free"
     )
+    # Models whose OpenRouter endpoint accepts reasoning={"enabled": false}. A
+    # rescue attempt on one of these skips the hidden thinking phase, which on the
+    # free tier takes anywhere from 8s to 60s before the first JSON character and
+    # was what used up whole turns. Probed on the production machine: ultra and
+    # super-vl return valid JSON in ~8-10s with it off; minimax rejects the flag
+    # (HTTP 400, reasoning is mandatory), so it is deliberately not listed.
+    llm_reasoning_optional_models: str = (
+        "nvidia/nemotron-3-ultra-550b-a55b:free,nvidia/nemotron-3.5-super-vl:free"
+    )
     llm_router_model: str = "nvidia/nemotron-3.5-lightning:free"
     llm_router_model_fallback: str = "google/gemma-4-31b-it:free"
+
+    @property
+    def llm_reasoning_optional_set(self) -> frozenset[str]:
+        return frozenset(
+            m.strip() for m in self.llm_reasoning_optional_models.split(",") if m.strip()
+        )
 
     @property
     def llm_fallback_chain(self) -> list[str]:
@@ -58,9 +73,10 @@ class Settings(BaseSettings):
     # outer timeout cancelling the node mid-call and losing everything. The
     # debate node splits this across the three turns, front-loading the bull
     # turn (a bull failure zeroes the whole ticker; bear/moderator degrade in
-    # place). Set to 165s: the outer bound is 180s and the two 4s inter-turn
-    # sleeps live outside the per-turn deadlines, so this leaves ~15s of margin
-    # for cancellation unwind, validation, and checkpoint persistence.
+    # place). Set to 165s: the outer bound is 180s, so this leaves ~15s of margin
+    # for cancellation unwind, validation, and checkpoint persistence. There is
+    # no fixed pause between turns any more, so the whole budget goes to the
+    # model calls.
     debate_ticker_budget_seconds: float = 165.0
 
     # External APIs

@@ -401,13 +401,14 @@ def _is_fallback_worthy(exc: BaseException) -> bool:
     return _classify_error(exc) != ErrorSeverity.NOT_RETRYABLE
 
 
-@lru_cache(maxsize=8)
+@lru_cache(maxsize=32)
 def _build_llm(
     model: str,
     temperature: float,
     max_tokens: int,
     request_timeout: int,
     json_mode: bool = True,
+    reasoning_off: bool = False,
 ) -> ChatOpenAI:
     """Build a cached ChatOpenAI instance for the given model config."""
     from ..config import settings
@@ -427,6 +428,9 @@ def _build_llm(
         base_url=settings.llm_base_url,
         api_key=api_key,  # type: ignore[arg-type]
         model_kwargs=kwargs,
+        # OpenRouter's switch for the hidden thinking phase. Only ever set for
+        # models listed in settings.llm_reasoning_optional_models.
+        extra_body={"reasoning": {"enabled": False}} if reasoning_off else None,
         request_timeout=request_timeout,  # type: ignore[call-arg]
     )
 
@@ -442,6 +446,7 @@ async def invoke_with_fallback(
     json_mode: bool = True,
     tools: list | None = None,
     deadline: float | None = None,
+    reasoning_off_on_fallback: bool = False,
 ) -> BaseMessage:
     """
     Invoke LLM with a multi-model retry + fallback chain.
@@ -466,6 +471,10 @@ async def invoke_with_fallback(
         tools: Optional tools to bind to the model (for tool-calling loops).
             Applied to every model on every call, since bound runnables aren't
             cacheable the same way as the bare client.
+        reasoning_off_on_fallback: When True, fallback attempts (not the primary)
+            on models that allow it run with reasoning disabled. The primary always
+            keeps full reasoning; this only makes a rescue fast enough to land in
+            the small slice a timed-out primary leaves behind.
         deadline: Optional monotonic (time.monotonic()) wall-clock deadline for
             the WHOLE chain. Without it, every per-attempt timeout on a dead
             provider stacks up (5 models x 45s = ~3.75 min) and can outlive the
@@ -541,7 +550,19 @@ async def invoke_with_fallback(
 
         is_primary = index == 0
         breaker = llm_breaker if is_primary else _breaker_for(model)
-        llm = _build_llm(model, temperature, max_tokens, request_timeout, effective_json_mode)
+        reasoning_off = (
+            reasoning_off_on_fallback
+            and not is_primary
+            and model in settings.llm_reasoning_optional_set
+        )
+        llm = _build_llm(
+            model,
+            temperature,
+            max_tokens,
+            request_timeout,
+            effective_json_mode,
+            reasoning_off=reasoning_off,
+        )
         runnable: ChatOpenAI | Runnable = llm.bind_tools(tools) if tools else llm
         try:
             result = await _invoke_with_retry(
@@ -549,7 +570,12 @@ async def invoke_with_fallback(
             )
             answered_model.set(model)
             if not is_primary:
-                log.info("fallback_model_succeeded model=%s position=%d", model, index)
+                log.info(
+                    "fallback_model_succeeded model=%s position=%d reasoning=%s",
+                    model,
+                    index,
+                    "off" if reasoning_off else "on",
+                )
             return result
         except Exception as exc:
             last_exc = exc

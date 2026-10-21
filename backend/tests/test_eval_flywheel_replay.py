@@ -104,7 +104,6 @@ class TestReplayCaseZeroLiveCalls:
                     _mock_llm_response(MODERATOR_JSON),
                 ],
             ),
-            patch("src.agent.nodes.debate.asyncio.sleep", new_callable=AsyncMock),
             patch(
                 "src.mcp_servers.market_server.server",
                 side_effect=AssertionError("live tool call attempted during replay"),
@@ -147,7 +146,6 @@ class TestReplayCaseZeroLiveCalls:
                 "src.agent.nodes.debate.invoke_with_fallback",
                 side_effect=_capture_invoke,
             ),
-            patch("src.agent.nodes.debate.asyncio.sleep", new_callable=AsyncMock),
         ):
             result = await replay_case("case-1", "NVDA")
 

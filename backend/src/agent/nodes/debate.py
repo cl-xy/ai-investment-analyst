@@ -6,7 +6,6 @@ Each agent uses OpenRouter JSON mode + Pydantic validation with 1 retry on failu
 Falls back to single-shot analysis if debate fails or rate budget is exhausted.
 """
 
-import asyncio
 import contextvars
 import json
 import time
@@ -41,10 +40,6 @@ from ..prompts.debate_prompts import (
 from ..state import InvestmentAnalystState, TickerAnalysis
 
 log = get_logger(__name__)
-
-# Minimum delay between sequential LLM calls to reduce burst contention
-# on free-tier provider workers (Nvidia ResourceExhausted threshold)
-_MIN_CALL_INTERVAL = 4.0  # seconds
 
 # Fraction of the *remaining* per-ticker budget to grant the current turn,
 # keyed by turns_left (3=bull, 2=bear, 1=moderator). Bull is front-loaded: its
@@ -176,6 +171,7 @@ async def _invoke_with_retry(messages: list, *, is_retry: bool = False) -> objec
         max_tokens=4096,
         request_timeout=120,
         deadline=_turn_deadline.get(),
+        reasoning_off_on_fallback=True,
     )
     finish_reason = (getattr(response, "response_metadata", None) or {}).get("finish_reason")
     if finish_reason == "length":
@@ -647,9 +643,6 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
         existing[ticker] = analysis
         return {"ticker_analyses": existing, "current_ticker": ticker}
 
-    # Rate limit pause between calls
-    await asyncio.sleep(_MIN_CALL_INTERVAL)
-
     # Run bear agent
     _set_turn_deadline(turns_left=2)
     bear_start = time.monotonic()
@@ -678,9 +671,6 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
         existing = dict(state.get("ticker_analyses", {}))
         existing[ticker] = analysis
         return {"ticker_analyses": existing, "current_ticker": ticker}
-
-    # Rate limit pause
-    await asyncio.sleep(_MIN_CALL_INTERVAL)
 
     # Run moderator
     _set_turn_deadline(turns_left=1)
