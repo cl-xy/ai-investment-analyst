@@ -2,10 +2,19 @@ import '@testing-library/jest-dom'
 import 'vitest-axe/extend-expect'
 import * as matchers from 'vitest-axe/matchers'
 import { cleanup } from '@testing-library/react'
+import { transferableAbortController } from 'node:util'
 import { afterEach, beforeAll, afterAll, expect } from 'vitest'
 import { server } from './server'
 
 expect.extend(matchers)
+
+// jsdom swaps in its own AbortController/AbortSignal, but fetch (patched by msw)
+// builds Node Request objects that only accept Node's signal, so every fetch
+// call carrying a signal threw "Expected signal to be an instance of
+// AbortSignal". Put Node's implementations back.
+const nodeAbort = transferableAbortController()
+globalThis.AbortController = nodeAbort.constructor as typeof AbortController
+globalThis.AbortSignal = nodeAbort.signal.constructor as typeof AbortSignal
 
 // Mock EventSource (not available in jsdom)
 class MockEventSource {

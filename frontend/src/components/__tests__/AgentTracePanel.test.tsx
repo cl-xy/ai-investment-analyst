@@ -74,7 +74,10 @@ describe('AgentTracePanel', () => {
     render(<AgentTracePanel />)
     const log = screen.getByRole('log')
     expect(log).toHaveAttribute('aria-label', 'Agent execution trace')
-    expect(log).toHaveAttribute('aria-live', 'polite')
+    // The log itself stays silent so every event is not announced; milestones
+    // are announced through a separate polite status region instead.
+    expect(log).toHaveAttribute('aria-live', 'off')
+    expect(document.querySelector('p.sr-only[aria-live="polite"]')).toBeInTheDocument()
   })
 
   it('has no accessibility violations', async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { act, screen } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from '../../test/utils'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
@@ -28,20 +28,33 @@ describe('StreamingAnalysisPage', () => {
     expect(screen.getByText('Go back to watchlist')).toBeInTheDocument()
   })
 
-  it('renders ticker header when tickers are provided', () => {
+  it('shows a pre-flight confirmation before starting an analysis', () => {
     renderWithRoute('?tickers=AAPL,GOOGL')
+    expect(screen.getByText('Ready to analyze')).toBeInTheDocument()
+    expect(screen.getByText('AAPL')).toBeInTheDocument()
+    expect(screen.getByText('GOOGL')).toBeInTheDocument()
+  })
+
+  it('renders ticker header once the analysis is started', async () => {
+    const user = userEvent.setup()
+    renderWithRoute('?tickers=AAPL,GOOGL')
+    await user.click(screen.getByRole('button', { name: /start analysis/i }))
     expect(screen.getByText('Analyzing AAPL, GOOGL')).toBeInTheDocument()
   })
 
-  it('shows skeleton cards for pending tickers', () => {
+  it('shows skeleton cards for pending tickers', async () => {
+    const user = userEvent.setup()
     renderWithRoute('?tickers=MSFT')
+    await user.click(screen.getByRole('button', { name: /start analysis/i }))
     // Skeleton card should show the ticker name
-    expect(screen.getByText('MSFT')).toBeInTheDocument()
+    expect(screen.getAllByText('MSFT').length).toBeGreaterThan(0)
   })
 
-  it('renders the agent trace panel', () => {
+  it('renders the agent trace panel', async () => {
+    const user = userEvent.setup()
     renderWithRoute('?tickers=AAPL')
-    expect(screen.getByText('Agent Trace')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /start analysis/i }))
+    expect(screen.getAllByText('Agent Trace').length).toBeGreaterThan(0)
   })
 
   describe('retry after a fully-pending timeout', () => {
@@ -51,12 +64,14 @@ describe('StreamingAnalysisPage', () => {
 
     it('reconnects instead of silently no-op navigating when incomplete_tickers matches the URL', async () => {
       const user = userEvent.setup()
-      const esSpy = vi.spyOn(globalThis, 'EventSource')
+      const esSpy = vi.spyOn(globalThis, 'fetch')
 
       renderWithRoute('?tickers=JNJ')
       await user.click(screen.getByRole('button', { name: /start analysis/i }))
 
-      expect(esSpy).toHaveBeenCalledTimes(1)
+      const streamCalls = () =>
+        esSpy.mock.calls.filter(([url]) => String(url).includes('/api/analyze/stream')).length
+      await waitFor(() => expect(streamCalls()).toBe(1))
 
       // Simulate the backend timing out with the single ticker still pending
       // (e.g. "Analysis timed out after 255s while in debate. Still pending: JNJ").
@@ -83,7 +98,7 @@ describe('StreamingAnalysisPage', () => {
       // Before the fix, retrying a fully-pending timeout navigated to the
       // same URL, which is a no-op in React Router, so no new connection
       // was ever made. A real retry must open a fresh EventSource.
-      expect(esSpy).toHaveBeenCalledTimes(2)
+      await waitFor(() => expect(streamCalls()).toBe(2))
     })
   })
 
@@ -92,23 +107,25 @@ describe('StreamingAnalysisPage', () => {
     renderWithRoute('?tickers=MDB')
     await user.click(screen.getByRole('button', { name: /start analysis/i }))
 
-    useAnalysisStore.setState({
-      analyses: {
-        MDB: {
-          ticker: 'MDB', signal: 'hold', confidence: 'medium', sentiment_score: 0,
-          risk_flags: [], price_data: {}, fundamentals: {}, sec_notes: '',
+    act(() => {
+      useAnalysisStore.setState({
+        analyses: {
+          MDB: {
+            ticker: 'MDB', signal: 'hold', confidence: 'medium', sentiment_score: 0,
+            risk_flags: [], price_data: {}, fundamentals: {}, sec_notes: '',
+          },
         },
-      },
-      isStreaming: false,
-      events: [{
-        run_id: 'run-1', seq: 1, type: 'warning', timestamp: new Date().toISOString(),
-        node: null, tool: null, correlation_id: null,
-        payload: { context: 'generate_report', message: 'Report synthesis timed out' },
-      }],
+        isStreaming: false,
+        events: [{
+          run_id: 'run-1', seq: 1, type: 'warning', timestamp: new Date().toISOString(),
+          node: null, tool: null, correlation_id: null,
+          payload: { context: 'generate_report', message: 'Report synthesis timed out' },
+        }],
+      })
     })
 
     expect(screen.getByText('Analysis complete')).toBeInTheDocument()
-    expect(screen.getByText(/report synthesis timed out/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/report synthesis timed out/i).length).toBeGreaterThan(0)
     expect(screen.queryByText('Analysis partially timed out')).not.toBeInTheDocument()
   })
 })

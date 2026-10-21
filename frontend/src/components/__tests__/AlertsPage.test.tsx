@@ -57,8 +57,8 @@ describe('AlertsPage', () => {
       expect(screen.getByText('NVDA')).toBeInTheDocument()
     })
     expect(screen.getByText('Critical')).toBeInTheDocument()
-    expect(screen.getByText('BUY')).toBeInTheDocument()
-    expect(screen.getByText('HOLD')).toBeInTheDocument()
+    expect(screen.getByText('buy')).toBeInTheDocument()
+    expect(screen.getByText('hold')).toBeInTheDocument()
     expect(screen.getByText(/Sentiment collapsed/)).toBeInTheDocument()
   })
 

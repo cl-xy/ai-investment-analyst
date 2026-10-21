@@ -1,9 +1,15 @@
-import { describe, it, expect } from 'vitest'
+import { beforeEach, describe, it, expect } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from '../../test/utils'
 import App from '../../App'
+import { useAuthStore } from '../../stores/authStore'
 
 describe('App', () => {
+  beforeEach(() => {
+    // The app renders a login screen until a session exists.
+    useAuthStore.setState({ isAuthenticated: true })
+  })
+
   it('renders without crashing', () => {
     render(<App />)
     // Header should be present
