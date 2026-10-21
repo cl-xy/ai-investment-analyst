@@ -92,6 +92,18 @@ class DemoAuthMiddleware(BaseHTTPMiddleware):
     )
     PUBLIC_PREFIXES = ("/api/health", "/api/explore")
 
+    # Scheduled jobs (GitHub Actions) cannot present the demo password or a login
+    # session. These POST endpoints authenticate themselves with the scheduler
+    # token inside the route, so a request that carries that header is handed to
+    # the route, which does the constant-time comparison and returns 401 on a bad
+    # token. Exact paths only: nothing else under the protected prefixes opens up.
+    SCHEDULER_POST_PATHS = frozenset(
+        {
+            "/api/calibration/resolve",
+            "/api/eval-flywheel/runs/trigger",
+        }
+    )
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         demo_password = _DEMO_PASSWORD
 
@@ -112,6 +124,14 @@ class DemoAuthMiddleware(BaseHTTPMiddleware):
 
         # Skip auth for non-protected paths
         if not any(path.startswith(prefix) for prefix in self.PROTECTED_PREFIXES):
+            return await call_next(request)
+
+        # Scheduler-token endpoints: let the route authenticate the request.
+        if (
+            request.method == "POST"
+            and path in self.SCHEDULER_POST_PATHS
+            and request.headers.get("x-scheduler-token")
+        ):
             return await call_next(request)
 
         # Session token from the login screen is accepted as an alternative

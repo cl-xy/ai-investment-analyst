@@ -10,7 +10,7 @@ In production, analysis endpoints are protected by a shared demo password (set v
 
 - **Protected endpoints**: all paths starting with `/api/analyze`, `/api/compare`, `/api/chat`, `/api/backtest`, `/api/dashboard`, `/api/eval`, `/api/calibration`, `/api/replay`, `/api/ops`, `/api/alerts`
 - **Public endpoints**: `/api/health`, `/api/explore`, `/api/admin`
-- **Independently authenticated**: `/api/scheduled/*` (scheduler token) and `/api/telegram/webhook` (Telegram webhook secret) — neither uses the demo password
+- **Independently authenticated**: `/api/scheduled/*` (scheduler token) and `/api/telegram/webhook` (Telegram webhook secret). Neither uses the demo password. `POST /api/calibration/resolve` and `POST /api/eval-flywheel/runs/trigger` also accept the scheduler token (`x-scheduler-token` header) in place of the demo password; the route itself verifies it
 
 Provide credentials via either:
 - Query parameter: `?password=<demo_password>`
