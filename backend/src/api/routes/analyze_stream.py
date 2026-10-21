@@ -697,12 +697,7 @@ async def _run_agent(
                 first_analysis: dict = next(iter(ticker_analyses.values()), {})
                 final_signal = first_analysis.get("signal")
 
-            status = "success" if _run_succeeded else "failed"
-            # Check for degraded state (some tools failed but analysis completed)
-            if _run_succeeded and any(
-                e.payload.get("no_data") for e in emitter.events if e.type.value == "tool_result"
-            ):
-                status = "degraded"
+            status = _trace_status(_run_succeeded, emitter.events, ticker_analyses)
 
             await record_trace(
                 run_id=emitter.run_id,
@@ -719,6 +714,24 @@ async def _run_agent(
     finally:
         # Signal done (must always fire so _stream_generator exits cleanly)
         await queue.put(None)
+
+
+def _trace_status(run_succeeded: bool, events: list, ticker_analyses: dict) -> str:
+    """Status recorded with a run's trace: success, degraded or failed.
+
+    Degraded means the run finished but something under it did not: a data tool
+    returned nothing, or a debate turn fell back to a partial result. Both used
+    to be invisible once the run reached its end.
+    """
+    if not run_succeeded:
+        return "failed"
+    if any(e.payload.get("no_data") for e in events if e.type.value == "tool_result"):
+        return "degraded"
+    if any(
+        (a or {}).get("debate_status", "complete") != "complete" for a in ticker_analyses.values()
+    ):
+        return "degraded"
+    return "success"
 
 
 async def _stream_generator(

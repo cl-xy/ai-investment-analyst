@@ -423,7 +423,7 @@ async def test_invoke_with_retry_caps_attempt_to_remaining_budget(monkeypatch):
     class _HangingLLM:
         model = "m-hang"
 
-        async def ainvoke(self, _messages):
+        async def ainvoke(self, _messages, config=None):
             await _asyncio.sleep(10.0)  # would exceed the capped timeout
             return "nope"
 

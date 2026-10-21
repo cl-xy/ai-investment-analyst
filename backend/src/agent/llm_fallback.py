@@ -7,6 +7,7 @@ Integrates with the existing circuit breaker and rate limiter.
 """
 
 import asyncio
+import contextvars
 import logging
 import os
 import re
@@ -14,8 +15,10 @@ import time
 from enum import Enum
 from functools import lru_cache
 
+from langchain_core.callbacks import AsyncCallbackHandler, BaseCallbackManager
 from langchain_core.messages import BaseMessage
 from langchain_core.runnables import Runnable
+from langchain_core.runnables.config import ensure_config
 from langchain_openai import ChatOpenAI
 from tenacity import (
     retry,
@@ -36,6 +39,78 @@ log = logging.getLogger(__name__)
 # the whole turn budget, and _invoke_with_retry fails fast below it so a tenacity
 # re-entry cannot start a doomed attempt.
 _MIN_USEFUL_ATTEMPT_SECONDS = 8.0
+
+# The chain clamps a model's slice to exactly the floor, and by the time the
+# attempt starts a few milliseconds have passed, so the re-check inside
+# _invoke_with_retry saw "7.99s < 8.0s" and aborted the whole chain with a
+# non-fallback error instead of making the attempt. A small tolerance fixes the
+# off-by-a-hair without letting a genuinely exhausted budget through.
+_FLOOR_TOLERANCE_SECONDS = 0.5
+
+# Model that produced the most recent successful response in this task. Read by
+# callers (the debate node) to record which model actually answered a turn,
+# since the configured primary is often not the one that did.
+answered_model: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "llm_answered_model", default=None
+)
+
+
+class _StreamStats(AsyncCallbackHandler):
+    """Counts streamed chunks for one attempt so a slow call can be diagnosed.
+
+    Reasoning models stream thinking chunks long before any content arrives, and
+    some providers deliver the whole content in one chunk at the end, so first
+    chunk and first content are tracked separately. The counters are updated
+    live, which is what makes them readable after wait_for cancels the attempt.
+    """
+
+    raise_error = False
+
+    def __init__(self) -> None:
+        self.started = time.monotonic()
+        self.first_chunk_s: float | None = None
+        self.first_content_s: float | None = None
+        self.chunks = 0
+        self.content_chars = 0
+
+    async def on_llm_new_token(self, token: str, **kwargs) -> None:  # type: ignore[override]
+        elapsed = time.monotonic() - self.started
+        if self.first_chunk_s is None:
+            self.first_chunk_s = elapsed
+        self.chunks += 1
+        if token:
+            if self.first_content_s is None:
+                self.first_content_s = elapsed
+            self.content_chars += len(token)
+
+    def describe(self) -> str:
+        def _fmt(v: float | None) -> str:
+            return "-" if v is None else f"{v:.1f}s"
+
+        return (
+            f"first_chunk={_fmt(self.first_chunk_s)} first_content={_fmt(self.first_content_s)} "
+            f"chunks={self.chunks} content_chars={self.content_chars}"
+        )
+
+
+def _config_with_stats(stats: _StreamStats) -> dict:
+    """Runnable config that adds the stats handler without displacing inherited ones.
+
+    Passing callbacks=[stats] outright REPLACES the callbacks inherited from the
+    surrounding run, which silently stops astream_events from seeing the model's
+    events (token accounting and debate turn events depend on them). Merging into
+    the inherited manager keeps them.
+    """
+    cfg = ensure_config()
+    inherited = cfg.get("callbacks")
+    if isinstance(inherited, BaseCallbackManager):
+        merged = inherited.copy()
+        merged.add_handler(stats, inherit=False)
+        cfg["callbacks"] = merged
+    else:
+        cfg["callbacks"] = [*(inherited or []), stats]
+    return dict(cfg)
+
 
 # Separate breaker for fallback model so primary failures don't block fallback.
 # Uses the same shared rate limiter (llm_limiter) inside CircuitBreaker.call().
@@ -472,6 +547,7 @@ async def invoke_with_fallback(
             result = await _invoke_with_retry(
                 runnable, messages, breaker=breaker, deadline=model_deadline
             )
+            answered_model.set(model)
             if not is_primary:
                 log.info("fallback_model_succeeded model=%s position=%d", model, index)
             return result
@@ -576,7 +652,7 @@ async def _invoke_with_retry(
         remaining = deadline - time.monotonic()
         # Floor below which an attempt (or retry) cannot usefully complete.
         floor = min(cap, _MIN_USEFUL_ATTEMPT_SECONDS)
-        if remaining < floor:
+        if remaining < floor - _FLOOR_TOLERANCE_SECONDS:
             raise TimeoutError(
                 f"LLM attempt budget exhausted: {remaining:.1f}s remaining < {floor:.1f}s floor"
             )
@@ -584,18 +660,31 @@ async def _invoke_with_retry(
     else:
         effective_timeout = cap
 
+    stats = _StreamStats()
+    model = getattr(llm, "model_name", None) or getattr(llm, "model", "unknown")
     try:
-        return await asyncio.wait_for(
-            breaker.call(llm.ainvoke, messages),  # type: ignore[return-value]
+        result = await asyncio.wait_for(
+            breaker.call(llm.ainvoke, messages, config=_config_with_stats(stats)),
             timeout=effective_timeout,
         )
     except (asyncio.TimeoutError, TimeoutError) as exc:
-        model = getattr(llm, "model_name", None) or getattr(llm, "model", "unknown")
         log.warning(
-            "llm_attempt_timeout model=%s after=%.0fs",
+            "llm_attempt_timeout model=%s after=%.0fs %s",
             model,
             effective_timeout,
+            stats.describe(),
         )
         raise TimeoutError(
             f"LLM attempt exceeded {effective_timeout:.0f}s wall-clock timeout (model={model})"
         ) from exc
+
+    meta = getattr(result, "response_metadata", None)
+    finish = meta.get("finish_reason") if isinstance(meta, dict) else None
+    log.info(
+        "llm_attempt_ok model=%s elapsed=%.1fs finish=%s %s",
+        model,
+        time.monotonic() - stats.started,
+        finish,
+        stats.describe(),
+    )
+    return result

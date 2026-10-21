@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     # here support response_format=json_object (required for the debate's JSON mode).
     # Comma-separated; override via LLM_FALLBACK_MODELS env var.
     llm_fallback_models: str = (
-        "nvidia/nemotron-3.5-super-vl:free,"
         "minimax/minimax-m3.1-flash:free,"
+        "nvidia/nemotron-3.5-super-vl:free,"
         "google/gemma-4-31b-it:free,"
         "google/gemma-4-26b-a4b-it:free"
     )

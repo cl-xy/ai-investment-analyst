@@ -29,7 +29,7 @@ from ..debate_schemas import (
     ModeratorOutput,
 )
 from ..json_utils import extract_json as _extract_json_raw
-from ..llm_fallback import invoke_with_fallback
+from ..llm_fallback import answered_model, invoke_with_fallback
 from ..prompts.debate_prompts import (
     BEAR_HUMAN,
     BEAR_SYSTEM,
@@ -624,7 +624,12 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     try:
         bull = await _run_bull_agent(ctx)
         bull_duration = int((time.monotonic() - bull_start) * 1000)
-        _log.info("bull_complete", confidence=bull.confidence, duration_ms=bull_duration)
+        _log.info(
+            "bull_complete",
+            confidence=bull.confidence,
+            duration_ms=bull_duration,
+            model=answered_model.get(),
+        )
     except (CircuitBreakerOpen, Exception) as e:
         _log.warning("bull_failed", error=str(e))
         # Degrade: no bull thesis exists, so this stays signal=insufficient_data
@@ -651,7 +656,12 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     try:
         bear = await _run_bear_agent(ctx, bull)
         bear_duration = int((time.monotonic() - bear_start) * 1000)
-        _log.info("bear_complete", confidence=bear.confidence, duration_ms=bear_duration)
+        _log.info(
+            "bear_complete",
+            confidence=bear.confidence,
+            duration_ms=bear_duration,
+            model=answered_model.get(),
+        )
     except (CircuitBreakerOpen, Exception) as e:
         _log.warning("bear_failed", error=str(e))
         # Degrade: bull thesis survives, so present a low-confidence hold built
@@ -683,7 +693,9 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
             signal=moderator.signal,
             confidence=moderator.confidence,
             duration_ms=mod_duration,
+            model=answered_model.get(),
         )
+        moderator_model = answered_model.get()
     except (CircuitBreakerOpen, Exception) as e:
         _log.warning("moderator_failed", error=str(e))
         # Degrade: both bull and bear survive; synthesize a low-confidence hold
@@ -709,7 +721,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
             bull=bull,
             bear=bear,
             moderator=moderator,
-            model_name=_settings.llm_model,
+            model_name=moderator_model or _settings.llm_model,
         )
 
         # Convert moderator output to the standard TickerAnalysis format
