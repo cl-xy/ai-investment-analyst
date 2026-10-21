@@ -42,23 +42,6 @@ def _verify_token(authorization: str | None) -> None:
         raise HTTPException(status_code=403, detail="Invalid token")
 
 
-@router.post("/warm-cache")
-async def warm_cache(authorization: str | None = Header(default=None)):
-    """
-    Pre-warm cache for demo tickers.
-    Called by GitHub Actions nightly cron.
-    """
-    _verify_token(authorization)
-
-    # For now, return the list of tickers that would be warmed
-    # Full implementation connects to MCP tools and fetches data
-    return {
-        "status": "ok",
-        "tickers": DEMO_TICKERS,
-        "message": f"Cache warming initiated for {len(DEMO_TICKERS)} tickers",
-    }
-
-
 @router.get("/budget")
 async def budget_status(authorization: str | None = Header(default=None)):
     """Return current API budget usage for all tracked providers."""

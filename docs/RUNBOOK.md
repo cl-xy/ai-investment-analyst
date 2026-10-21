@@ -67,7 +67,6 @@ curl -s https://<app-domain>/api/health | jq .
 
 **Prevention**:
 - Budget guards track daily OpenRouter call counts
-- Cache warming for demo tickers (AAPL, MSFT, GOOGL, NVDA, TSLA) via nightly cron
 - Concurrency limiter (max 3 simultaneous pipelines) throttles burst demand
 - Consider upgrading to OpenRouter paid tier if demo traffic grows
 
@@ -260,42 +259,31 @@ curl -N "https://<app-domain>/api/analyze/stream?tickers=AAPL" 2>&1 | head -30
 
 ---
 
-## 7. Cache Warming Failure
+## 7. Cold Cache / Slow First Analysis
 
 **Symptoms**:
-- First-time users hit cold-start latency (30s+ per ticker analysis)
-- Demo tickers (AAPL, MSFT, GOOGL) not in cache
-- GitHub Actions cron job shows failures
-- Scheduler token expired or rotated
+- First analysis of a ticker takes 30s+ because nothing is cached yet
+- Report banner says data is cached or unavailable for a source
 
 **Diagnosis**:
 
 ```bash
-# Check GitHub Actions for cache-warm job status
-# https://github.com/cl-xy/ai-investment-analyst/actions
-
-# Check if cache has recent entries
 curl -s https://<app-domain>/api/health | jq .
 
 # Manual test: time an analysis
 time curl -s "https://<app-domain>/api/analyze/stream?tickers=AAPL" > /dev/null
+
+# Which providers failed on a run
+fly logs --app ai-investment-analyst | grep -E "yfinance_rate_limited|stocktwits_blocked|serving_stale_on_error"
 ```
 
 **Mitigation**:
-- Trigger manual cache warm:
-  ```bash
-  curl -X POST https://<app-domain>/api/admin/warm-cache \
-    -H "Authorization: Bearer $SCHEDULER_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"tickers": ["AAPL", "MSFT", "GOOGL", "NVDA", "TSLA"]}'
-  ```
-- If scheduler token expired: regenerate and update GitHub Actions secret
+- Run the analysis once; later runs are served from the Postgres cache
+- If Yahoo is rate limiting, the last good value is served with its age shown in the banner
 
 **Prevention**:
-- Nightly cron in GitHub Actions triggers cache warm for demo tickers
-- Cache TTL set long enough that nightly refresh keeps entries fresh
-- Alert on GitHub Actions failure (email notification on cron job failure)
-- Scheduler token stored as GitHub Actions secret, rotated quarterly
+- Cache TTLs are long enough that a stale entry is served while one background refresh runs
+- Stale-if-error keeps the last good value for a limited time when a provider fails
 
 ---
 

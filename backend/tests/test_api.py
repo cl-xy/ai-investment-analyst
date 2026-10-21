@@ -56,13 +56,13 @@ class TestStreamEndpoint:
 
 class TestAdminEndpoint:
     def test_admin_requires_auth(self, client):
-        response = client.post("/api/admin/warm-cache")
+        response = client.get("/api/admin/budget")
         assert response.status_code in (401, 503)
 
     def test_admin_rejects_bad_token(self, client):
         with patch.dict("os.environ", {"SCHEDULER_SECRET_TOKEN": "real-token"}):
-            response = client.post(
-                "/api/admin/warm-cache",
+            response = client.get(
+                "/api/admin/budget",
                 headers={"Authorization": "Bearer wrong-token"},
             )
             assert response.status_code == 403
@@ -86,7 +86,8 @@ class TestDemoAuth:
 class TestLoginEndpoint:
     def test_login_with_default_credentials_succeeds(self, client):
         response = client.post(
-            "/api/auth/login", json={"username": "admin", "password": "investor2026"}
+            "/api/auth/login",
+            json={"username": "admin", "password": "investor2026"},  # pragma: allowlist secret
         )
         assert response.status_code == 200
         assert "token" in response.json()
@@ -97,7 +98,11 @@ class TestLoginEndpoint:
 
     def test_login_with_wrong_username_fails(self, client):
         response = client.post(
-            "/api/auth/login", json={"username": "someone-else", "password": "investor2026"}
+            "/api/auth/login",
+            json={
+                "username": "someone-else",
+                "password": "investor2026",  # pragma: allowlist secret
+            },
         )
         assert response.status_code == 401
 
@@ -106,7 +111,8 @@ class TestLoginEndpoint:
         # at import time, so patch.dict("os.environ", ...) alone has no effect.
         with patch("src.middleware.auth._DEMO_PASSWORD", "secret123"):
             login_response = client.post(
-                "/api/auth/login", json={"username": "admin", "password": "investor2026"}
+                "/api/auth/login",
+                json={"username": "admin", "password": "investor2026"},  # pragma: allowlist secret
             )
             token = login_response.json()["token"]
 

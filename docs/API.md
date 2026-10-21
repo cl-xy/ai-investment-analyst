@@ -443,33 +443,6 @@ curl http://localhost:8000/api/explore/NVDA/detail
 
 All admin endpoints require the `SCHEDULER_SECRET_TOKEN` via `Authorization: Bearer <token>` header.
 
-#### POST /api/admin/warm-cache
-
-Pre-warm cache for demo tickers. Designed to be called by a GitHub Actions nightly cron job.
-
-**Response** `200 OK`
-
-```json
-{
-  "status": "ok",
-  "tickers": ["AAPL", "NVDA", "TSLA", "MSFT", "GOOGL", "AMZN", "META", "SPY"],
-  "message": "Cache warming initiated for 8 tickers"
-}
-```
-
-**Errors**
-
-| Status | Condition |
-|--------|-----------|
-| 401 | Missing or malformed Bearer token |
-| 403 | Invalid token |
-| 503 | Scheduler token not configured on server |
-
-```bash
-curl -X POST http://localhost:8000/api/admin/warm-cache \
-  -H "Authorization: Bearer $SCHEDULER_SECRET_TOKEN"
-```
-
 #### GET /api/admin/budget
 
 Return current API budget usage for all tracked providers (OpenRouter, NewsAPI, etc.).
