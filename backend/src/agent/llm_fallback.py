@@ -567,6 +567,13 @@ async def invoke_with_fallback(
                 if models_left_after
                 else 0.0
             )
+            # A reservation smaller than the start floor can never be used: the next
+            # model would be refused at the gate ("remaining < floor") and the time
+            # just disappears. In a production run a backup that needed ~10s was
+            # given 8s because 6s was held back for a model that could not start.
+            # When there is not enough to hold a real attempt back, keep it all.
+            if reserve < _MIN_USEFUL_ATTEMPT_SECONDS:
+                reserve = 0.0
             this_budget = max(remaining - reserve, _MIN_USEFUL_ATTEMPT_SECONDS)
             model_deadline = time.monotonic() + this_budget
             log.info(
@@ -680,6 +687,19 @@ async def invoke_with_fallback(
     raise TimeoutError("invoke_with_fallback: model chain budget exhausted before any attempt")
 
 
+_FINISH_REASONS = ("stop", "length", "tool_calls", "content_filter", "function_call")
+
+
+def _normalize_finish_reason(value: object) -> str | None:
+    """Collapse 'stopstop' / 'lengthlength' (merged stream chunks) to the single value."""
+    if not isinstance(value, str) or not value:
+        return None if value in (None, "") else str(value)
+    for known in _FINISH_REASONS:
+        if value.replace(known, "") == "":
+            return known
+    return value
+
+
 @retry(
     retry=retry_if_exception(_is_retryable_error),
     wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -768,7 +788,14 @@ async def _invoke_with_retry(
         ) from exc
 
     meta = getattr(result, "response_metadata", None)
-    finish = meta.get("finish_reason") if isinstance(meta, dict) else None
+    finish = None
+    if isinstance(meta, dict):
+        # Streaming merges the per-chunk metadata by concatenating strings, so a
+        # response whose last two chunks both carry a finish reason reads "stopstop"
+        # or "lengthlength". Callers compare against the plain value.
+        finish = _normalize_finish_reason(meta.get("finish_reason"))
+        if finish is not None:
+            meta["finish_reason"] = finish
     log.info(
         "llm_attempt_ok model=%s elapsed=%.1fs finish=%s %s",
         model,

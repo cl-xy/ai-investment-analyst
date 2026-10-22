@@ -496,3 +496,72 @@ async def test_stall_deadline_can_be_switched_off(monkeypatch):
         await llm_fallback.invoke_with_fallback([], primary_model="m-primary")
 
     assert seen == [None, None]
+
+
+# --- reservation that could never be used ---
+
+
+@pytest.mark.asyncio
+async def test_a_reserve_smaller_than_the_floor_is_not_held_back(monkeypatch):
+    """12s left, two models: holding 6s for a model that needs 8s to start only
+    shrinks the first backup's slice. The whole 12s should go to it."""
+    monkeypatch.setattr(llm_fallback, "_MIN_USEFUL_ATTEMPT_SECONDS", 8.0)
+    budgets: list[float] = []
+
+    async def _retry(llm, messages, *, breaker=None, deadline=None, **_kw):
+        budgets.append(round(deadline - time.monotonic(), 1))
+        return "ok"
+
+    with (
+        patch.object(llm_fallback, "_build_llm", side_effect=lambda *a, **k: AsyncMock()),
+        patch.object(llm_fallback, "_invoke_with_retry", side_effect=_retry),
+        patch.object(type(settings), "llm_fallback_chain", property(lambda self: ["m-backup"])),
+    ):
+        await llm_fallback.invoke_with_fallback(
+            [], primary_model="m-primary", deadline=time.monotonic() + 12.0
+        )
+
+    assert budgets[0] >= 11.5, f"primary should keep the full 12s, got {budgets[0]}"
+
+
+@pytest.mark.asyncio
+async def test_a_real_reserve_is_still_held_back_when_there_is_room(monkeypatch):
+    monkeypatch.setattr(llm_fallback, "_MIN_USEFUL_ATTEMPT_SECONDS", 8.0)
+    budgets: list[float] = []
+
+    async def _retry(llm, messages, *, breaker=None, deadline=None, **_kw):
+        budgets.append(round(deadline - time.monotonic(), 1))
+        raise TimeoutError("LLM attempt exceeded 45s wall-clock timeout (model=x)")
+
+    with (
+        patch.object(llm_fallback, "_build_llm", side_effect=lambda *a, **k: AsyncMock()),
+        patch.object(llm_fallback, "_invoke_with_retry", side_effect=_retry),
+        patch.object(type(settings), "llm_fallback_chain", property(lambda self: ["m-backup"])),
+    ):
+        with pytest.raises(TimeoutError):
+            await llm_fallback.invoke_with_fallback(
+                [], primary_model="m-primary", deadline=time.monotonic() + 60.0
+            )
+
+    # 60s left: 12s is held back, so the primary is capped near 48s.
+    assert 47.0 <= budgets[0] <= 48.5
+
+
+# --- finish reason normalisation ---
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("stop", "stop"),
+        ("stopstop", "stop"),
+        ("lengthlength", "length"),
+        ("length", "length"),
+        ("tool_callstool_calls", "tool_calls"),
+        (None, None),
+        ("", None),
+        ("something_else", "something_else"),
+    ],
+)
+def test_finish_reason_is_collapsed_to_the_plain_value(raw, expected):
+    assert llm_fallback._normalize_finish_reason(raw) == expected
