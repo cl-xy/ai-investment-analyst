@@ -22,6 +22,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 # Initialize structured logging (JSON in production, console in dev)
 # Production runs on Fly.io with PORT=8000; use env var to detect environment.
+import logging
 import os
 
 from fastapi import FastAPI
@@ -59,6 +60,20 @@ from .routes.telegram import router as telegram_router
 
 _is_production = os.environ.get("FLY_APP_NAME") is not None
 setup_logging(json_output=_is_production, level="INFO")
+
+# The fallback chain logs with the standard library. With no root handler, Python
+# falls back to a stderr handler that only emits WARNING and above, so the
+# chain's success-path lines (per-attempt timing, slice sizes, which model
+# answered) were dropped and only failures showed. Give just this logger its own
+# INFO handler rather than raising the root, which would also switch on httpx,
+# openai and langchain chatter. Propagation stays on so test capture still works.
+_llm_log = logging.getLogger("src.agent.llm_fallback")
+_llm_log.setLevel(logging.INFO)
+if not _llm_log.handlers:
+    _llm_handler = logging.StreamHandler(sys.stdout)
+    _llm_handler.setFormatter(logging.Formatter("%(message)s"))
+    _llm_log.addHandler(_llm_handler)
+
 log = get_logger("app")
 
 

@@ -100,7 +100,7 @@ async def test_stream_corruption_increments_metric():
 
     before = metrics.llm_stream_corruptions_total.get(labels={"model": "m-primary"})
 
-    async def _retry(llm, messages, *, breaker=None, deadline=None):
+    async def _retry(llm, messages, *, breaker=None, deadline=None, **_kw):
         model = getattr(llm, "_model_id", "unknown")
         if model == "m-primary":
             raise Exception("APIError: JSON error injected into SSE stream")
@@ -135,7 +135,7 @@ async def test_non_stream_fallback_does_not_increment_stream_metric():
 
     before = metrics.llm_stream_corruptions_total.get(labels={"model": "m-primary"})
 
-    async def _retry(llm, messages, *, breaker=None, deadline=None):
+    async def _retry(llm, messages, *, breaker=None, deadline=None, **_kw):
         model = getattr(llm, "_model_id", "unknown")
         if model == "m-primary":
             raise Exception("model is overloaded, please retry")
@@ -167,7 +167,7 @@ async def test_chain_walks_all_fallbacks_until_success():
     """With an explicit multi-model chain, each dead model is skipped in order."""
     attempted: list[str] = []
 
-    async def _retry(llm, messages, *, breaker=None, deadline=None):
+    async def _retry(llm, messages, *, breaker=None, deadline=None, **_kw):
         model = getattr(llm, "_model_id", "unknown")
         attempted.append(model)
         if model in ("m-primary", "m-a", "m-b"):
@@ -199,7 +199,7 @@ async def test_not_retryable_error_aborts_chain_immediately():
     """An auth error must not walk the chain; it fails fast."""
     attempted: list[str] = []
 
-    async def _retry(llm, messages, *, breaker=None, deadline=None):
+    async def _retry(llm, messages, *, breaker=None, deadline=None, **_kw):
         attempted.append(getattr(llm, "_model_id", "unknown"))
         raise Exception("Error code: 401 - unauthorized")
 
@@ -232,7 +232,7 @@ async def test_deadline_stops_chain_before_exhausting_all_models(monkeypatch):
 
     attempted: list[str] = []
 
-    async def _retry(llm, messages, *, breaker=None, deadline=None):
+    async def _retry(llm, messages, *, breaker=None, deadline=None, **_kw):
         attempted.append(getattr(llm, "_model_id", "unknown"))
         # Consume most of the budget on each attempt so the deadline is reached
         # after the first model or two, not all five.
@@ -279,7 +279,7 @@ async def test_deadline_reserves_budget_so_a_fallback_still_starts(monkeypatch):
 
     attempted: list[str] = []
 
-    async def _retry(llm, messages, *, breaker=None, deadline=None):
+    async def _retry(llm, messages, *, breaker=None, deadline=None, **_kw):
         model = getattr(llm, "_model_id", "unknown")
         attempted.append(model)
         if model == "m-primary":
@@ -329,7 +329,7 @@ async def test_deadline_threaded_as_monotonic_instant(monkeypatch):
 
     seen_deadlines: list[float | None] = []
 
-    async def _retry(llm, messages, *, breaker=None, deadline=None):
+    async def _retry(llm, messages, *, breaker=None, deadline=None, **_kw):
         seen_deadlines.append(deadline)
         return "ok"  # primary succeeds immediately
 
@@ -361,7 +361,7 @@ async def test_no_deadline_passes_none():
     default timeout applies). Preserves behaviour for callers like chat.py."""
     seen: list[float | None] = []
 
-    async def _retry(llm, messages, *, breaker=None, deadline=None):
+    async def _retry(llm, messages, *, breaker=None, deadline=None, **_kw):
         seen.append(deadline)
         return "ok"
 
@@ -548,7 +548,7 @@ async def test_upstream_passthrough_429_walks_chain_to_healthy_model():
     model (a different upstream host may succeed) rather than short-circuit."""
     attempted: list[str] = []
 
-    async def _retry(llm, messages, *, breaker=None, deadline=None):
+    async def _retry(llm, messages, *, breaker=None, deadline=None, **_kw):
         model = getattr(llm, "_model_id", "unknown")
         attempted.append(model)
         if model == "m-primary":
@@ -586,7 +586,7 @@ async def test_account_global_429_short_circuits_chain():
     before = metrics.llm_account_throttles_total.get(labels={"model": "m-primary"})
     attempted: list[str] = []
 
-    async def _retry(llm, messages, *, breaker=None, deadline=None):
+    async def _retry(llm, messages, *, breaker=None, deadline=None, **_kw):
         attempted.append(getattr(llm, "_model_id", "unknown"))
         raise Exception("Error code: 429 - Rate limit exceeded. Please slow down.")
 

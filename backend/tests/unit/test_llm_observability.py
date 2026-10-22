@@ -53,12 +53,15 @@ def breaker():
 
 def test_stream_stats_tracks_first_chunk_and_content():
     stats = llm_fallback._StreamStats()
-    assert stats.describe() == "first_chunk=- first_content=- chunks=0 content_chars=0"
+    assert stats.describe() == (
+        "first_chunk=- first_content=- chunks=0 content_chunks=0 content_chars=0"
+    )
     asyncio.run(stats.on_llm_new_token(""))  # reasoning-only chunk: no content yet
     assert stats.first_chunk_s is not None and stats.first_content_s is None
     asyncio.run(stats.on_llm_new_token("abc"))
     assert stats.first_content_s is not None
     assert stats.chunks == 2 and stats.content_chars == 3
+    assert stats.content_chunks == 1, "a reasoning-only chunk must not count as content"
 
 
 @pytest.mark.asyncio
@@ -128,7 +131,7 @@ async def test_floor_check_still_rejects_a_truly_exhausted_budget(breaker, monke
 
 @pytest.mark.asyncio
 async def test_answered_model_names_the_fallback_that_responded():
-    async def _retry(llm, messages, *, breaker=None, deadline=None):
+    async def _retry(llm, messages, *, breaker=None, deadline=None, **_kw):
         if getattr(llm, "_id", "") == "m-primary":
             raise TimeoutError("LLM attempt exceeded 45s wall-clock timeout (model=m-primary)")
         return "ok"
@@ -178,7 +181,7 @@ def _recording_build():
     return calls, _fake
 
 
-async def _fail_primary_then_succeed(llm, messages, *, breaker=None, deadline=None):
+async def _fail_primary_then_succeed(llm, messages, *, breaker=None, deadline=None, **_kw):
     if llm._id == "m-primary":
         raise TimeoutError("LLM attempt exceeded 45s wall-clock timeout (model=m-primary)")
     return "ok"
@@ -298,7 +301,7 @@ def test_nothing_recorded_when_no_model_answered():
 
 @pytest.mark.asyncio
 async def test_reasoning_off_flag_is_recorded_for_the_answering_attempt():
-    async def _retry(llm, messages, *, breaker=None, deadline=None):
+    async def _retry(llm, messages, *, breaker=None, deadline=None, **_kw):
         if llm._id == "m-primary":
             raise TimeoutError("LLM attempt exceeded 45s wall-clock timeout (model=m-primary)")
         return "ok"
@@ -325,3 +328,171 @@ async def test_reasoning_off_flag_is_recorded_for_the_answering_attempt():
 
     assert llm_fallback.answered_model.get() == "m-rescue"
     assert llm_fallback.answered_reasoning_off.get() is True
+
+
+# --- dead-route (404) detection ---
+
+
+class _HttpError(Exception):
+    def __init__(self, status_code, message="boom"):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        _HttpError(404, "Not found"),
+        Exception(
+            "Error code: 404 - {'error': {'message': 'Provider returned error', 'code': 404}}"
+        ),
+        Exception("Error code: 404 - This model is unavailable for free."),
+    ],
+)
+def test_real_404s_walk_the_chain(exc):
+    assert llm_fallback._classify_error(exc) is llm_fallback.ErrorSeverity.FALLBACK_TO_OTHER
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Upstream error id req-4040-abc",
+        "Internal server error: processed 404 tokens before failing",
+        "Service unavailable. See https://status.example.com/incidents/404",
+    ],
+)
+def test_a_404_that_is_only_a_substring_is_not_a_dead_route(message):
+    # Some other branch may still route these to a fallback; what matters here is
+    # that the 404 check itself does not claim them.
+    assert not llm_fallback._is_dead_model_route(Exception(message), message.lower())
+
+
+def test_structured_status_beats_message_text():
+    # A 500 whose text happens to contain "404" must not be read as a dead route.
+    exc = _HttpError(500, "Error code: 404 echoed from upstream body")
+    assert llm_fallback._is_dead_model_route(exc, str(exc).lower()) is False
+
+
+def test_429_with_404_in_the_body_still_follows_the_429_path():
+    exc = Exception("Error code: 429 - rate limited, request 404 retried")
+    assert llm_fallback._classify_error(exc) is llm_fallback.ErrorSeverity.RETRY_SAME_MODEL
+
+
+# --- stalled backup attempts ---
+
+
+class _SilentModel:
+    """Accepts the call and then produces nothing, like a stalled upstream."""
+
+    model = "silent-model"
+
+    async def ainvoke(self, _messages, config=None):
+        await asyncio.sleep(30)
+
+
+class _SlowFirstOutputModel(BaseChatModel):
+    """Emits its first token after a delay, then finishes."""
+
+    model: str = "slow-start"
+    first_delay: float = 0.15
+
+    @property
+    def _llm_type(self) -> str:
+        return "slow-start"
+
+    def _generate(self, *a, **k):  # pragma: no cover
+        raise NotImplementedError
+
+    async def _agenerate(self, messages, stop=None, run_manager=None, **kw):
+        return ChatResult(generations=[ChatGeneration(message=AIMessage(content="full"))])
+
+    async def _astream(self, messages, stop=None, run_manager=None, **kw):
+        await asyncio.sleep(self.first_delay)
+        for i in range(3):
+            chunk = ChatGenerationChunk(message=AIMessageChunk(content=f"t{i} "))
+            if run_manager:
+                await run_manager.on_llm_new_token(chunk.text, chunk=chunk)
+            yield chunk
+
+
+@pytest.mark.asyncio
+async def test_backup_attempt_with_no_output_is_abandoned_early(breaker, monkeypatch):
+    monkeypatch.setattr(settings, "llm_attempt_timeout_seconds", 20.0)
+    start = time.monotonic()
+    with pytest.raises(TimeoutError, match="no output"):
+        await llm_fallback._invoke_with_retry(
+            _SilentModel(), [], breaker=breaker, first_output_deadline=0.3
+        )
+    assert time.monotonic() - start < 3.0, "must not wait out the whole attempt"
+
+
+@pytest.mark.asyncio
+async def test_stalled_attempt_is_classified_so_the_chain_moves_on(breaker):
+    with pytest.raises(TimeoutError) as info:
+        await llm_fallback._invoke_with_retry(
+            _SilentModel(), [], breaker=breaker, first_output_deadline=0.2
+        )
+    assert llm_fallback._is_fallback_worthy(info.value)
+
+
+@pytest.mark.asyncio
+async def test_backup_that_starts_in_time_is_not_cut_off(breaker, monkeypatch):
+    monkeypatch.setattr(settings, "llm_attempt_timeout_seconds", 20.0)
+    llm = _SlowFirstOutputModel(first_delay=0.1)
+    holder: dict = {}
+
+    async def node(x):
+        holder["result"] = await llm_fallback._invoke_with_retry(
+            llm, x, breaker=breaker, first_output_deadline=1.0
+        )
+        return "done"
+
+    async for _ in RunnableLambda(node).astream_events([], version="v2"):
+        pass
+
+    assert holder.get("result") is not None
+
+
+@pytest.mark.asyncio
+async def test_primary_never_gets_the_early_stall_deadline():
+    seen: list[float | None] = []
+
+    async def _retry(llm, messages, *, breaker=None, deadline=None, first_output_deadline=None):
+        seen.append(first_output_deadline)
+        if len(seen) == 1:
+            raise TimeoutError("LLM attempt exceeded 45s wall-clock timeout (model=m-primary)")
+        return "ok"
+
+    def _fake_build(model, *_a, **_k):
+        return AsyncMock()
+
+    with (
+        patch.object(llm_fallback, "_build_llm", side_effect=_fake_build),
+        patch.object(llm_fallback, "_invoke_with_retry", side_effect=_retry),
+        patch.object(type(settings), "llm_fallback_chain", property(lambda self: ["m-backup"])),
+    ):
+        await llm_fallback.invoke_with_fallback([], primary_model="m-primary")
+
+    assert seen[0] is None, "the primary keeps its full reasoning window"
+    assert seen[1] == settings.llm_backup_first_output_seconds
+
+
+@pytest.mark.asyncio
+async def test_stall_deadline_can_be_switched_off(monkeypatch):
+    monkeypatch.setattr(settings, "llm_backup_first_output_seconds", 0)
+    seen: list[float | None] = []
+
+    async def _retry(llm, messages, *, breaker=None, deadline=None, first_output_deadline=None):
+        seen.append(first_output_deadline)
+        if len(seen) == 1:
+            raise TimeoutError("LLM attempt exceeded 45s wall-clock timeout (model=m-primary)")
+        return "ok"
+
+    with (
+        patch.object(llm_fallback, "_build_llm", side_effect=lambda *a, **k: AsyncMock()),
+        patch.object(llm_fallback, "_invoke_with_retry", side_effect=_retry),
+        patch.object(type(settings), "llm_fallback_chain", property(lambda self: ["m-backup"])),
+    ):
+        await llm_fallback.invoke_with_fallback([], primary_model="m-primary")
+
+    assert seen == [None, None]

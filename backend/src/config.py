@@ -66,6 +66,15 @@ class Settings(BaseSettings):
     # second spent waiting on a dead primary is multiplied across turns.
     llm_attempt_timeout_seconds: float = 45.0
 
+    # A backup attempt that has produced no output at all after this many seconds
+    # is treated as stalled and the chain moves on, instead of holding its whole
+    # slice. One production rescue sat for 28s with zero chunks while the next
+    # model got 8s. Healthy backups answer in 8-10s (reasoning off delivers the
+    # reply in a single chunk at the end) or stream thinking within ~2s
+    # (reasoning on), so 15s leaves margin on both. Does not apply to the primary.
+    # 0 disables.
+    llm_backup_first_output_seconds: float = 15.0
+
     # Wall-clock budget for the whole debate (bull + bear + moderator) on one
     # ticker. Must stay below the route's EXECUTION_TIMEOUT_PER_TICKER (180s) so
     # the debate node fails fast WITHIN the outer budget and its per-turn

@@ -75,6 +75,7 @@ class _StreamStats(AsyncCallbackHandler):
         self.first_chunk_s: float | None = None
         self.first_content_s: float | None = None
         self.chunks = 0
+        self.content_chunks = 0
         self.content_chars = 0
 
     async def on_llm_new_token(self, token: str, **kwargs) -> None:  # type: ignore[override]
@@ -85,6 +86,7 @@ class _StreamStats(AsyncCallbackHandler):
         if token:
             if self.first_content_s is None:
                 self.first_content_s = elapsed
+            self.content_chunks += 1
             self.content_chars += len(token)
 
     def describe(self) -> str:
@@ -93,7 +95,8 @@ class _StreamStats(AsyncCallbackHandler):
 
         return (
             f"first_chunk={_fmt(self.first_chunk_s)} first_content={_fmt(self.first_content_s)} "
-            f"chunks={self.chunks} content_chars={self.content_chars}"
+            f"chunks={self.chunks} content_chunks={self.content_chunks} "
+            f"content_chars={self.content_chars}"
         )
 
 
@@ -282,6 +285,31 @@ def _is_account_wide_throttle(exc: BaseException) -> bool:
     )
 
 
+def _http_status(exc: BaseException) -> int | None:
+    """HTTP status carried by an exception, if it has one (openai/httpx style)."""
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int):
+        return status
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    return status if isinstance(status, int) else None
+
+
+# Text forms a 404 takes when only the message survives. A bare "404" would also
+# match request ids, token counts and echoed prompt text in unrelated errors.
+_NOT_FOUND_TEXT = re.compile(
+    r"error code:?\s*404\b|\bstatus(?: code)?[:= ]\s*404\b|['\"]code['\"]\s*:\s*404\b"
+)
+
+
+def _is_dead_model_route(exc: BaseException, exc_str: str) -> bool:
+    """True when the upstream says this model route does not exist (HTTP 404)."""
+    status = _http_status(exc)
+    if status is not None:
+        return status == 404
+    return bool(_NOT_FOUND_TEXT.search(exc_str))
+
+
 def _classify_error(exc: BaseException) -> ErrorSeverity:
     """Classify an exception to determine retry/fallback strategy."""
     # Circuit breaker open means primary is failing repeatedly
@@ -300,7 +328,7 @@ def _classify_error(exc: BaseException) -> ErrorSeverity:
     # free variant that was withdrawn) is specific to this model route. Another
     # model in the chain can still serve the request, so walk on instead of
     # failing the whole turn on a dead primary.
-    if re.search(r"\b404\b", exc_str):
+    if _is_dead_model_route(exc, exc_str):
         return ErrorSeverity.FALLBACK_TO_OTHER
 
     # OpenRouter can identify a shared upstream pool limit explicitly. That
@@ -569,8 +597,15 @@ async def invoke_with_fallback(
         )
         runnable: ChatOpenAI | Runnable = llm.bind_tools(tools) if tools else llm
         try:
+            backup_stall = settings.llm_backup_first_output_seconds
             result = await _invoke_with_retry(
-                runnable, messages, breaker=breaker, deadline=model_deadline
+                runnable,
+                messages,
+                breaker=breaker,
+                deadline=model_deadline,
+                first_output_deadline=(
+                    backup_stall if backup_stall > 0 and not is_primary else None
+                ),
             )
             answered_model.set(model)
             answered_reasoning_off.set(reasoning_off)
@@ -657,6 +692,7 @@ async def _invoke_with_retry(
     *,
     breaker: "CircuitBreaker" = llm_breaker,
     deadline: float | None = None,
+    first_output_deadline: float | None = None,
 ) -> BaseMessage:
     """Invoke a specific LLM instance with retry, through the given circuit breaker.
 
@@ -693,12 +729,34 @@ async def _invoke_with_retry(
 
     stats = _StreamStats()
     model = getattr(llm, "model_name", None) or getattr(llm, "model", "unknown")
+    task = asyncio.ensure_future(
+        breaker.call(llm.ainvoke, messages, config=_config_with_stats(stats))
+    )
     try:
-        result = await asyncio.wait_for(
-            breaker.call(llm.ainvoke, messages, config=_config_with_stats(stats)),
-            timeout=effective_timeout,
-        )
+        if first_output_deadline is not None and first_output_deadline < effective_timeout:
+            # Give the attempt a short window to show any sign of life. A model that
+            # has produced nothing by then is stalled, and holding its whole slice
+            # would starve the next model.
+            done, _pending = await asyncio.wait({task}, timeout=first_output_deadline)
+            if not done and stats.chunks == 0:
+                task.cancel()
+                log.warning(
+                    "llm_attempt_stalled model=%s after=%.0fs %s",
+                    model,
+                    first_output_deadline,
+                    stats.describe(),
+                )
+                raise TimeoutError(
+                    f"LLM attempt produced no output within {first_output_deadline:.0f}s "
+                    f"(timeout, model={model})"
+                )
+            used = time.monotonic() - stats.started
+            result = await asyncio.wait_for(task, timeout=max(effective_timeout - used, 0.01))
+        else:
+            result = await asyncio.wait_for(task, timeout=effective_timeout)
     except (asyncio.TimeoutError, TimeoutError) as exc:
+        if isinstance(exc, TimeoutError) and "produced no output" in str(exc):
+            raise
         log.warning(
             "llm_attempt_timeout model=%s after=%.0fs %s",
             model,
