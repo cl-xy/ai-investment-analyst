@@ -87,7 +87,13 @@ export interface AnalysisOutput {
   risk_flags: string[]
   citations?: Citation[]
   data_gaps?: string[]
-  fallback_turns?: { turn: string; model: string; reasoning_off: boolean }[]
+  fallback_turns?: {
+    turn: string
+    model: string
+    reasoning_off: boolean
+    // True when the configured primary answered, run without its reasoning phase.
+    primary_model?: boolean
+  }[]
   price_data: Record<string, unknown>
   fundamentals: Record<string, unknown>
   earnings?: {

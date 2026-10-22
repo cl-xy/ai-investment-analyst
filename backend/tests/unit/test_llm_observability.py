@@ -277,7 +277,12 @@ def test_backup_model_is_noted():
     _answer_as("nvidia/nemotron-3.5-super-vl:free", reasoning_off=True)
     _note_turn(turns, "moderator")
     assert turns == [
-        {"turn": "moderator", "model": "nvidia/nemotron-3.5-super-vl:free", "reasoning_off": True}
+        {
+            "turn": "moderator",
+            "model": "nvidia/nemotron-3.5-super-vl:free",
+            "reasoning_off": True,
+            "primary_model": False,
+        }
     ]
 
 
@@ -565,3 +570,17 @@ async def test_a_real_reserve_is_still_held_back_when_there_is_room(monkeypatch)
 )
 def test_finish_reason_is_collapsed_to_the_plain_value(raw, expected):
     assert llm_fallback._normalize_finish_reason(raw) == expected
+
+
+def test_noted_turn_says_whether_the_primary_answered():
+    from src.agent.nodes.debate import _note_turn
+
+    same: list[dict] = []
+    _answer_as(settings.llm_model, reasoning_off=True)
+    _note_turn(same, "bear")
+    assert same[0]["primary_model"] is True
+
+    other: list[dict] = []
+    _answer_as("nvidia/nemotron-3.5-super-vl:free", reasoning_off=True)
+    _note_turn(other, "bear")
+    assert other[0]["primary_model"] is False

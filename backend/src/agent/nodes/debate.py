@@ -296,7 +296,17 @@ def _note_turn(turns: list[dict], turn: str) -> None:
     model = answered_model.get()
     reasoning_off = answered_reasoning_off.get()
     if model and (model != _cfg.llm_model or reasoning_off):
-        turns.append({"turn": turn, "model": model, "reasoning_off": reasoning_off})
+        turns.append(
+            {
+                "turn": turn,
+                "model": model,
+                "reasoning_off": reasoning_off,
+                # True when it was the configured primary, just run without its
+                # reasoning phase. The card words that differently from a different
+                # model having answered.
+                "primary_model": model == _cfg.llm_model,
+            }
+        )
 
 
 def _merge_gaps(statuses: dict, moderator_gaps: list[str]) -> list[str]:

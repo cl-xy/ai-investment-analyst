@@ -639,14 +639,17 @@ function StreamAnalysisCard({ analysis, onCitationClick }: { analysis: AnalysisO
         </div>
       )}
 
-      {/* Backup model note: shown only when the primary model did not answer normally */}
+      {/* Fast-mode note: shown only when a turn was answered by a backup model or with
+          reasoning switched off, so it stays quiet when the main model answered normally. */}
       {analysis.fallback_turns && analysis.fallback_turns.length > 0 && (
         <div className="mt-4 pt-4 border-t border-[var(--border)]">
           <div className="flex items-start gap-2">
             <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
             <div>
               <p className="text-xs font-medium text-[var(--text-secondary)]">
-                Answered by a backup model
+                {analysis.fallback_turns.some((t) => !t.primary_model)
+                  ? 'Answered by a backup model'
+                  : 'Answered in fast mode'}
               </p>
               <ul className="text-xs text-[var(--text-muted)] mt-0.5 list-disc pl-4 space-y-0.5">
                 {analysis.fallback_turns.map((t) => (
@@ -657,7 +660,8 @@ function StreamAnalysisCard({ analysis, onCitationClick }: { analysis: AnalysisO
                 ))}
               </ul>
               <p className="text-xs text-[var(--text-muted)] mt-1">
-                The main model timed out, so this part may be less in depth than usual.
+                These turns were answered without the model's full reasoning because it was
+                taking too long, so they may be less in depth than usual.
               </p>
             </div>
           </div>

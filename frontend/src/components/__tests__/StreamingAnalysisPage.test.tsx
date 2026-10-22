@@ -141,7 +141,7 @@ describe('StreamingAnalysisPage backup model note', () => {
     risk_flags: [], price_data: {}, fundamentals: {}, sec_notes: '',
   }
 
-  async function renderWith(fallbackTurns?: { turn: string; model: string; reasoning_off: boolean }[]) {
+  async function renderWith(fallbackTurns?: { turn: string; model: string; reasoning_off: boolean; primary_model?: boolean }[]) {
     const user = userEvent.setup()
     renderWithRoute('?tickers=NVDA')
     await user.click(screen.getByRole('button', { name: /start analysis/i }))
@@ -155,10 +155,27 @@ describe('StreamingAnalysisPage backup model note', () => {
 
   it('shows which backup model answered, with reasoning state', async () => {
     await renderWith([
-      { turn: 'moderator', model: 'nvidia/nemotron-3.5-super-vl:free', reasoning_off: true },
+      { turn: 'moderator', model: 'nvidia/nemotron-3.5-super-vl:free', reasoning_off: true, primary_model: false },
     ])
+    // A different model answered, so the heading says so.
     expect(screen.getByText('Answered by a backup model')).toBeInTheDocument()
     expect(screen.getByText(/moderator turn: nemotron-3\.5-super-vl \(reasoning off\)/)).toBeInTheDocument()
+  })
+
+  it('calls it fast mode when the same model answered with reasoning off', async () => {
+    await renderWith([
+      { turn: 'bear', model: 'nvidia/nemotron-3-ultra-550b-a55b:free', reasoning_off: true, primary_model: true },
+    ])
+    expect(screen.getByText('Answered in fast mode')).toBeInTheDocument()
+    expect(screen.queryByText('Answered by a backup model')).not.toBeInTheDocument()
+    expect(screen.getByText(/bear turn: nemotron-3-ultra-550b-a55b \(reasoning off\)/)).toBeInTheDocument()
+  })
+
+  it('does not claim the main model timed out', async () => {
+    await renderWith([
+      { turn: 'bear', model: 'nvidia/nemotron-3-ultra-550b-a55b:free', reasoning_off: true, primary_model: true },
+    ])
+    expect(screen.queryByText(/timed out/i)).not.toBeInTheDocument()
   })
 
   it('says nothing when the primary model answered every turn', async () => {
