@@ -256,9 +256,6 @@ ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS key_disagreements JSONB NOT
 ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS earnings JSONB NOT NULL DEFAULT '{}';
 ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS article_count INTEGER NOT NULL DEFAULT 0;
 
--- Per-attempt LLM records (model, timing, outcome) for each stored trace.
-ALTER TABLE traces ADD COLUMN IF NOT EXISTS llm_attempts JSONB;
-
 -- The default model name on runs was changed in CREATE TABLE, which does not touch
 -- a table that already exists, so production kept the old default. SET DEFAULT is
 -- idempotent and only affects future inserts, not existing rows.
@@ -279,6 +276,10 @@ CREATE TABLE IF NOT EXISTS traces (
 CREATE INDEX IF NOT EXISTS idx_traces_created_at ON traces(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_traces_tickers ON traces USING GIN(tickers);
 CREATE INDEX IF NOT EXISTS idx_traces_featured ON traces(is_featured) WHERE is_featured = TRUE;
+
+-- Per-attempt LLM records (model, timing, outcome) for each stored trace. Placed
+-- after the table so a fresh database creates it first.
+ALTER TABLE traces ADD COLUMN IF NOT EXISTS llm_attempts JSONB;
 
 -- Ops dashboard: detailed traces with correlation IDs and per-stage breakdowns
 CREATE TABLE IF NOT EXISTS ops_traces (
