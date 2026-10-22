@@ -25,6 +25,7 @@ async def record_trace(
     duration_ms: int,
     status: str,
     signal: str | None = None,
+    llm_attempts: list[dict] | None = None,
 ) -> uuid.UUID:
     """
     Persist a complete trace (all SSE events) to PostgreSQL.
@@ -36,6 +37,7 @@ async def record_trace(
         duration_ms: Total analysis duration in milliseconds.
         status: One of 'success', 'degraded', 'failed'.
         signal: Final signal for single-ticker analyses (buy/hold/sell).
+        llm_attempts: One record per LLM attempt (model, mode, timing, outcome).
 
     Returns:
         The generated trace UUID.
@@ -47,8 +49,9 @@ async def record_trace(
         await pool.execute(
             """
             INSERT INTO traces (
-                id, run_id, tickers, events, duration_ms, status, signal, created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                id, run_id, tickers, events, duration_ms, status, signal, created_at,
+                llm_attempts
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             """,
             trace_id,
             run_id,
@@ -58,6 +61,7 @@ async def record_trace(
             status,
             signal,
             datetime.now(timezone.utc),
+            json.dumps(llm_attempts, default=str) if llm_attempts is not None else None,
         )
         log.info("trace_recorded", trace_id=str(trace_id), tickers=tickers, status=status)
     except Exception as exc:
@@ -91,7 +95,7 @@ async def get_featured_trace() -> dict | None:
     pool = await get_pool()
     row = await pool.fetchrow(
         """
-        SELECT id, run_id, tickers, events, duration_ms, status, signal, created_at
+        SELECT id, run_id, tickers, events, duration_ms, status, signal, created_at, llm_attempts
         FROM traces
         WHERE is_featured = TRUE
         ORDER BY created_at DESC
@@ -116,7 +120,7 @@ async def get_trace_by_run_id(run_id: str) -> dict | None:
     pool = await get_pool()
     row = await pool.fetchrow(
         """
-        SELECT id, run_id, tickers, events, duration_ms, status, signal, created_at
+        SELECT id, run_id, tickers, events, duration_ms, status, signal, created_at, llm_attempts
         FROM traces
         WHERE run_id = $1
         ORDER BY created_at DESC
@@ -134,7 +138,7 @@ async def get_trace(trace_id: uuid.UUID) -> dict | None:
     pool = await get_pool()
     row = await pool.fetchrow(
         """
-        SELECT id, run_id, tickers, events, duration_ms, status, signal, created_at
+        SELECT id, run_id, tickers, events, duration_ms, status, signal, created_at, llm_attempts
         FROM traces
         WHERE id = $1
         """,
@@ -189,7 +193,16 @@ def _row_to_trace(row) -> dict:
         "status": row["status"],
         "signal": row["signal"],
         "created_at": row["created_at"].isoformat(),
+        "llm_attempts": _decode_attempts(row),
     }
+
+
+def _decode_attempts(row) -> list | None:
+    try:
+        raw = row["llm_attempts"]
+    except (KeyError, IndexError):
+        return None
+    return json.loads(raw) if isinstance(raw, str) else raw
 
 
 def _row_to_trace_summary(row) -> dict:

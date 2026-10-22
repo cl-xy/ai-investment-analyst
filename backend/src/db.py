@@ -256,6 +256,9 @@ ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS key_disagreements JSONB NOT
 ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS earnings JSONB NOT NULL DEFAULT '{}';
 ALTER TABLE ticker_analyses ADD COLUMN IF NOT EXISTS article_count INTEGER NOT NULL DEFAULT 0;
 
+-- Per-attempt LLM records (model, timing, outcome) for each stored trace.
+ALTER TABLE traces ADD COLUMN IF NOT EXISTS llm_attempts JSONB;
+
 -- The default model name on runs was changed in CREATE TABLE, which does not touch
 -- a table that already exists, so production kept the old default. SET DEFAULT is
 -- idempotent and only affects future inserts, not existing rows.

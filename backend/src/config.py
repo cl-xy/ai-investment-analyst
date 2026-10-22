@@ -75,6 +75,22 @@ class Settings(BaseSettings):
     # 0 disables.
     llm_backup_first_output_seconds: float = 15.0
 
+    # Hedging: when the primary has shown no content after this many seconds, start
+    # the same request on the same model with reasoning disabled and let the first
+    # valid reply win. Production logs show roughly half of reasoning-on attempts
+    # reach the 45s cap with hundreds of thinking chunks and no JSON, while the
+    # reasoning-off call answers in about 10s. Racing keeps the large model doing
+    # the work whenever its reasoning finishes in time, and only a stalled call
+    # hands over. 0 disables.
+    #
+    # 25s, not shorter: of 25 completed reasoning-on ultra attempts in the logs, 5
+    # finished by 20s, 11 by 25s and 21 by 35s. The reasoning-off reply takes
+    # about 10s, so a hedge started at T displaces any ultra reply that would have
+    # landed after T+10. At 15s that is 14 of 25 (56%); at 25s it is 4 of 25 (16%).
+    # The sample only contains attempts that finished, so treat it as a starting
+    # value to revisit once the stored attempt records show the real distribution.
+    llm_hedge_after_seconds: float = 25.0
+
     # Wall-clock budget for the whole debate (bull + bear + moderator) on one
     # ticker. Must stay below the route's EXECUTION_TIMEOUT_PER_TICKER (180s) so
     # the debate node fails fast WITHIN the outer budget and its per-turn

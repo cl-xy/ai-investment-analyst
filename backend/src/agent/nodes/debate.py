@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from src.logging_config import get_logger
 from src.numeric import safe_float as _safe_float
 
+from .. import attempt_log
 from .. import data_ledger as ledger
 from ..circuit_breaker import CircuitBreakerOpen
 from ..debate_schemas import (
@@ -632,6 +633,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     _set_turn_deadline(turns_left=3)
     bull_start = time.monotonic()
     try:
+        attempt_log.set_role("bull")
         bull = await _run_bull_agent(ctx)
         bull_duration = int((time.monotonic() - bull_start) * 1000)
         _log.info(
@@ -662,6 +664,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     _set_turn_deadline(turns_left=2)
     bear_start = time.monotonic()
     try:
+        attempt_log.set_role("bear")
         bear = await _run_bear_agent(ctx, bull)
         bear_duration = int((time.monotonic() - bear_start) * 1000)
         _log.info(
@@ -693,6 +696,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
     _set_turn_deadline(turns_left=1)
     mod_start = time.monotonic()
     try:
+        attempt_log.set_role("moderator")
         moderator = await _run_moderator(ctx, bull, bear)
         mod_duration = int((time.monotonic() - mod_start) * 1000)
         _log.info(

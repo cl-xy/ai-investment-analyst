@@ -18,6 +18,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_core.messages import HumanMessage
 
+from src.agent import attempt_log
 from src.agent.checkpointer import get_checkpointer
 from src.agent.concurrency import acquire_analysis_slot, release_analysis_slot
 from src.agent.debate_schemas import DEBATE_ROLES
@@ -156,6 +157,9 @@ async def _run_agent(
     await queue.put(event.to_sse())
 
     ticker_analyses: dict = {}
+    # Every LLM attempt in this run, written next to the trace. Set here, before the
+    # graph runs, so the list the debate nodes append to is the one read at the end.
+    llm_attempts = attempt_log.start_run()
     _run_succeeded = False
     _timed_out = False
     # Whether results were durably written to Postgres. Stays True when no
@@ -706,6 +710,7 @@ async def _run_agent(
                 duration_ms=summary["total_duration_ms"],
                 status=status,
                 signal=final_signal,
+                llm_attempts=list(llm_attempts),
             )
         except Exception:
             pass  # Trace recording is non-critical

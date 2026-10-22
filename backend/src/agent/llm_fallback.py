@@ -27,6 +27,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from . import attempt_log
 from .circuit_breaker import CircuitBreaker, CircuitBreakerOpen, llm_breaker
 
 log = logging.getLogger(__name__)
@@ -603,17 +604,51 @@ async def invoke_with_fallback(
             reasoning_off=reasoning_off,
         )
         runnable: ChatOpenAI | Runnable = llm.bind_tools(tools) if tools else llm
+        # Hedge the primary: if its reasoning has produced nothing by hedge_after, race
+        # a reasoning-off call on the same model against it. Only for callers that
+        # opted into reasoning-off rescues, only for models that accept it, and never
+        # with tools bound (the hedge builds a plain client).
+        hedge_after = settings.llm_hedge_after_seconds
+        hedged = (
+            is_primary
+            and hedge_after > 0
+            and reasoning_off_on_fallback
+            and not tools
+            and model in settings.llm_reasoning_optional_set
+        )
         try:
             backup_stall = settings.llm_backup_first_output_seconds
-            result = await _invoke_with_retry(
-                runnable,
-                messages,
-                breaker=breaker,
-                deadline=model_deadline,
-                first_output_deadline=(
-                    backup_stall if backup_stall > 0 and not is_primary else None
-                ),
-            )
+            if hedged:
+                hedge_llm = _build_llm(
+                    model,
+                    temperature,
+                    max_tokens,
+                    request_timeout,
+                    effective_json_mode,
+                    reasoning_off=True,
+                )
+                outcome = await _hedged_invoke(
+                    lambda: _invoke_with_retry(
+                        runnable, messages, breaker=breaker, deadline=model_deadline
+                    ),
+                    lambda: _invoke_with_retry(
+                        hedge_llm, messages, breaker=breaker, deadline=model_deadline
+                    ),
+                    hedge_after=hedge_after,
+                    label=model,
+                )
+                result = outcome.result
+                reasoning_off = outcome.reasoning_off
+            else:
+                result = await _invoke_with_retry(
+                    runnable,
+                    messages,
+                    breaker=breaker,
+                    deadline=model_deadline,
+                    first_output_deadline=(
+                        backup_stall if backup_stall > 0 and not is_primary else None
+                    ),
+                )
             answered_model.set(model)
             answered_reasoning_off.set(reasoning_off)
             if not is_primary:
@@ -700,6 +735,111 @@ def _normalize_finish_reason(value: object) -> str | None:
     return value
 
 
+class _HedgeOutcome:
+    """Which side of a hedged call produced the reply."""
+
+    def __init__(self, result: BaseMessage, reasoning_off: bool) -> None:
+        self.result = result
+        self.reasoning_off = reasoning_off
+
+
+def _reply_text(message: object) -> str:
+    content = getattr(message, "content", "")
+    if isinstance(content, list):
+        return "".join(block.get("text", "") for block in content if isinstance(block, dict))
+    return content if isinstance(content, str) else ""
+
+
+def _looks_like_json_object(message: object) -> bool:
+    """True when a reply parses as a JSON object, so it is worth racing for.
+
+    A reply cut off at max_tokens, or an empty one, would win the race by being
+    first and then fail validation, which would throw away a healthy slower call.
+    """
+    import json
+
+    text = _reply_text(message).strip()
+    if not text:
+        return False
+    try:
+        return isinstance(json.loads(text), dict)
+    except ValueError:
+        return False
+
+
+async def _hedged_invoke(
+    primary_call,
+    hedge_call,
+    *,
+    hedge_after: float,
+    validate=_looks_like_json_object,
+    label: str = "",
+) -> _HedgeOutcome:
+    """Run primary_call; if it has shown no output after hedge_after seconds, start
+    hedge_call alongside it and return whichever produces a valid reply first.
+
+    primary_call and hedge_call are zero-argument coroutine factories. Each is
+    given its own task, and anything still running when the race is decided is
+    cancelled and awaited, so a finished hedge cannot leave a stream open.
+    If the first finisher fails or returns an invalid reply, the race continues
+    with whatever is still running. If both fail, the primary's error is raised.
+
+    The hedge only starts while the primary has produced nothing: a primary that
+    is already streaming content is left alone.
+    """
+    primary = asyncio.ensure_future(primary_call())
+    hedge: asyncio.Future | None = None
+    primary_error: BaseException | None = None
+    hedge_error: BaseException | None = None
+    try:
+        done, _ = await asyncio.wait({primary}, timeout=hedge_after)
+        if primary in done:
+            # Finished (or failed) before the hedge was needed.
+            return _HedgeOutcome(primary.result(), reasoning_off=False)
+
+        hedge = asyncio.ensure_future(hedge_call())
+        log.info("llm_hedge_started model=%s after=%.0fs", label, hedge_after)
+        live: dict[asyncio.Future, bool] = {primary: False, hedge: True}
+        while live:
+            done, _ = await asyncio.wait(set(live), return_when=asyncio.FIRST_COMPLETED)
+            for fut in done:
+                is_hedge = live.pop(fut)
+                try:
+                    reply = fut.result()
+                except asyncio.CancelledError:
+                    raise
+                except BaseException as exc:  # noqa: BLE001 - recorded, race continues
+                    if is_hedge:
+                        hedge_error = exc
+                    else:
+                        primary_error = exc
+                    continue
+                if validate(reply):
+                    log.info(
+                        "llm_hedge_result model=%s winner=%s",
+                        label,
+                        "reasoning_off" if is_hedge else "reasoning_on",
+                    )
+                    return _HedgeOutcome(reply, reasoning_off=is_hedge)
+                # An invalid reply loses the race; keep waiting for the other side.
+                bad = ValueError("hedged reply was not a valid JSON object")
+                if is_hedge:
+                    hedge_error = bad
+                else:
+                    primary_error = bad
+        raise primary_error or hedge_error or TimeoutError("hedged call produced no reply")
+    finally:
+        for fut in (primary, hedge):
+            if fut is not None and not fut.done():
+                fut.cancel()
+        for fut in (primary, hedge):
+            if fut is not None:
+                try:
+                    await fut
+                except BaseException:  # noqa: BLE001 - loser's outcome is irrelevant
+                    pass
+
+
 @retry(
     retry=retry_if_exception(_is_retryable_error),
     wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -749,6 +889,28 @@ async def _invoke_with_retry(
 
     stats = _StreamStats()
     model = getattr(llm, "model_name", None) or getattr(llm, "model", "unknown")
+    mode = "reasoning_off" if getattr(llm, "extra_body", None) else "reasoning_on"
+
+    def _note(outcome: str, finish: str | None = None) -> None:
+        attempt_log.record(
+            {
+                "model": str(model),
+                "mode": mode,
+                "outcome": outcome,
+                "slice_s": round(effective_timeout, 1),
+                "elapsed_s": round(time.monotonic() - stats.started, 1),
+                "first_chunk_s": None
+                if stats.first_chunk_s is None
+                else round(stats.first_chunk_s, 1),
+                "first_content_s": None
+                if stats.first_content_s is None
+                else round(stats.first_content_s, 1),
+                "chunks": stats.chunks,
+                "content_chars": stats.content_chars,
+                "finish": finish,
+            }
+        )
+
     task = asyncio.ensure_future(
         breaker.call(llm.ainvoke, messages, config=_config_with_stats(stats))
     )
@@ -760,6 +922,7 @@ async def _invoke_with_retry(
             done, _pending = await asyncio.wait({task}, timeout=first_output_deadline)
             if not done and stats.chunks == 0:
                 task.cancel()
+                _note("stalled")
                 log.warning(
                     "llm_attempt_stalled model=%s after=%.0fs %s",
                     model,
@@ -777,6 +940,7 @@ async def _invoke_with_retry(
     except (asyncio.TimeoutError, TimeoutError) as exc:
         if isinstance(exc, TimeoutError) and "produced no output" in str(exc):
             raise
+        _note("timeout")
         log.warning(
             "llm_attempt_timeout model=%s after=%.0fs %s",
             model,
@@ -786,6 +950,18 @@ async def _invoke_with_retry(
         raise TimeoutError(
             f"LLM attempt exceeded {effective_timeout:.0f}s wall-clock timeout (model={model})"
         ) from exc
+    except asyncio.CancelledError:
+        _note("cancelled")
+        raise
+    except Exception as exc:
+        _note("error:" + type(exc).__name__)
+        raise
+    finally:
+        # asyncio.wait does not cancel what it waits on, so if this call is itself
+        # cancelled (a hedge that lost the race) the underlying stream would
+        # otherwise keep running and holding a connection.
+        if not task.done():
+            task.cancel()
 
     meta = getattr(result, "response_metadata", None)
     finish = None
@@ -796,6 +972,7 @@ async def _invoke_with_retry(
         finish = _normalize_finish_reason(meta.get("finish_reason"))
         if finish is not None:
             meta["finish_reason"] = finish
+    _note("ok", finish)
     log.info(
         "llm_attempt_ok model=%s elapsed=%.1fs finish=%s %s",
         model,

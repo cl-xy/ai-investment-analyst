@@ -197,7 +197,7 @@ async def test_rescue_attempt_runs_with_reasoning_off_but_primary_keeps_it():
         patch.object(
             type(settings),
             "llm_reasoning_optional_set",
-            property(lambda self: frozenset({"m-primary", "m-rescue"})),
+            property(lambda self: frozenset({"m-rescue"})),
         ),
     ):
         await llm_fallback.invoke_with_fallback(
