@@ -87,6 +87,7 @@ export interface AnalysisOutput {
   risk_flags: string[]
   citations?: Citation[]
   data_gaps?: string[]
+  fallback_turns?: { turn: string; model: string; reasoning_off: boolean }[]
   price_data: Record<string, unknown>
   fundamentals: Record<string, unknown>
   earnings?: {

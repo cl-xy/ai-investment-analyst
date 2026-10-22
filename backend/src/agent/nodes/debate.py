@@ -28,7 +28,7 @@ from ..debate_schemas import (
     ModeratorOutput,
 )
 from ..json_utils import extract_json as _extract_json_raw
-from ..llm_fallback import answered_model, invoke_with_fallback
+from ..llm_fallback import answered_model, answered_reasoning_off, invoke_with_fallback
 from ..prompts.debate_prompts import (
     BEAR_HUMAN,
     BEAR_SYSTEM,
@@ -288,6 +288,16 @@ _DEGRADED_FLAG = "SYSTEM_DEGRADED"
 _NON_PROMPT_CTX_KEYS = ("raw_price_data", "raw_earnings", "raw_sentiment", "raw_source_status")
 
 
+def _note_turn(turns: list[dict], turn: str) -> None:
+    """Record a finished turn if a backup model or reasoning-off attempt answered it."""
+    from src.config import settings as _cfg
+
+    model = answered_model.get()
+    reasoning_off = answered_reasoning_off.get()
+    if model and (model != _cfg.llm_model or reasoning_off):
+        turns.append({"turn": turn, "model": model, "reasoning_off": reasoning_off})
+
+
 def _merge_gaps(statuses: dict, moderator_gaps: list[str]) -> list[str]:
     """Banner lines: fetch-layer facts first, then extra caveats the moderator raised.
 
@@ -313,6 +323,7 @@ def _degraded_analysis(
     error: BaseException,
     bull: "BullCaseOutput | None" = None,
     bear: "BearCaseOutput | None" = None,
+    fallback_turns: list[dict] | None = None,
 ) -> TickerAnalysis:
     """Build a single, coherent degraded TickerAnalysis for any failed turn.
 
@@ -386,6 +397,7 @@ def _degraded_analysis(
         "sec_notes": "",
         "article_count": ctx.get("article_count", 0),
         "debate_status": status,  # type: ignore[typeddict-item]
+        "fallback_turns": list(fallback_turns or []),  # type: ignore[typeddict-item]
     }
 
 
@@ -614,6 +626,8 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
         remaining = _ticker_deadline - time.monotonic()
         _turn_deadline.set(time.monotonic() + _turn_budget(remaining, turns_left))
 
+    fallback_turns: list[dict] = []
+
     # Run bull agent
     _set_turn_deadline(turns_left=3)
     bull_start = time.monotonic()
@@ -626,6 +640,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
             duration_ms=bull_duration,
             model=answered_model.get(),
         )
+        _note_turn(fallback_turns, "bull")
     except (CircuitBreakerOpen, Exception) as e:
         _log.warning("bull_failed", error=str(e))
         # Degrade: no bull thesis exists, so this stays signal=insufficient_data
@@ -655,6 +670,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
             duration_ms=bear_duration,
             model=answered_model.get(),
         )
+        _note_turn(fallback_turns, "bear")
     except (CircuitBreakerOpen, Exception) as e:
         _log.warning("bear_failed", error=str(e))
         # Degrade: bull thesis survives, so present a low-confidence hold built
@@ -667,6 +683,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
             failed_turn="bear",
             error=e,
             bull=bull,
+            fallback_turns=fallback_turns,
         )
         existing = dict(state.get("ticker_analyses", {}))
         existing[ticker] = analysis
@@ -686,6 +703,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
             model=answered_model.get(),
         )
         moderator_model = answered_model.get()
+        _note_turn(fallback_turns, "moderator")
     except (CircuitBreakerOpen, Exception) as e:
         _log.warning("moderator_failed", error=str(e))
         # Degrade: both bull and bear survive; synthesize a low-confidence hold
@@ -699,6 +717,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
             error=e,
             bull=bull,
             bear=bear,
+            fallback_turns=fallback_turns,
         )
         existing = dict(state.get("ticker_analyses", {}))
         existing[ticker] = analysis
@@ -734,6 +753,7 @@ async def debate_ticker_node(state: InvestmentAnalystState) -> dict:
             "sec_notes": moderator.sec_notes,
             "article_count": ctx.get("article_count", 0),
             "debate_status": "complete",
+            "fallback_turns": fallback_turns,
             # Debate-specific fields for persistence
             "_debate": debate_record.model_dump(),
             "_verdict_rationale": _dedup_text(moderator.verdict_rationale),

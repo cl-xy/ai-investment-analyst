@@ -34,6 +34,10 @@ class TickerAnalysis(TypedDict):
     # against (see alerts/drift_scorer.py news_volume_spike). Optional: older
     # rows and degraded partials may omit it.
     article_count: NotRequired[int]
+    # Debate turns that were answered by a backup model or with reasoning turned
+    # off, as [{turn, model, reasoning_off}]. Empty/absent when the primary model
+    # answered every turn normally, so the card only mentions it when it matters.
+    fallback_turns: NotRequired[list[dict]]
     # Machine-readable completion status of the 3-agent debate. "complete" means
     # all three turns (bull, bear, moderator) ran and a moderator verdict was
     # synthesized. The "degraded_*" values name the first turn that failed; the

@@ -53,6 +53,10 @@ _FLOOR_TOLERANCE_SECONDS = 0.5
 answered_model: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "llm_answered_model", default=None
 )
+# True when the answering attempt ran with reasoning disabled (a rescue attempt).
+answered_reasoning_off: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "llm_answered_reasoning_off", default=False
+)
 
 
 class _StreamStats(AsyncCallbackHandler):
@@ -569,6 +573,7 @@ async def invoke_with_fallback(
                 runnable, messages, breaker=breaker, deadline=model_deadline
             )
             answered_model.set(model)
+            answered_reasoning_off.set(reasoning_off)
             if not is_primary:
                 log.info(
                     "fallback_model_succeeded model=%s position=%d reasoning=%s",

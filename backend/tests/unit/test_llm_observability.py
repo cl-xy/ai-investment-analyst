@@ -248,3 +248,80 @@ def test_build_llm_sends_the_reasoning_switch_only_when_asked(monkeypatch):
     assert off.extra_body == {"reasoning": {"enabled": False}}
     assert not on.extra_body
     llm_fallback._build_llm.cache_clear()
+
+
+# --- backup-model note on the card ---
+
+
+def _answer_as(model, reasoning_off=False):
+    llm_fallback.answered_model.set(model)
+    llm_fallback.answered_reasoning_off.set(reasoning_off)
+
+
+def test_primary_answering_normally_adds_no_note():
+    from src.agent.nodes.debate import _note_turn
+
+    turns: list[dict] = []
+    _answer_as(settings.llm_model, reasoning_off=False)
+    _note_turn(turns, "bull")
+    assert turns == []
+
+
+def test_backup_model_is_noted():
+    from src.agent.nodes.debate import _note_turn
+
+    turns: list[dict] = []
+    _answer_as("nvidia/nemotron-3.5-super-vl:free", reasoning_off=True)
+    _note_turn(turns, "moderator")
+    assert turns == [
+        {"turn": "moderator", "model": "nvidia/nemotron-3.5-super-vl:free", "reasoning_off": True}
+    ]
+
+
+def test_primary_with_reasoning_off_is_still_noted():
+    from src.agent.nodes.debate import _note_turn
+
+    turns: list[dict] = []
+    _answer_as(settings.llm_model, reasoning_off=True)
+    _note_turn(turns, "bear")
+    assert turns[0]["reasoning_off"] is True
+
+
+def test_nothing_recorded_when_no_model_answered():
+    from src.agent.nodes.debate import _note_turn
+
+    turns: list[dict] = []
+    llm_fallback.answered_model.set(None)
+    _note_turn(turns, "bull")
+    assert turns == []
+
+
+@pytest.mark.asyncio
+async def test_reasoning_off_flag_is_recorded_for_the_answering_attempt():
+    async def _retry(llm, messages, *, breaker=None, deadline=None):
+        if llm._id == "m-primary":
+            raise TimeoutError("LLM attempt exceeded 45s wall-clock timeout (model=m-primary)")
+        return "ok"
+
+    def _fake_build(model, *_a, **_k):
+        m = AsyncMock()
+        m._id = model
+        return m
+
+    _answer_as(None, False)
+    with (
+        patch.object(llm_fallback, "_build_llm", side_effect=_fake_build),
+        patch.object(llm_fallback, "_invoke_with_retry", side_effect=_retry),
+        patch.object(type(settings), "llm_fallback_chain", property(lambda self: ["m-rescue"])),
+        patch.object(
+            type(settings),
+            "llm_reasoning_optional_set",
+            property(lambda self: frozenset({"m-rescue"})),
+        ),
+    ):
+        await llm_fallback.invoke_with_fallback(
+            [], primary_model="m-primary", reasoning_off_on_fallback=True
+        )
+
+    assert llm_fallback.answered_model.get() == "m-rescue"
+    assert llm_fallback.answered_reasoning_off.get() is True

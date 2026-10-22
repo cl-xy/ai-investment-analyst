@@ -129,3 +129,45 @@ describe('StreamingAnalysisPage', () => {
     expect(screen.queryByText('Analysis partially timed out')).not.toBeInTheDocument()
   })
 })
+
+
+describe('StreamingAnalysisPage backup model note', () => {
+  afterEach(() => {
+    useAnalysisStore.getState().reset()
+  })
+
+  const baseAnalysis = {
+    ticker: 'NVDA', signal: 'hold' as const, confidence: 'medium' as const, sentiment_score: 0,
+    risk_flags: [], price_data: {}, fundamentals: {}, sec_notes: '',
+  }
+
+  async function renderWith(fallbackTurns?: { turn: string; model: string; reasoning_off: boolean }[]) {
+    const user = userEvent.setup()
+    renderWithRoute('?tickers=NVDA')
+    await user.click(screen.getByRole('button', { name: /start analysis/i }))
+    act(() => {
+      useAnalysisStore.setState({
+        analyses: { NVDA: { ...baseAnalysis, ...(fallbackTurns ? { fallback_turns: fallbackTurns } : {}) } },
+        isStreaming: false,
+      })
+    })
+  }
+
+  it('shows which backup model answered, with reasoning state', async () => {
+    await renderWith([
+      { turn: 'moderator', model: 'nvidia/nemotron-3.5-super-vl:free', reasoning_off: true },
+    ])
+    expect(screen.getByText('Answered by a backup model')).toBeInTheDocument()
+    expect(screen.getByText(/moderator turn: nemotron-3\.5-super-vl \(reasoning off\)/)).toBeInTheDocument()
+  })
+
+  it('says nothing when the primary model answered every turn', async () => {
+    await renderWith([])
+    expect(screen.queryByText('Answered by a backup model')).not.toBeInTheDocument()
+  })
+
+  it('says nothing for analyses that predate the field', async () => {
+    await renderWith(undefined)
+    expect(screen.queryByText('Answered by a backup model')).not.toBeInTheDocument()
+  })
+})

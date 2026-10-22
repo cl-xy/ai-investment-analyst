@@ -639,6 +639,31 @@ function StreamAnalysisCard({ analysis, onCitationClick }: { analysis: AnalysisO
         </div>
       )}
 
+      {/* Backup model note: shown only when the primary model did not answer normally */}
+      {analysis.fallback_turns && analysis.fallback_turns.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-[var(--border)]">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs font-medium text-[var(--text-secondary)]">
+                Answered by a backup model
+              </p>
+              <ul className="text-xs text-[var(--text-muted)] mt-0.5 list-disc pl-4 space-y-0.5">
+                {analysis.fallback_turns.map((t) => (
+                  <li key={t.turn}>
+                    {t.turn} turn: {t.model.split('/').pop()?.replace(':free', '')}
+                    {t.reasoning_off ? ' (reasoning off)' : ''}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-[var(--text-muted)] mt-1">
+                The main model timed out, so this part may be less in depth than usual.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Data gaps */}
       {analysis.data_gaps && analysis.data_gaps.length > 0 && (
         <div className="mt-4 pt-4 border-t border-[var(--border)]">
