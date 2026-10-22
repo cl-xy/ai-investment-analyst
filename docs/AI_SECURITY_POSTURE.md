@@ -73,7 +73,7 @@ graph LR
 **Mitigations**:
 - All quantitative data comes from tool calls (yfinance, SEC EDGAR) with `source_id` tracking
 - Analysis schema includes `citations` array linking claims to specific data sources
-- `data_gaps` field explicitly lists what data was unavailable
+- `data_gaps` field explicitly lists what data was unavailable. The unavailable-source lines are generated from the fetch layer's own record of each call (not from the model), and a model-written line that claims a tracked source is missing, when the system recorded it as available, is dropped
 - Frontend renders source attribution alongside claims
 - Financial disclaimer displayed on every analysis
 
@@ -142,7 +142,7 @@ This system does not:
 | Ticker count cap | Max 5 tickers per request |
 | OpenRouter budget guards | Track daily calls, reject when approaching limits |
 | Alpha Vantage budget | 25/day limit, reserve 5 for manual use |
-| Execution timeout | 120s hard cap per analysis run |
+| Execution timeout | 300s hard cap for one ticker (75s setup, 180s analysis, 45s report); the debate itself is limited to 165s |
 | Shutdown coordinator | Rejects new requests during drain (503 + Retry-After) |
 
 ## Security Headers
@@ -169,7 +169,7 @@ These are honest acknowledgments, not planned mitigations:
 
 5. **Demo auth is not real auth**: A shared password gates access but provides no identity, audit trail, or per-user rate limiting. Sufficient for a portfolio demo, not for production multi-tenant use.
 
-6. **OpenRouter free tier dependency**: Service availability depends entirely on OpenRouter's free tier remaining available. No SLA, no fallback provider configured.
+6. **OpenRouter free tier dependency**: Service availability depends entirely on OpenRouter's free tier remaining available. No SLA. A chain of free models (and a reasoning-off call on the primary) is tried in order, but they share one provider account and are often slow or rate limited at the same time, so a debate turn can still end as a degraded result.
 
 7. **No input sanitization for XSS in LLM output**: LLM responses are rendered via React (which escapes by default), but if raw HTML were somehow in the response, React's JSX escaping is the only defense layer.
 

@@ -15,7 +15,7 @@ C4Context
     System(backend, "Investment Analyst API", "FastAPI + LangGraph agent")
     System(frontend, "Web Client", "React + Zustand, SSE consumer")
 
-    System_Ext(openrouter, "OpenRouter API", "LLM inference (GPT-OSS 20B / Nemotron 120B)")
+    System_Ext(openrouter, "OpenRouter API", "LLM inference (free-tier router model / Nemotron Ultra 550B with backups)")
     System_Ext(yfinance, "Yahoo Finance", "Price, fundamentals, technicals")
     System_Ext(newsapi, "NewsAPI + RSS", "Market news articles")
     System_Ext(edgar, "SEC EDGAR", "10-K/10-Q filing summaries")
@@ -40,12 +40,12 @@ sequenceDiagram
     participant U as User
     participant FE as Frontend
     participant API as FastAPI
-    participant R as Router LLM<br/>(GPT-OSS 20B)
+    participant R as Router LLM<br/>(small router model)
     participant FD as Fetch Data
     participant MCP as MCP Servers<br/>(market, news, SEC, portfolio, sentiment)
     participant Cache as PostgreSQL Cache
-    participant A as Analyze LLM<br/>(Nemotron 120B)
-    participant Rep as Report LLM<br/>(Nemotron 120B)
+    participant A as Debate LLM<br/>(Nemotron Ultra 550B, hedged)
+    participant Rep as Report LLM<br/>(same chain)
     participant PG as PostgreSQL
 
     U->>FE: Enter tickers (e.g. NVDA, AAPL)
@@ -68,6 +68,8 @@ sequenceDiagram
         FD->>MCP: get_ticker_news(NVDA)
         FD->>MCP: get_latest_filing_summary(NVDA)
         FD->>MCP: get_technical_indicators(NVDA)
+        FD->>MCP: get_earnings_calendar(NVDA)
+        FD->>MCP: get_ticker_sentiment(NVDA)
     end
 
     MCP-->>FD: Market data, news, SEC filings
@@ -75,9 +77,9 @@ sequenceDiagram
     API-->>FE: event: tool_call / tool_result (per tool)
 
     loop For each ticker
-        API->>A: Analyze with structured JSON output
-        A-->>API: AnalysisOutput (signal, confidence, thesis, citations)
-        API-->>FE: event: analysis_complete
+        API->>A: Bull turn, then bear turn (rebuts bull), then moderator turn (sees both)
+        A-->>API: Structured JSON per turn, validated against Pydantic schemas
+        API-->>FE: event: debate_turn (x3), debate_verdict, analysis_complete
     end
 
     API->>Rep: Generate narrative report
@@ -105,10 +107,10 @@ graph TB
         Middleware[Middleware Stack<br/>CORS, Auth, Rate Limit, Request ID]
 
         subgraph Agent ["LangGraph StateGraph"]
-            Router[Router Node<br/>GPT-OSS 20B]
+            Router[Router Node<br/>router model]
             FetchData[Fetch Data Node]
-            Analyze[Analyze Ticker Node<br/>Nemotron 120B]
-            Report[Generate Report Node<br/>Nemotron 120B]
+            Analyze[Debate Node<br/>Nemotron Ultra 550B]
+            Report[Generate Report Node<br/>LLM chain]
             Chat[Chat Node]
             Portfolio[Portfolio Ops Node]
         end
@@ -220,23 +222,36 @@ OpenRouter free tier: 20 req/min. When rate-limited:
 
 ### Tool Failure (MCP servers)
 
-Each of the 5 tool calls per ticker is independently wrapped:
+Each of the 7 tool calls per ticker is independently wrapped:
 - 30-second timeout per tool call
-- Failures produce `data_gaps` entries (e.g., "News data unavailable for NVDA")
-- The analysis proceeds with partial data; the LLM output includes a `confidence: "low"` signal when data is missing
-- The cache layer attempts stale data before reporting a gap
+- Every call records a status: ok, cached, stale, rate_limited, blocked, timeout, empty, budget_exhausted or error (`backend/src/agent/data_ledger.py`)
+- The "partial data" banner is built from those statuses, not from the moderator's wording. The moderator is shown the same record as read-only context and can only add caveats about other things
+- Retail sentiment and the earnings date are optional: their absence is recorded for the debate but does not raise the banner
+- A failed refresh falls back to the last good cached value (stale-if-error), shown with its age; a tool that cannot compute anything (for example indicators with no price history) reports an error instead of caching an empty result
 
 ### Stale Cache
 
 The PostgreSQL cache uses stale-while-revalidate semantics:
 - Fresh window: serve cached, no fetch
 - Stale window: serve cached immediately, trigger background refresh
-- Expired: block on fresh fetch (with timeout fallback to stale)
+- Expired: block on fresh fetch; if the fetch fails, serve the last good value for a bounded time per tool (quotes and indicators 2 days, fundamentals 30 days, earnings 14 days, news 3 days) and label it stale
 - Budget-exhausted mode: serve cache-only for all providers, no live API calls
+
+### LLM Calls: Fallback Chain, Hedging and Time Budgets
+
+Every debate turn goes through `invoke_with_fallback` (`backend/src/agent/llm_fallback.py`):
+
+- **Chain:** primary `nemotron-3-ultra-550b` (reasoning on), then `nemotron-3.5-super-vl`, `minimax-m3.1-flash`, and two Gemma models. Order and membership are in `backend/src/config.py`.
+- **Hard attempt cap:** 45 seconds per model attempt, enforced with a wall-clock timeout, because the HTTP client's own timeout does not stop a slow trickling stream.
+- **Per-turn budget:** the ticker's debate gets 165 seconds. Bull gets 50% of what remains, bear 60% of the remainder, the moderator the rest, with a 30 second floor. Within a turn a model that has fallbacks behind it keeps back a reserve for the next one only when the reserve is large enough to start an attempt (8 seconds).
+- **Hedging:** the primary model's reasoning has no upper bound (observed from 20 seconds to over 100). If it has produced no answer after 25 seconds, the same model is also called with reasoning disabled, and whichever returns a valid JSON object first wins. The loser is cancelled. A reply cut off before the JSON closes cannot win.
+- **Backup attempts** on models that allow it run with reasoning off, and are abandoned if they produce nothing for 15 seconds. MiniMax cannot disable reasoning, so it is never called that way.
+- **Visibility:** the card shows when a turn was answered in fast mode or by a backup model. Every attempt (model, mode, slice, elapsed, first-chunk time, outcome) is stored with the trace in `traces.llm_attempts`; prompt and output text are not stored.
+- **Honest failure:** a turn that cannot be completed yields a degraded card, tagged in the trace as `degraded` rather than `success`.
 
 ### Execution Timeout
 
-The entire analysis pipeline has a 120-second hard timeout. If exceeded:
+One ticker's run is bounded by 75 seconds of setup and fetch headroom, 180 seconds for the debate and data collection, and a separate 45 seconds for the final report, 300 seconds in total. (The debate's own budget is 165 seconds, so it normally stops before the route does.) If the bound is exceeded:
 - An `error` event is emitted with `recoverable: false`
 - Partial results (any completed ticker analyses) are still delivered
 - The SSE stream closes gracefully
@@ -249,7 +264,7 @@ A global `asyncio.Semaphore(3)` limits concurrent full analysis pipelines per ba
 
 ### Parallel Tool Calls
 
-Within a single analysis, the fetch node fires all 5 MCP tool calls per ticker concurrently via `asyncio.gather()`. Multiple tickers are also fetched in parallel. Tool calls are individually timeout-wrapped (30s).
+Within a single analysis, the fetch node fires all 7 MCP tool calls per ticker concurrently via `asyncio.gather()`. Multiple tickers are also fetched in parallel. Tool calls are individually timeout-wrapped (30s).
 
 ### Circuit Breaker
 

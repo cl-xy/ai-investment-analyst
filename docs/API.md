@@ -193,6 +193,14 @@ data: {"run_id":"f47ac10b-58cc-4372-a567-0e02b2c3d479","seq":13,"type":"run_comp
 
 ```
 
+**Analysis fields added in October 2026** (inside `analysis_complete`'s `analysis` object):
+
+- `data_gaps`: unavailable-source lines generated from what the fetch layer recorded (for example `"Fundamentals: provider rate limited the request"`, `"Price quote: showing cached data 3h old (provider unavailable)"`). The moderator can add caveats about other things.
+- `debate_status`: `complete`, `degraded_bull`, `degraded_bear` or `degraded_moderator`. Anything other than `complete` also sets a `SYSTEM_DEGRADED` entry in `risk_flags`.
+- `fallback_turns`: list of `{turn, model, reasoning_off, primary_model}` for debate turns answered by a backup model or with the primary's reasoning switched off. Empty when the primary answered every turn normally.
+
+Stored traces (`GET /api/replay/{trace_id}`) also carry `llm_attempts`: one record per model call with `role`, `model`, `mode`, `outcome`, `slice_s`, `elapsed_s`, `first_chunk_s`, `first_content_s`, `chunks`, `content_chars` and `finish`. Prompts and model output are never stored. The field is `null` for traces recorded before it was added. Trace `status` is `success`, `degraded` (including a degraded debate turn) or `failed`.
+
 **Event Types**
 
 | Event | Description |
@@ -215,7 +223,7 @@ data: {"run_id":"f47ac10b-58cc-4372-a567-0e02b2c3d479","seq":13,"type":"run_comp
 
 **Connection Behavior**
 - Heartbeat every 15 seconds (prevents proxy buffering)
-- 120-second execution timeout (emits error event, then closes)
+- Execution timeout of 300 seconds for one ticker (75s setup, 180s analysis, 45s report); on expiry an error event is emitted, completed tickers are still delivered, and the stream closes
 - `id` field enables `Last-Event-ID` reconnection
 - `X-Accel-Buffering: no` header disables nginx buffering
 

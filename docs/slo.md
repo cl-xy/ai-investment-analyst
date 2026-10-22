@@ -18,13 +18,13 @@ Objectives for the AI Investment Analyst production deployment. These SLOs refle
 
 | Percentile | Target | Notes |
 |------------|--------|-------|
-| p50 | < 90s | Typical: 3 LLM calls at 25-30s each + data fetch |
-| p95 | < 150s | Accounts for model cold starts and retry |
-| p99 | < 180s | Circuit breaker trips if we exceed this consistently |
+| p50 | < 150s | Typical: 3 LLM turns at 20-45s each + data fetch + report. Measured p50 since the primary model change: 140s |
+| p95 | < 220s | A slow primary turn hands over to a reasoning-off hedge after 25s. Measured p95: 202s |
+| p99 | < 300s | Hard route limit: 75s setup + 180s analysis + 45s report. Measured p99: 206s |
 
 **Measurement:** Elapsed time from SSE connection open (`analysis_started` event) to `analysis_complete` event. Logged in structured request logs with `request_id`, `ticker`, `duration_ms` fields.
 
-**Note:** These targets reflect the 3-agent debate architecture with free-tier models. Single-shot fallback (when circuit breaker trips) targets p50 < 45s.
+**Note:** These targets reflect the 3-agent debate architecture with free-tier models, whose speed varies a lot from hour to hour. The earlier targets (p50 90s, p95 150s, p99 180s) predate the current primary model; 43 stored live runs since 20 October 2026 (excluding cache and error paths, including degraded results) measured p50 140s, p95 202s, max 206s. The targets above are set just above those measurements and should be revisited with more data. A turn that cannot finish produces a degraded result (recorded with trace status `degraded`) rather than failing the request, and does not count against availability.
 
 ### API Response Latency (non-analysis endpoints)
 
@@ -81,11 +81,11 @@ There is no separate metrics service (Prometheus/Grafana). SLO tracking is done 
 4. If machines are healthy but health checks fail: check DATABASE_URL secret, Neon may have rotated credentials
 5. Redeploy if binary is corrupted: `git push` triggers CI/CD rebuild
 
-### Latency breach (p95 > 150s)
+### Latency breach (p95 > 220s)
 
 1. Check circuit breaker state in logs (search for `circuit_opened` events)
 2. Verify OpenRouter model availability at status.openrouter.ai
-3. If models are degraded: the system should auto-fallback to single-shot. If not, check fallback logic in `debate.py`
+3. Look at the per-attempt records stored with recent traces (`traces.llm_attempts`, or the `llm_attempt_timeout` and `llm_hedge_*` log lines): if the primary keeps hitting its 45s cap with no content, the provider is slow and turns are being hedged or degraded. The system does not fall back to a single-shot analysis; check the fallback chain in `backend/src/config.py` and `backend/src/agent/llm_fallback.py`
 4. If latency is high but models respond: check for database connection pool exhaustion (too many concurrent cache reads)
 
 ### Cache hit rate breach (< 60%)

@@ -47,8 +47,8 @@ The interesting engineering isn't the features. It's the failure handling, obser
 │  ┌─── LangGraph StateGraph ─────────────────────────────────────────────┐ │
 │  │                                                                       │ │
 │  │  Router ──→ Fetch Data ──→ Adversarial Debate ──→ Report ──→ Compare │ │
-│  │  (20B)      (6 tools ∥)    Bull → Bear → CIO     (120B)    (if 2+)  │ │
-│  │                             (120B x3, sequential)                     │ │
+│  │  (20B)      (7 tools ∥)    Bull → Bear → CIO     (LLM)     (if 2+)  │ │
+│  │                             (ultra-550B, 3 sequential turns)          │ │
 │  │                                                                       │ │
 │  │  Circuit Breaker: trip@5 server errors/60s, 30s recovery, half-open  │ │
 │  │  Rate Limiter: token bucket, per-IP + global caps                    │ │
@@ -93,8 +93,8 @@ The constraints shaped the architecture more than any budget could have.
 
 Enter a ticker symbol and watch an adversarial investment committee debate in real-time:
 
-1. **Router** classifies intent and extracts tickers (GPT-OSS 20B, sub-second)
-2. **Fetch Data** calls 6 tools across 5 MCP servers in parallel (market quotes, fundamentals, indicators, news, SEC filings, StockTwits sentiment)
+1. **Router** classifies intent and extracts tickers (small router model, sub-second)
+2. **Fetch Data** calls 7 tools across 5 MCP servers in parallel (quotes, fundamentals, indicators, earnings calendar, news, SEC filings, StockTwits sentiment). Every call records whether it succeeded, was cached, was served stale, or failed and why
 3. **Bull Analyst** builds the strongest possible long case with cited evidence
 4. **Bear Analyst** rebuts the bull case point-by-point and argues the short case
 5. **Chief Investment Officer** weighs both sides, assesses evidence quality, and issues a final verdict with explicit rationale
@@ -110,6 +110,10 @@ Every step streams to the frontend via SSE with domain-specific events. The deba
 - **Correlation IDs**: Every request traced end-to-end from frontend through LangGraph to MCP tools
 - **Circuit breaker**: Trips at 5 server errors within 60s (rate limits excluded), 30s recovery, half-open probe
 - **Stale-while-revalidate cache**: Never shows "loading" for previously-analyzed tickers
+- **Stale-if-error**: When a provider fails, the last good value is served (bounded per tool, for example 2 days for quotes and 30 days for fundamentals) and the card says how old it is
+- **Honest data-gap banner**: The "partial data" notice is built from what the fetch layer actually recorded (rate limited, blocked, timed out, empty, stale), not from the model's own wording
+- **Hedged debate turns**: The primary model is a reasoning model whose thinking time has no upper bound. If a turn has produced no answer after 25 seconds, the same model is also called with reasoning off and the first valid reply wins. Fast-mode and backup-model turns are shown on the card
+- **Per-attempt LLM records**: Each model call (model, mode, timing, outcome) is stored with the run's trace, so a degraded card can be explained after the logs have rotated
 - **Singleflight coalescing**: Concurrent requests for the same ticker share one in-flight analysis instead of stampeding
 - **Adaptive rate limit tracking**: EWMA-based 429 monitoring adjusts request spacing without tripping the breaker
 - **Fly-Replay SSE pinning**: Reconnecting SSE clients are routed back to the machine holding their stream state
@@ -180,11 +184,11 @@ Monotonic sequence IDs enable gapless reconnection via `Last-Event-ID`.
 
 ## Stack
 
-**Backend**: Python 3.11, FastAPI, LangGraph, FastMCP, OpenRouter API, asyncpg, Pydantic, structlog  
-**Frontend**: React 19, TypeScript, Vite, Tailwind 3, Zustand, Lucide React, Recharts  
-**Data**: PostgreSQL (analyses, cache, predictions, traces, metrics), SQLite (portfolio, checkpoints)  
-**Deploy**: Fly.io (backend) + Neon (serverless Postgres, Singapore) + Vercel (frontend)  
-**CI**: GitHub Actions (ruff, mypy, oxlint, tsc, pytest, Playwright, Semgrep, pip-audit, npm-audit, Docker build)  
+**Backend**: Python 3.11, FastAPI, LangGraph, FastMCP, OpenRouter API, asyncpg, Pydantic, structlog
+**Frontend**: React 19, TypeScript, Vite, Tailwind 3, Zustand, Lucide React, Recharts
+**Data**: PostgreSQL (analyses, cache, predictions, traces, metrics), SQLite (portfolio, checkpoints)
+**Deploy**: Fly.io (backend) + Neon (serverless Postgres, Singapore) + Vercel (frontend)
+**CI**: GitHub Actions (ruff, mypy, oxlint, tsc, pytest, Playwright, Semgrep, pip-audit, npm-audit, Docker build)
 **Testing**: pytest + Hypothesis + Playwright + promptfoo (unit, property-based, e2e, LLM eval)
 
 ---
@@ -261,7 +265,8 @@ tests/e2e/                        # Playwright (11 specs, 3 browsers)
 |-------|------|----------|
 | Unit + integration | pytest | Schema validation, events, cache, circuit breaker, chaos injection |
 | Property-based | Hypothesis | Ticker validation, sentiment bounds, JSON extraction, budget invariants |
-| E2E | Playwright | 11 specs across 3 browsers (analysis flow, error states, accessibility, chat, compare, explore) |
+| Frontend unit | Vitest + Testing Library | 60 tests (analysis page, trace panel, alerts, eval page); run locally, not yet in CI |
+| E2E | Playwright | 16 spec files across 3 browsers (analysis flow, error states, accessibility, chat, compare, explore) |
 | LLM evaluation | promptfoo | 41 cases: structured output, factual grounding, safety, citations, reasoning, edge cases, degradation |
 | Golden fixtures | pytest | 20 scenarios with mocked tool responses for deterministic testing |
 | Security | Semgrep + pip-audit + npm-audit | Custom SAST rules targeting LLM-specific risks |
@@ -326,7 +331,8 @@ ADMIN_PASSWORD        # Optional: frontend login password (default: investor2026
 ## Known Limitations
 
 - **Not financial advice.** Outputs are for educational/demonstration purposes only.
-- **OpenRouter free tier**: 20 req/min. Aggressive caching keeps usage well within limits.
+- **OpenRouter free tier**: 20 req/min, and free models vary a lot in speed. The primary model's reasoning time is unbounded, so a turn can run past its time slice. Debates complete most of the time but not always; a turn that cannot finish produces a clearly marked degraded card.
+- **Retail sentiment is usually unavailable**: StockTwits sits behind a Cloudflare challenge that rejects server traffic, so the sentiment source returns nothing in production and is treated as optional.
 - **No real-time prices**: yfinance data has 15-min delay during market hours.
 - **SEC filings**: Only 10-K summaries. No 8-K, no earnings call transcripts.
 - **Single retry on validation failure**: If the LLM produces invalid JSON twice, falls back to partial extraction with disclosed data_gaps.

@@ -27,6 +27,9 @@ fly logs -a ai-investment-analyst | grep 'circuit_'
 
 # Rate limit hits
 fly logs -a ai-investment-analyst | grep '429'
+
+# LLM attempts, hedging and provider blocks (see section 10)
+fly logs -a ai-investment-analyst | grep -E 'llm_attempt_|llm_hedge_|stocktwits_blocked|yfinance_rate_limited|serving_stale'
 ```
 
 **Quick health validation:**
@@ -355,3 +358,36 @@ curl -s "https://<app-domain>/api/alerts/subscriptions?password=$DEMO_PASSWORD" 
 **Prevention**:
 - `.github/workflows/alert-evaluation.yml` runs every 2h during US market hours; use `workflow_dispatch` to trigger on demand for testing
 - The `refresh-portfolio` success hook (`_evaluate_alerts_best_effort`) piggybacks a full evaluation pass on every successful portfolio refresh, so alerts stay reasonably fresh even if the dedicated cron is delayed
+
+## 10. Debate Turn Degraded or Slow (primary model stalls)
+
+**Symptoms**:
+- A card shows "Based on partial data" with a line such as "bear agent failed: LLM attempt exceeded 8s wall-clock timeout"
+- The trace status is `degraded` in `/api/ops/traces`
+- Runs take over 200 seconds
+- The card says "Answered in fast mode" or "Answered by a backup model"
+
+**What is happening**: the primary model is a reasoning model. Its hidden thinking has no upper bound (20s to over 100s observed), and a reply often arrives as one chunk at the end. A turn that stalls is hedged and falls back as described in `docs/ARCHITECTURE.md` ("LLM Calls"). A turn that no model can finish produces a degraded card.
+
+**Diagnosis**:
+
+```bash
+# Per-attempt records stored with the run (survive after logs rotate; no prompt or output text)
+curl -s -H "Authorization: Bearer <session-token>" https://<app-domain>/api/replay/<trace-id> | jq '.llm_attempts'
+
+# Live log lines (about 8 minutes retained when queried): timing, finish reason, answering model
+fly logs -a ai-investment-analyst | grep -E 'llm_attempt_(ok|timeout|stalled)|llm_hedge_|llm_chain_|moderator_|bear_|bull_'
+```
+
+In `llm_attempts`, each entry has `role`, `model`, `mode` (`reasoning_on` or `reasoning_off`), `outcome` (`ok`, `timeout`, `stalled`, `cancelled`, `error:...`), `slice_s`, `elapsed_s`, `first_chunk_s`, `first_content_s` and `finish`. A `reasoning_on` timeout with many chunks but no content means the model was thinking; a backup with zero chunks means the provider stalled.
+
+**Mitigation**:
+- Re-run the analysis; most degraded runs succeed on a second attempt
+- If the provider is slow for hours, nothing in the application is broken. The knobs are in `backend/src/config.py`: `llm_attempt_timeout_seconds` (45), `llm_hedge_after_seconds` (25, 0 disables), `llm_backup_first_output_seconds` (15, 0 disables), `debate_ticker_budget_seconds` (165). Raising the attempt cap shifts time away from later turns and does not make the provider faster.
+
+**Known gaps**:
+- Whether a reasoning-off bear turn skews verdicts toward `buy` is unresolved (4 of 15 runs with one ended `buy`, against 0 of 24 without), and the groups were not matched
+- `finish_reason=length` replies are logged but their repair outcome is not
+- Retail sentiment (StockTwits) is blocked by Cloudflare in production, so that source is nearly always empty and does not raise the banner
+
+---

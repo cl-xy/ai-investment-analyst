@@ -3,7 +3,8 @@ Adversarial debate node. Replaces single-shot analyze_ticker with a 3-agent deba
 
 Protocol: Bull (argues long) -> Bear (rebuts + argues short) -> Moderator (verdict)
 Each agent uses OpenRouter JSON mode + Pydantic validation with 1 retry on failure.
-Falls back to single-shot analysis if debate fails or rate budget is exhausted.
+If a turn cannot be completed, the node returns a degraded partial result (tagged
+with debate_status and a SYSTEM_DEGRADED flag) built from whatever turns finished.
 """
 
 import contextvars

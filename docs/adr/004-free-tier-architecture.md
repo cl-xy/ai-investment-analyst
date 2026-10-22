@@ -1,6 +1,6 @@
 # ADR-004: Free-Tier Architecture
 
-**Status:** Accepted  
+**Status:** Accepted
 **Date:** 2025-03-10
 
 ## Context
@@ -17,8 +17,8 @@ Design the entire system around constraint awareness rather than simulating a pr
 2. **Rate limiter**: per-IP throttling via slowapi, prevents a single user from exhausting the shared pool.
 3. **Budget guards**: daily request counting in PostgreSQL. Alpha Vantage capped at 20/day (save 5 for manual use).
 4. **Stale cache serving**: when the circuit breaker is open or rate limit is exhausted, serve stale cached data rather than failing.
-5. **Debate fallback**: if the 3-agent debate can't complete (rate limit), fall back to single-shot analysis (1 LLM call instead of 3).
-6. **4-second inter-call delay**: minimum gap between sequential LLM calls in debate to avoid burst throttling on free-tier workers.
+5. **Debate fallback**: if the 3-agent debate can't complete (rate limit), fall back to single-shot analysis (1 LLM call instead of 3). *(Removed October 2026: an incomplete debate now returns a flagged partial result.)*
+6. **4-second inter-call delay**: minimum gap between sequential LLM calls in debate to avoid burst throttling on free-tier workers. *(Removed October 2026: it consumed budget without a measured benefit.)*
 
 ## Reasons
 
@@ -36,7 +36,7 @@ Design the entire system around constraint awareness rather than simulating a pr
 - Architecture patterns transfer directly to production cost optimization
 
 **Negative:**
-- Analysis takes 90-120s (3 sequential LLM calls with 4s delays between each)
+- Analysis takes 90-120s (3 sequential LLM calls with 4s delays between each). Update (October 2026): the delays and the single-shot debate fallback (item 5 above) were removed; a turn that cannot finish now degrades to a flagged partial result, and measured end-to-end time is about 140s at the median with the current reasoning model
 - Under heavy use, users may hit circuit breaker and get stale/degraded results
-- Free-tier models (gpt-oss-20b, nemotron-120b) have lower quality than paid alternatives
+- Free-tier models (originally gpt-oss-20b and nemotron-120b; since October 2026 nemotron-3-ultra-550b with a fallback chain) have lower quality than paid alternatives
 - No SLA from OpenRouter free tier, availability is best-effort

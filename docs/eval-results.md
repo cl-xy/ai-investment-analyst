@@ -1,7 +1,7 @@
 # LLM Evaluation Results
 
 **Date:** 2026-07-10
-**Model:** nvidia/nemotron-3-super-120b-a12b:free (OpenRouter)
+**Model:** nvidia/nemotron-3-super-120b-a12b:free (OpenRouter). Note: this run predates the switch of the primary model to nemotron-3-ultra-550b (October 2026); the promptfoo config now targets the newer model and has not been re-run
 **Config:** promptfooconfig.yaml
 **Total Cases:** 41
 **Overall Pass Rate:** 85.4% (35/41)

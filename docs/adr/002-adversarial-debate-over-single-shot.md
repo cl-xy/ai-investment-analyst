@@ -1,6 +1,6 @@
 # ADR-002: Adversarial Debate Over Single-Shot Analysis
 
-**Status:** Accepted  
+**Status:** Accepted
 **Date:** 2025-04-02
 
 ## Context
@@ -35,6 +35,8 @@ Implementation: `backend/src/agent/nodes/debate.py` with a 4-second minimum dela
 - Users see the debate unfold in real-time via SSE events (`debate_update`)
 - Evidence drawer in the UI shows bull vs bear arguments side by side
 - Fallback to single-shot means the system never fully fails
+
+**Update (October 2026):** The single-shot fallback and the 4-second delay described here no longer exist. When a turn cannot be completed the node now returns a degraded partial result built from the turns that finished, flagged on the card and recorded with trace status `degraded`. The primary model is now a reasoning model whose thinking time is unbounded, so a stalled turn is hedged with a reasoning-off call and a fallback chain (see `docs/ARCHITECTURE.md`, "LLM Calls"). Measured end-to-end time is now about 140s at the median.
 
 **Negative:**
 - 3x latency: ~90-120s total vs ~30-40s for single-shot (3 sequential LLM calls at 30-40s each)
