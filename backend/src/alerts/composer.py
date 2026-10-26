@@ -59,6 +59,67 @@ def _primary_alert_type(events: list[TriggerEvent]) -> str:
     return "drift_score"
 
 
+_PRICE_BAND_PCT = 5.0
+_SENTIMENT_BAND = 0.3
+
+
+def event_fingerprint(trigger_type: str, metadata: dict) -> str:
+    """Stable identity for a fired trigger, so a repeat evaluation against the
+    same baseline can tell "same news as last time" from "something new".
+
+    Continuous signals (price, sentiment) are bucketed into bands, so drifting
+    from 9.7% to 9.9% is the same fingerprint but crossing into the next band
+    is not.
+    """
+    if trigger_type == "sec_filing":
+        return f"sec_filing:{metadata.get('form_type')}:{metadata.get('filed_date')}"
+    if trigger_type == "price":
+        move = float(metadata.get("pct_move") or 0.0)
+        band = int(abs(move) // _PRICE_BAND_PCT)
+        return f"price:{'up' if move > 0 else 'down'}:{band}"
+    if trigger_type == "sentiment":
+        delta = float(metadata.get("delta") or 0.0)
+        band = int(abs(delta) // _SENTIMENT_BAND)
+        return f"sentiment:{'up' if delta > 0 else 'down'}:{band}"
+    if trigger_type == "peer_signal":
+        return (
+            f"peer_signal:{metadata.get('peer')}:"
+            f"{metadata.get('peer_previous_signal')}>{metadata.get('peer_current_signal')}"
+        )
+    return trigger_type
+
+
+async def has_new_signals(ticker: str, since: datetime, events: list[TriggerEvent]) -> bool:
+    """True if `events` contain anything not already reported in an alert for
+    this ticker since `since` (the baseline analysis time).
+
+    The baseline only moves when the ticker is re-analyzed, so until then the
+    same filing or price move would otherwise re-fire on every run.
+    """
+    import json
+
+    rows = await fetch(
+        "SELECT reasoning_diff FROM alerts WHERE ticker = $1 AND created_at >= $2",
+        ticker,
+        since,
+    )
+    if not rows:
+        return True
+
+    seen: set[str] = set()
+    for row in rows:
+        diff = row["reasoning_diff"]
+        if isinstance(diff, str):
+            try:
+                diff = json.loads(diff)
+            except ValueError:
+                continue
+        for prior in (diff or {}).get("triggered_events", []):
+            seen.add(event_fingerprint(prior.get("type", ""), prior.get("metadata") or {}))
+
+    return any(event_fingerprint(e.trigger_type, e.metadata) not in seen for e in events)
+
+
 def _severity_for(drift: DriftResult, judgment: DriftJudgment | None, llm_invoked: bool) -> str:
     if llm_invoked and judgment is not None:
         return "critical" if judgment.changed else "warning"

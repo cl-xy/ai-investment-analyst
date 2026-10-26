@@ -331,3 +331,109 @@ async def _ok_outcome(ticker):
     from src.alerts.pipeline import EvaluationOutcome
 
     return EvaluationOutcome(ticker=ticker, evaluated=True, drift_score=0.0)
+
+
+class TestRepeatSuppression:
+    @pytest.mark.asyncio
+    async def test_skips_when_events_already_reported(self):
+        snapshot = _snapshot()
+        probe = _probe(current_price=110.0, latest_filing_date="2026-09-30")
+        events = [
+            TriggerEvent(
+                ticker="NVDA",
+                trigger_type="sec_filing",
+                summary="New 8-K filed on 2026-09-30",
+                metadata={"form_type": "8-K", "filed_date": "2026-09-30"},
+            )
+        ]
+
+        with (
+            patch("src.alerts.pipeline.get_last_analysis", new=AsyncMock(return_value=snapshot)),
+            patch("src.alerts.pipeline.probe_ticker", new=AsyncMock(return_value=probe)),
+            patch(
+                "src.alerts.pipeline.check_all_triggers_for_ticker",
+                new=AsyncMock(return_value=events),
+            ),
+            patch("src.alerts.pipeline.has_new_signals", new=AsyncMock(return_value=False)),
+            patch("src.alerts.pipeline.judge_drift", new=AsyncMock()) as mock_judge,
+            patch("src.alerts.pipeline.persist_alert", new=AsyncMock()) as mock_persist,
+        ):
+            outcome = await evaluate_ticker("NVDA")
+
+        assert outcome.alert is None
+        assert outcome.skip_reason == "no_new_signals"
+        mock_judge.assert_not_called()
+        mock_persist.assert_not_called()
+
+
+class TestEventFingerprint:
+    def test_same_filing_matches(self):
+        from src.alerts.composer import event_fingerprint
+
+        meta = {"form_type": "8-K", "filed_date": "2026-09-30"}
+        assert event_fingerprint("sec_filing", meta) == event_fingerprint("sec_filing", dict(meta))
+
+    def test_new_filing_differs(self):
+        from src.alerts.composer import event_fingerprint
+
+        old = event_fingerprint("sec_filing", {"form_type": "8-K", "filed_date": "2026-09-30"})
+        new = event_fingerprint("sec_filing", {"form_type": "8-K", "filed_date": "2026-10-20"})
+        assert old != new
+
+    def test_price_drift_within_band_is_same(self):
+        from src.alerts.composer import event_fingerprint
+
+        assert event_fingerprint("price", {"pct_move": 5.4}) == event_fingerprint(
+            "price", {"pct_move": 9.7}
+        )
+
+    def test_price_crossing_band_or_direction_differs(self):
+        from src.alerts.composer import event_fingerprint
+
+        base = event_fingerprint("price", {"pct_move": 9.7})
+        assert base != event_fingerprint("price", {"pct_move": 10.2})
+        assert base != event_fingerprint("price", {"pct_move": -9.7})
+
+
+class TestHasNewSignals:
+    @pytest.mark.asyncio
+    async def test_true_when_no_prior_alerts(self):
+        from src.alerts.composer import has_new_signals
+
+        with patch("src.alerts.composer.fetch", new=AsyncMock(return_value=[])):
+            assert (
+                await has_new_signals("NVDA", datetime(2026, 8, 1, tzinfo=timezone.utc), []) is True
+            )
+
+    @pytest.mark.asyncio
+    async def test_false_when_all_events_seen_and_true_when_one_is_new(self):
+        from src.alerts.composer import has_new_signals
+
+        prior = {
+            "triggered_events": [
+                {
+                    "type": "sec_filing",
+                    "metadata": {"form_type": "8-K", "filed_date": "2026-09-30"},
+                },
+                {"type": "price", "metadata": {"pct_move": 9.7}},
+            ]
+        }
+        same = [
+            TriggerEvent(
+                "NVDA", "sec_filing", "x", {"form_type": "8-K", "filed_date": "2026-09-30"}
+            ),
+            TriggerEvent("NVDA", "price", "x", {"pct_move": 9.9}),
+        ]
+        newer = [
+            *same,
+            TriggerEvent(
+                "NVDA", "sec_filing", "x", {"form_type": "8-K", "filed_date": "2026-10-20"}
+            ),
+        ]
+        since = datetime(2026, 8, 1, tzinfo=timezone.utc)
+
+        with patch(
+            "src.alerts.composer.fetch", new=AsyncMock(return_value=[{"reasoning_diff": prior}])
+        ):
+            assert await has_new_signals("NVDA", since, same) is False
+            assert await has_new_signals("NVDA", since, newer) is True

@@ -19,7 +19,7 @@ import asyncio
 import uuid
 from dataclasses import dataclass, field
 
-from src.alerts.composer import Alert, compose_alert, persist_alert
+from src.alerts.composer import Alert, compose_alert, has_new_signals, persist_alert
 from src.alerts.data_probe import probe_ticker
 from src.alerts.drift_judge import judge_drift
 from src.alerts.drift_scorer import DEFAULT_DRIFT_THRESHOLD, score_drift
@@ -99,6 +99,27 @@ async def evaluate_ticker(
             correlation_id,
         )
         return EvaluationOutcome(ticker=ticker, evaluated=True, drift_score=drift.score)
+
+    # Skip repeats of what an earlier alert already reported against this same
+    # baseline. Checked before the judge so a repeat doesn't spend LLM budget.
+    try:
+        fresh = await has_new_signals(ticker, snapshot.created_at, events)
+    except Exception:
+        log.warning("alert_dedupe_check_failed ticker=%s", ticker, exc_info=True)
+        fresh = True
+    if not fresh:
+        log.info(
+            "alert_evaluation_no_new_signals ticker=%s score=%.3f correlation_id=%s",
+            ticker,
+            drift.score,
+            correlation_id,
+        )
+        return EvaluationOutcome(
+            ticker=ticker,
+            evaluated=True,
+            drift_score=drift.score,
+            skip_reason="no_new_signals",
+        )
 
     judgment = None
     llm_invoked = False
