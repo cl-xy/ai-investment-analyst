@@ -266,7 +266,7 @@ export default function ChatPage() {
                 <Bot className="w-4 h-4 text-[var(--accent)]" />
               </div>
             )}
-            <div className="flex flex-col">
+            <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
               <div className={`max-w-[80%] rounded-xl px-4 py-3 ${
                 msg.role === 'user'
                   ? 'bg-[var(--accent)] text-white'
