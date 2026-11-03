@@ -21,9 +21,8 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 # Initialize structured logging (JSON in production, console in dev)
-# Production runs on Fly.io with PORT=8000; use env var to detect environment.
+# Production is explicit, with Fly.io deployments detected automatically.
 import logging
-import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -58,7 +57,7 @@ from .routes.replay import router as replay_router
 from .routes.scheduled import router as scheduled_router
 from .routes.telegram import router as telegram_router
 
-_is_production = os.environ.get("FLY_APP_NAME") is not None
+_is_production = settings.is_production
 setup_logging(json_output=_is_production, level="INFO")
 
 # The fallback chain logs with the standard library. With no root handler, Python
@@ -80,6 +79,8 @@ log = get_logger("app")
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     """Initialize DB, load tools on startup. Clean up on shutdown."""
+
+    settings.validate_auth()
 
     from src.agent.direct_tools import _TOOL_EXECUTOR, load_direct_tools
 

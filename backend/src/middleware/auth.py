@@ -11,7 +11,7 @@ import base64
 import hashlib
 import hmac
 import logging
-import os
+import secrets
 import time
 from typing import Callable
 
@@ -21,28 +21,33 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from src.config import settings
+
 logger = logging.getLogger(__name__)
 
 # Rate limiter instance (shared across the app)
 limiter = Limiter(key_func=get_remote_address)
 
-# Cache password at import time to avoid per-request os.environ lookups
-# and eliminate TOCTOU window during env var rotation
-_DEMO_PASSWORD: str = os.environ.get("DEMO_PASSWORD", "")
-
-# Login-screen credentials (frontend login gate). Defaults keep the app
-# usable out of the box; override via env vars for a real deployment.
-ADMIN_USERNAME: str = os.environ.get("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD: str = os.environ.get("ADMIN_PASSWORD", "investor2026")
+# Development-only fallback: tokens expire on process restart. Production
+# requires a configured secret shared by every worker/machine.
+_DEVELOPMENT_SIGNING_SECRET = secrets.token_urlsafe(48)
 
 _SESSION_TOKEN_TTL_SECONDS = 24 * 60 * 60
+
+
+def _signing_secret() -> str:
+    if settings.session_signing_secret:
+        return settings.session_signing_secret
+    if settings.is_production:
+        raise RuntimeError("SESSION_SIGNING_SECRET is required in production")
+    return _DEVELOPMENT_SIGNING_SECRET
 
 
 def create_session_token(username: str) -> str:
     """Issue a signed, expiring session token for the login screen."""
     expires_at = int(time.time()) + _SESSION_TOKEN_TTL_SECONDS
     payload = f"{username}:{expires_at}"
-    signature = hmac.new(ADMIN_PASSWORD.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    signature = hmac.new(_signing_secret().encode(), payload.encode(), hashlib.sha256).hexdigest()
     token = f"{payload}:{signature}"
     return base64.urlsafe_b64encode(token.encode()).decode()
 
@@ -52,28 +57,44 @@ def verify_session_token(token: str) -> bool:
     try:
         decoded = base64.urlsafe_b64decode(token.encode()).decode()
         username, expires_at, signature = decoded.rsplit(":", 2)
+        expiry = int(expires_at)
     except (ValueError, UnicodeDecodeError):
         return False
 
     payload = f"{username}:{expires_at}"
     expected_signature = hmac.new(
-        ADMIN_PASSWORD.encode(), payload.encode(), hashlib.sha256
+        _signing_secret().encode(), payload.encode(), hashlib.sha256
     ).hexdigest()
 
-    if not hmac.compare_digest(signature, expected_signature):
+    if not hmac.compare_digest(signature.encode(), expected_signature.encode()):
         return False
 
-    return int(expires_at) >= int(time.time())
+    return username == settings.admin_username and expiry > int(time.time())
+
+
+def is_authenticated(request: Request) -> bool:
+    """Apply the same credential policy in middleware and sensitive routes."""
+    if settings.auth_mode == "disabled":
+        return True
+    authorization = request.headers.get("Authorization", "")
+    if authorization.startswith("Bearer "):
+        if verify_session_token(authorization.removeprefix("Bearer ").strip()):
+            return True
+    if settings.auth_mode == "demo" and settings.demo_password:
+        provided = (
+            request.headers.get("X-Demo-Password") or request.query_params.get("password") or ""
+        )
+        return hmac.compare_digest(provided.encode(), settings.demo_password.encode())
+    return False
 
 
 class DemoAuthMiddleware(BaseHTTPMiddleware):
     """
     Simple password gate for the demo deployment.
 
-    If DEMO_PASSWORD is set, all /api/analyze* endpoints require
-    either a query param `?password=xxx` or header `X-Demo-Password: xxx`.
-
-    Health, explore, and dashboard endpoints are always public.
+    Session authentication is the default. Demo mode additionally accepts
+    DEMO_PASSWORD via a header or legacy query parameter. Only explicit
+    disabled mode bypasses authentication. Health and explore remain public.
     """
 
     PROTECTED_PREFIXES = (
@@ -105,10 +126,7 @@ class DemoAuthMiddleware(BaseHTTPMiddleware):
     )
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        demo_password = _DEMO_PASSWORD
-
-        # No password configured, auth gate disabled
-        if not demo_password:
+        if settings.auth_mode == "disabled":
             return await call_next(request)
 
         path = request.url.path
@@ -134,21 +152,7 @@ class DemoAuthMiddleware(BaseHTTPMiddleware):
         ):
             return await call_next(request)
 
-        # Session token from the login screen is accepted as an alternative
-        # to the raw demo password.
-        authorization = request.headers.get("Authorization", "")
-        if authorization.startswith("Bearer "):
-            token = authorization.removeprefix("Bearer ").strip()
-            if verify_session_token(token):
-                return await call_next(request)
-
-        # Check credentials (header preferred; query param accepted for EventSource
-        # which cannot set custom headers in the browser API)
-        provided = (
-            request.headers.get("X-Demo-Password") or request.query_params.get("password") or ""
-        )
-
-        if not hmac.compare_digest(provided.encode(), demo_password.encode()):
+        if not is_authenticated(request):
             logger.warning(
                 "Auth failed for %s %s from %s",
                 request.method,
@@ -157,9 +161,7 @@ class DemoAuthMiddleware(BaseHTTPMiddleware):
             )
             return JSONResponse(
                 status_code=401,
-                content={
-                    "detail": "Demo password required. Add ?password=xxx or X-Demo-Password header."
-                },
+                content={"detail": "Authentication required. Sign in to obtain a session token."},
             )
 
         return await call_next(request)

@@ -32,3 +32,11 @@ def _reset_rate_limiter():
         storage.storage.clear()
     elif storage and hasattr(storage, "_cache"):
         storage._cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def _explicit_test_auth_mode(monkeypatch):
+    """Route tests opt out explicitly; authentication tests override this mode."""
+    from src.config import settings
+
+    monkeypatch.setattr(settings, "auth_mode", "disabled")

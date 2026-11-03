@@ -4,19 +4,21 @@ Base URL: `https://ai-investment-analyst.fly.dev/api` (production) or `http://lo
 
 ## Authentication
 
-### Demo Auth Middleware
+### Session and demo authentication
 
-In production, analysis endpoints are protected by a shared demo password (set via `DEMO_PASSWORD` env var). When configured:
+`AUTH_MODE` explicitly selects the API authentication policy:
 
-- **Protected endpoints**: all paths starting with `/api/analyze`, `/api/compare`, `/api/chat`, `/api/backtest`, `/api/dashboard`, `/api/eval`, `/api/calibration`, `/api/replay`, `/api/ops`, `/api/alerts`
-- **Public endpoints**: `/api/health`, `/api/explore`, `/api/admin`
-- **Independently authenticated**: `/api/scheduled/*` (scheduler token) and `/api/telegram/webhook` (Telegram webhook secret). Neither uses the demo password. `POST /api/calibration/resolve` and `POST /api/eval-flywheel/runs/trigger` also accept the scheduler token (`x-scheduler-token` header) in place of the demo password; the route itself verifies it
+- `session` (default): protected routes require `Authorization: Bearer <session_token>`, regardless of whether `DEMO_PASSWORD` is set.
+- `demo`: accepts session tokens and additionally accepts `X-Demo-Password: <demo_password>`. `DEMO_PASSWORD` must be nonempty. Legacy `?password=` URLs remain supported; prefer headers to keep credentials out of URLs and logs.
+- `disabled`: bypasses the API gate for local development only. This must be selected explicitly; an empty `DEMO_PASSWORD` does not disable authentication.
 
-Provide credentials via either:
-- Query parameter: `?password=<demo_password>`
-- Header: `X-Demo-Password: <demo_password>`
+Obtain a 24-hour session token with `POST /api/auth/login` and JSON `{"username":"...","password":"..."}`. Credentials come from `ADMIN_USERNAME` and `ADMIN_PASSWORD`. The published `admin` / `investor2026` defaults are for local development only. Tokens are signed with a separate `SESSION_SIGNING_SECRET`; rotating it invalidates existing sessions.
 
-When `DEMO_PASSWORD` is not set (local development), the auth gate is disabled entirely.
+Production (`ENVIRONMENT=production`, or any Fly.io deployment) refuses startup with disabled authentication, empty credentials, the default admin password, or a signing secret shorter than 32 characters or equal to an authentication password. Generate a secret with `python -c "import secrets; print(secrets.token_urlsafe(32))"` and share it across all workers/machines. Development can omit it, using a random process-local key that changes on restart.
+
+Deployment migration: set `AUTH_MODE=session`, replace `ADMIN_PASSWORD`, and configure `SESSION_SIGNING_SECRET` before deploying this change. For clients still using the demo password, explicitly select `AUTH_MODE=demo` and keep `DEMO_PASSWORD` configured as well. No frontend signing secret is needed.
+
+Protected paths start with `/api/analyze`, `/api/compare`, `/api/chat`, `/api/backtest`, `/api/dashboard`, `/api/eval`, `/api/calibration`, `/api/replay`, `/api/ops`, `/api/alerts`, or `/api/audit`. Health, explore, and login remain public. Admin, scheduled, and Telegram webhook routes authenticate independently. `POST /api/calibration/resolve` and `POST /api/eval-flywheel/runs/trigger` also accept `X-Scheduler-Token`; the route verifies it. This header grants no access to other protected routes.
 
 ### Scheduler Token
 

@@ -28,7 +28,8 @@ def client():
 @pytest.fixture(autouse=True)
 def _gate_on():
     with (
-        patch("src.middleware.auth._DEMO_PASSWORD", DEMO),
+        patch("src.middleware.auth.settings.auth_mode", "demo"),
+        patch("src.middleware.auth.settings.demo_password", DEMO),
         patch("src.api.routes.calibration.settings") as cal_settings,
         patch("src.api.routes.eval_flywheel.settings") as fly_settings,
     ):
@@ -53,7 +54,7 @@ def test_scheduler_header_reaches_the_route_check(client, path):
 def test_without_scheduler_header_the_demo_gate_still_applies(client, path):
     response = client.post(path)
     assert response.status_code == 401
-    assert "Demo password required" in _detail(response)
+    assert "Authentication required" in _detail(response)
 
 
 def test_valid_scheduler_token_is_accepted_end_to_end(client):
@@ -72,23 +73,23 @@ def test_valid_scheduler_token_is_accepted_end_to_end(client):
 def test_header_does_not_open_other_protected_paths(client):
     response = client.get("/api/calibration", headers={"x-scheduler-token": SCHEDULER})
     assert response.status_code == 401
-    assert "Demo password required" in _detail(response)
+    assert "Authentication required" in _detail(response)
 
     response = client.post("/api/analyze", headers={"x-scheduler-token": SCHEDULER})
     assert response.status_code == 401
-    assert "Demo password required" in _detail(response)
+    assert "Authentication required" in _detail(response)
 
 
 def test_header_only_applies_to_post(client):
     response = client.get("/api/calibration/resolve", headers={"x-scheduler-token": SCHEDULER})
     assert response.status_code == 401
-    assert "Demo password required" in _detail(response)
+    assert "Authentication required" in _detail(response)
 
 
 def test_empty_scheduler_header_does_not_bypass_the_gate(client):
     response = client.post("/api/calibration/resolve", headers={"x-scheduler-token": ""})
     assert response.status_code == 401
-    assert "Demo password required" in _detail(response)
+    assert "Authentication required" in _detail(response)
 
 
 def test_demo_password_still_works_for_normal_users(client):
@@ -98,4 +99,4 @@ def test_demo_password_still_works_for_normal_users(client):
         response = client.get("/api/calibration", headers={"X-Demo-Password": DEMO})
     except Exception:
         return  # request reached the route and failed there, so auth let it through
-    assert "Demo password required" not in response.text
+    assert "Authentication required" not in response.text

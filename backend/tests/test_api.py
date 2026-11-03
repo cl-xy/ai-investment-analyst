@@ -69,18 +69,18 @@ class TestAdminEndpoint:
 
 
 class TestDemoAuth:
-    def test_no_password_configured_allows_all(self, client):
-        """When DEMO_PASSWORD is empty, all requests pass through."""
-        with patch.dict("os.environ", {"DEMO_PASSWORD": ""}):
-            response = client.get("/api/health")
-            assert response.status_code == 200
+    def test_explicit_disabled_mode_allows_requests(self, client):
+        with patch("src.middleware.auth.settings.auth_mode", "disabled"):
+            response = client.get("/api/analyze/stream")
+            assert response.status_code == 422  # Reached route validation
 
     def test_password_required_on_analyze(self, client):
-        """When DEMO_PASSWORD is set, analyze endpoints require it."""
-        with patch.dict("os.environ", {"DEMO_PASSWORD": "secret123"}):
-            # Health should still work
-            response = client.get("/api/health")
-            assert response.status_code == 200
+        with (
+            patch("src.middleware.auth.settings.auth_mode", "demo"),
+            patch("src.middleware.auth.settings.demo_password", "secret123"),
+        ):
+            assert client.get("/api/analyze/stream").status_code == 401
+            assert client.get("/api/health").status_code == 200
 
 
 class TestLoginEndpoint:
@@ -107,9 +107,7 @@ class TestLoginEndpoint:
         assert response.status_code == 401
 
     def test_session_token_accepted_on_protected_route(self, client):
-        # Patch the module-level cache directly: DEMO_PASSWORD is read once
-        # at import time, so patch.dict("os.environ", ...) alone has no effect.
-        with patch("src.middleware.auth._DEMO_PASSWORD", "secret123"):
+        with patch("src.middleware.auth.settings.auth_mode", "session"):
             login_response = client.post(
                 "/api/auth/login",
                 json={"username": "admin", "password": "investor2026"},  # pragma: allowlist secret
@@ -120,7 +118,7 @@ class TestLoginEndpoint:
             assert response.status_code != 401
 
     def test_invalid_session_token_rejected_on_protected_route(self, client):
-        with patch("src.middleware.auth._DEMO_PASSWORD", "secret123"):
+        with patch("src.middleware.auth.settings.auth_mode", "session"):
             response = client.get(
                 "/api/dashboard", headers={"Authorization": "Bearer not-a-real-token"}
             )

@@ -304,9 +304,12 @@ Environment variables needed:
 OPENROUTER_API_KEY    # Required: get free key at openrouter.ai
 DATABASE_URL          # PostgreSQL connection string
 NEWS_API_KEY          # Optional: NewsAPI.org key
-DEMO_PASSWORD         # Optional: gate specific API routes
-ADMIN_USERNAME        # Optional: frontend login username (default: admin)
-ADMIN_PASSWORD        # Optional: frontend login password (default: investor2026)
+ENVIRONMENT           # development (default) or production; Fly.io implies production
+AUTH_MODE             # session (default), demo, or disabled (development only)
+ADMIN_USERNAME        # Login username (default: admin)
+ADMIN_PASSWORD        # Login password; production must replace the local default
+SESSION_SIGNING_SECRET # Production: separate random secret, at least 32 characters
+DEMO_PASSWORD         # Required only for AUTH_MODE=demo
 ```
 
 ---

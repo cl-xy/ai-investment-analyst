@@ -1,4 +1,6 @@
+import os
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -114,8 +116,34 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://localhost:5432/investment_analyst"
 
     # Auth & rate limiting
+    environment: Literal["development", "test", "production"] = "development"
+    auth_mode: Literal["session", "demo", "disabled"] = "session"
+    admin_username: str = "admin"
+    admin_password: str = "investor2026"
+    session_signing_secret: str = ""
     demo_password: str = ""
     rate_limit: str = "10/minute"
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment == "production" or "FLY_APP_NAME" in os.environ
+
+    def validate_auth(self) -> None:
+        """Fail startup before opening resources if authentication is unsafe."""
+        if self.auth_mode == "demo" and not self.demo_password.strip():
+            raise ValueError("AUTH_MODE=demo requires DEMO_PASSWORD")
+        if not self.is_production:
+            return
+        if self.auth_mode == "disabled":
+            raise ValueError("AUTH_MODE=disabled is not allowed in production")
+        if not self.admin_username.strip() or not self.admin_password.strip():
+            raise ValueError("Production requires ADMIN_USERNAME and ADMIN_PASSWORD")
+        if self.admin_password == "investor2026":
+            raise ValueError("Production requires replacing the default ADMIN_PASSWORD")
+        if len(self.session_signing_secret.strip()) < 32:
+            raise ValueError("Production requires SESSION_SIGNING_SECRET of at least 32 characters")
+        if self.session_signing_secret in (self.admin_password, self.demo_password):
+            raise ValueError("SESSION_SIGNING_SECRET must differ from authentication passwords")
 
     # Scheduler
     scheduler_secret_token: str = ""

@@ -7,8 +7,6 @@ and chaos injection endpoints for operational visibility.
 
 from __future__ import annotations
 
-import hmac
-import os
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -21,6 +19,7 @@ from src.agent.rate_limiter import llm_limiter
 from src.cache.budget import get_budget_status
 from src.db import fetchval
 from src.logging_config import get_logger
+from src.middleware.auth import is_authenticated
 from src.ops.chaos import chaos_config
 from src.ops.trace_store import get_trace_by_id, get_trace_events, query_traces
 
@@ -35,16 +34,8 @@ _VALID_STATUSES = {"success", "degraded", "failed"}
 
 
 def _check_ops_auth(request: Request) -> bool:
-    """
-    Verify ops authentication. Uses the same DEMO_PASSWORD mechanism
-    as the rest of the app for consistency.
-    """
-    demo_password = os.environ.get("DEMO_PASSWORD", "")
-    if not demo_password:
-        # No password configured, allow access (dev mode)
-        return True
-    provided = request.query_params.get("password") or request.headers.get("X-Demo-Password") or ""
-    return hmac.compare_digest(provided.encode(), demo_password.encode())
+    """Use the same session/demo policy as the middleware."""
+    return is_authenticated(request)
 
 
 @router.get("/health")

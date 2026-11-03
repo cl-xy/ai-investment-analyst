@@ -15,7 +15,8 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from src.middleware.auth import ADMIN_PASSWORD, ADMIN_USERNAME, create_session_token
+from src.config import settings
+from src.middleware.auth import create_session_token
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +34,8 @@ class LoginResponse(BaseModel):
 
 @router.post("/login", response_model=LoginResponse)
 async def login(body: LoginRequest) -> LoginResponse:
-    username_ok = hmac.compare_digest(body.username.encode(), ADMIN_USERNAME.encode())
-    password_ok = hmac.compare_digest(body.password.encode(), ADMIN_PASSWORD.encode())
+    username_ok = hmac.compare_digest(body.username.encode(), settings.admin_username.encode())
+    password_ok = hmac.compare_digest(body.password.encode(), settings.admin_password.encode())
 
     if not (username_ok and password_ok):
         logger.warning("Login failed for username %r", body.username)

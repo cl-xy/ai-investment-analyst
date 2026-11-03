@@ -187,14 +187,20 @@ class TestDemoAuthGating:
     def test_alerts_endpoint_requires_password_when_configured(self, client):
         from src.middleware import auth as auth_module
 
-        with patch.object(auth_module, "_DEMO_PASSWORD", "secret123"):
+        with (
+            patch.object(auth_module.settings, "auth_mode", "demo"),
+            patch.object(auth_module.settings, "demo_password", "secret123"),
+        ):
             response = client.get("/api/alerts")
         assert response.status_code == 401
 
     def test_alerts_endpoint_accepts_correct_password(self, client):
         from src.middleware import auth as auth_module
 
-        with patch.object(auth_module, "_DEMO_PASSWORD", "secret123"):
+        with (
+            patch.object(auth_module.settings, "auth_mode", "demo"),
+            patch.object(auth_module.settings, "demo_password", "secret123"),
+        ):
             with (
                 patch("src.api.routes.alerts.fetch", new=AsyncMock(return_value=[])),
                 patch("src.api.routes.alerts.fetchval", new=AsyncMock(return_value=0)),
